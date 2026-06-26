@@ -1,0 +1,36 @@
+from sqlalchemy import ForeignKey, JSON, String
+from sqlalchemy.orm import Mapped, mapped_column
+
+from backend.app.database import Base
+
+
+class ReviewBatch(Base):
+    __tablename__ = "review_batches"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    project_workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("project_workspaces.id"), nullable=False, index=True
+    )
+    manual_source_entry_id: Mapped[int] = mapped_column(
+        ForeignKey("manual_source_entries.id"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="review_pending")
+
+
+class ExtractedCandidate(Base):
+    __tablename__ = "extracted_candidates"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    project_workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("project_workspaces.id"), nullable=False, index=True
+    )
+    review_batch_id: Mapped[int] = mapped_column(
+        ForeignKey("review_batches.id"), nullable=False, index=True
+    )
+    manual_source_entry_id: Mapped[int] = mapped_column(
+        ForeignKey("manual_source_entries.id"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending_review")
+    proposed_payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    decision: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    reviewed_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)

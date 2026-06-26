@@ -39,14 +39,165 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/project-workspaces/{project_workspace_id}/manual-source-entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Manual Source Entry */
+        post: operations["create_manual_source_entry_api_project_workspaces__project_workspace_id__manual_source_entries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Review Batch */
+        get: operations["get_review_batch_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/candidates/{candidate_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide Candidate */
+        post: operations["decide_candidate_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__candidates__candidate_id__decision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Review Batch */
+        post: operations["import_review_batch_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** CandidateDecisionRequest */
+        CandidateDecisionRequest: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approved" | "rejected";
+            reviewed_payload?: components["schemas"]["ReviewedPurchaseLinePayload"] | null;
+        };
+        /** ExtractedCandidateRead */
+        ExtractedCandidateRead: {
+            /** Id */
+            id: number;
+            /** Project Workspace Id */
+            project_workspace_id: number;
+            /** Review Batch Id */
+            review_batch_id: number;
+            /** Manual Source Entry Id */
+            manual_source_entry_id: number;
+            /** Status */
+            status: string;
+            /** Proposed Payload */
+            proposed_payload: {
+                [key: string]: unknown;
+            };
+            /** Decision */
+            decision: string | null;
+            /** Reviewed Payload */
+            reviewed_payload: {
+                [key: string]: unknown;
+            } | null;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** ImportReviewBatchResponse */
+        ImportReviewBatchResponse: {
+            /** Imported Purchase Lines */
+            imported_purchase_lines: components["schemas"]["ImportedPurchaseLine"][];
+        };
+        /** ImportedPurchaseLine */
+        ImportedPurchaseLine: {
+            /** Id */
+            id: number;
+        };
+        /** ManualSourceEntryCreate */
+        ManualSourceEntryCreate: {
+            /**
+             * Line Type
+             * @enum {string}
+             */
+            line_type: "material" | "service";
+            /** Name */
+            name: string;
+            /** Quantity */
+            quantity?: string | null;
+            /** Unit */
+            unit?: string | null;
+            /** Price */
+            price?: string | null;
+            /** Currency */
+            currency?: string | null;
+            /** Provider Name */
+            provider_name?: string | null;
+            /** Purchase Date */
+            purchase_date?: string | null;
+            /** Remarks Or Terms */
+            remarks_or_terms?: string | null;
+        };
+        /** ManualSourceEntryRead */
+        ManualSourceEntryRead: {
+            /** Id */
+            id: number;
+            /** Project Workspace Id */
+            project_workspace_id: number;
+            /** Structured Payload */
+            structured_payload: {
+                [key: string]: unknown;
+            };
+        };
+        /** ManualSourceEntrySubmission */
+        ManualSourceEntrySubmission: {
+            manual_source_entry: components["schemas"]["ManualSourceEntryRead"];
+            review_batch: components["schemas"]["ReviewBatchRead"];
+            candidate: components["schemas"]["ExtractedCandidateRead"];
         };
         /** ProjectWorkspaceCreate */
         ProjectWorkspaceCreate: {
@@ -85,7 +236,7 @@ export interface components {
         ProjectWorkspacePurchaseLinesView: {
             project_workspace: components["schemas"]["ProjectWorkspaceListItem"];
             /** Items */
-            items: unknown[];
+            items: components["schemas"]["PurchaseLineRow"][];
         };
         /** ProjectWorkspaceRead */
         ProjectWorkspaceRead: {
@@ -109,6 +260,85 @@ export interface components {
             notes?: string | null;
             /** Id */
             id: number;
+        };
+        /** PurchaseLineRow */
+        PurchaseLineRow: {
+            /** Id */
+            id: number;
+            /** Item Or Service Name */
+            item_or_service_name: string;
+            /** Line Type */
+            line_type: string;
+            /** Provider Name */
+            provider_name: string | null;
+            /** Provider Type */
+            provider_type: string;
+            /** Provider Role */
+            provider_role: string | null;
+            /** Quantity */
+            quantity: string | null;
+            /** Unit */
+            unit: string | null;
+            /** Unit State */
+            unit_state: string;
+            /** Price */
+            price: string | null;
+            /** Currency */
+            currency: string | null;
+            /** Price State */
+            price_state: string;
+            /** Purchase Date */
+            purchase_date: string | null;
+            /** Date State */
+            date_state: string;
+            /** Category Path */
+            category_path: string;
+            /** Has Evidence */
+            has_evidence: boolean;
+            /** Source Label */
+            source_label: string;
+        };
+        /** ReviewBatchDetail */
+        ReviewBatchDetail: {
+            review_batch: components["schemas"]["ReviewBatchRead"];
+            /** Candidates */
+            candidates: components["schemas"]["ExtractedCandidateRead"][];
+        };
+        /** ReviewBatchRead */
+        ReviewBatchRead: {
+            /** Id */
+            id: number;
+            /** Project Workspace Id */
+            project_workspace_id: number;
+            /** Manual Source Entry Id */
+            manual_source_entry_id: number;
+            /** Status */
+            status: string;
+        };
+        /** ReviewedPurchaseLinePayload */
+        ReviewedPurchaseLinePayload: {
+            /** Line Type */
+            line_type?: ("material" | "service") | null;
+            /** Name */
+            name?: string | null;
+            /** Top Level Category */
+            top_level_category?: string | null;
+            /** Subcategory */
+            subcategory?: string | null;
+            /** Quantity */
+            quantity?: string | null;
+            /** Unit */
+            unit?: string | null;
+            /** Price */
+            price?: string | null;
+            /** Currency */
+            currency?: string | null;
+            /** Provider Name */
+            provider_name?: string | null;
+            /** Purchase Date */
+            purchase_date?: string | null;
+            /** Remarks Or Terms */
+            remarks_or_terms?: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -199,6 +429,142 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectWorkspacePurchaseLinesView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_manual_source_entry_api_project_workspaces__project_workspace_id__manual_source_entries_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManualSourceEntryCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManualSourceEntrySubmission"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_review_batch_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+                review_batch_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewBatchDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_candidate_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__candidates__candidate_id__decision_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+                review_batch_id: number;
+                candidate_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CandidateDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractedCandidateRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_review_batch_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+                review_batch_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportReviewBatchResponse"];
                 };
             };
             /** @description Validation Error */

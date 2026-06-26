@@ -6,6 +6,12 @@ export type ProjectWorkspaceListItem = components["schemas"]["ProjectWorkspaceLi
 export type ProjectWorkspacePurchaseLinesView =
   components["schemas"]["ProjectWorkspacePurchaseLinesView"];
 export type ProjectWorkspaceRead = components["schemas"]["ProjectWorkspaceRead"];
+export type CandidateDecisionRequest = components["schemas"]["CandidateDecisionRequest"];
+export type ExtractedCandidateRead = components["schemas"]["ExtractedCandidateRead"];
+export type ImportReviewBatchResponse = components["schemas"]["ImportReviewBatchResponse"];
+export type ManualSourceEntryCreate = components["schemas"]["ManualSourceEntryCreate"];
+export type ManualSourceEntrySubmission = components["schemas"]["ManualSourceEntrySubmission"];
+export type ReviewedPurchaseLinePayload = components["schemas"]["ReviewedPurchaseLinePayload"];
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -30,6 +36,44 @@ export async function getProjectWorkspacePurchaseLines(
   );
 }
 
+export async function createManualSourceEntry(
+  projectWorkspaceId: number,
+  payload: ManualSourceEntryCreate
+): Promise<ManualSourceEntrySubmission> {
+  return request<ManualSourceEntrySubmission>(
+    `/api/project-workspaces/${projectWorkspaceId}/manual-source-entries`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }
+  );
+}
+
+export async function decideCandidate(
+  projectWorkspaceId: number,
+  reviewBatchId: number,
+  candidateId: number,
+  payload: CandidateDecisionRequest
+): Promise<ExtractedCandidateRead> {
+  return request<ExtractedCandidateRead>(
+    `/api/project-workspaces/${projectWorkspaceId}/review-batches/${reviewBatchId}/candidates/${candidateId}/decision`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }
+  );
+}
+
+export async function importReviewBatch(
+  projectWorkspaceId: number,
+  reviewBatchId: number
+): Promise<ImportReviewBatchResponse> {
+  return request<ImportReviewBatchResponse>(
+    `/api/project-workspaces/${projectWorkspaceId}/review-batches/${reviewBatchId}/import`,
+    { method: "POST" }
+  );
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -45,4 +89,3 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   return response.json() as Promise<T>;
 }
-

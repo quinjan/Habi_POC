@@ -20,6 +20,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -113,14 +114,21 @@ h3 {
   background: #edf6f2;
 }
 
-.project-form {
+.project-form,
+.manual-source-form,
+.review-panel {
   display: grid;
   gap: 12px;
+}
+
+.project-form {
   padding-top: 18px;
   border-top: 1px solid #ddd7ca;
 }
 
-.project-form label {
+.project-form label,
+.manual-source-form label,
+.review-panel label {
   display: grid;
   gap: 6px;
   color: #34403f;
@@ -129,7 +137,21 @@ h3 {
 }
 
 .project-form input,
+.project-form select,
 .project-form textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #c7cec8;
+  border-radius: 6px;
+  padding: 10px 11px;
+  color: #1b1f26;
+  background: #ffffff;
+  font-weight: 500;
+}
+
+.manual-source-form input,
+.manual-source-form select,
+.review-panel input {
   width: 100%;
   min-width: 0;
   border: 1px solid #c7cec8;
@@ -150,6 +172,10 @@ h3 {
   gap: 10px;
 }
 
+.form-grid.three-columns {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .primary-action {
   display: inline-flex;
   align-items: center;
@@ -164,15 +190,79 @@ h3 {
   font-weight: 800;
 }
 
+.compact-action {
+  justify-self: start;
+}
+
+.secondary-action {
+  min-height: 44px;
+  border: 1px solid #234e52;
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: #234e52;
+  background: #ffffff;
+  font-weight: 800;
+}
+
+.secondary-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .primary-action:disabled {
   cursor: wait;
   opacity: 0.65;
 }
 
 .workspace-view {
+  display: grid;
+  align-content: start;
+  gap: 20px;
   min-width: 0;
   padding: 32px;
   background: #f3f5f2;
+}
+
+.manual-source-form,
+.review-panel,
+.purchase-lines-table-wrap {
+  padding: 18px;
+  border: 1px solid #d5ddd7;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.purchase-lines-table-wrap {
+  overflow-x: auto;
+}
+
+.purchase-lines-table {
+  width: 100%;
+  min-width: 900px;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.purchase-lines-table th,
+.purchase-lines-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e0e5e0;
+  text-align: left;
+  vertical-align: top;
+}
+
+.purchase-lines-table th {
+  color: #3f4c49;
+  background: #eef3ef;
+  font-size: 0.78rem;
+  letter-spacing: 0;
+  text-transform: uppercase;
 }
 
 .empty-state {
@@ -218,6 +308,10 @@ h3 {
 
   .workspace-view {
     padding: 20px;
+  }
+
+  .form-grid.three-columns {
+    grid-template-columns: 1fr;
   }
 }
 

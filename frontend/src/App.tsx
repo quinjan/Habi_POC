@@ -1,13 +1,19 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { FolderOpen, Plus } from "lucide-react";
+import { Check, FolderOpen, Plus, Upload } from "lucide-react";
 
 import {
   createProjectWorkspace,
+  createManualSourceEntry,
+  decideCandidate,
   getProjectWorkspacePurchaseLines,
+  importReviewBatch,
   listProjectWorkspaces,
+  type ManualSourceEntrySubmission,
+  type ManualSourceEntryCreate,
   type ProjectWorkspaceCreate,
   type ProjectWorkspaceListItem,
-  type ProjectWorkspacePurchaseLinesView
+  type ProjectWorkspacePurchaseLinesView,
+  type ReviewedPurchaseLinePayload
 } from "./api/client";
 
 type ProjectWorkspaceForm = {
@@ -34,13 +40,51 @@ const emptyForm: ProjectWorkspaceForm = {
   notes: ""
 };
 
+type ManualSourceForm = {
+  lineType: "material" | "service";
+  name: string;
+  quantity: string;
+  unit: string;
+  price: string;
+  currency: string;
+  providerName: string;
+  purchaseDate: string;
+  remarksOrTerms: string;
+};
+
+const emptyManualSourceForm: ManualSourceForm = {
+  lineType: "material",
+  name: "",
+  quantity: "",
+  unit: "",
+  price: "",
+  currency: "PHP",
+  providerName: "",
+  purchaseDate: "",
+  remarksOrTerms: ""
+};
+
+type ReviewForm = ManualSourceForm & {
+  topLevelCategory: string;
+  subcategory: string;
+};
+
 function App() {
   const [projects, setProjects] = useState<ProjectWorkspaceListItem[]>([]);
   const [selectedPurchaseLines, setSelectedPurchaseLines] =
     useState<ProjectWorkspacePurchaseLinesView | null>(null);
   const [form, setForm] = useState<ProjectWorkspaceForm>(emptyForm);
+  const [manualSourceForm, setManualSourceForm] =
+    useState<ManualSourceForm>(emptyManualSourceForm);
+  const [pendingSubmission, setPendingSubmission] =
+    useState<ManualSourceEntrySubmission | null>(null);
+  const [reviewForm, setReviewForm] = useState<ReviewForm | null>(null);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSubmittingManualSource, setIsSubmittingManualSource] = useState(false);
+  const [isApprovingCandidate, setIsApprovingCandidate] = useState(false);
+  const [isImportingBatch, setIsImportingBatch] = useState(false);
+  const [isCandidateApproved, setIsCandidateApproved] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -101,6 +145,9 @@ function App() {
     try {
       const response = await getProjectWorkspacePurchaseLines(project.id);
       setSelectedPurchaseLines(response);
+      setPendingSubmission(null);
+      setReviewForm(null);
+      setIsCandidateApproved(false);
       window.history.pushState({}, "", `/projects/${project.id}/purchase-lines`);
     } catch {
       setErrorMessage("Purchase Lines could not be loaded.");
@@ -109,6 +156,95 @@ function App() {
 
   function updateForm(field: keyof ProjectWorkspaceForm, value: string) {
     setForm((currentForm) => ({ ...currentForm, [field]: value }));
+  }
+
+  async function handleCreateManualSourceEntry(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (selectedPurchaseLines === null) {
+      return;
+    }
+
+    setIsSubmittingManualSource(true);
+    setErrorMessage(null);
+
+    try {
+      const submission = await createManualSourceEntry(
+        selectedPurchaseLines.project_workspace.id,
+        buildManualSourcePayload(manualSourceForm)
+      );
+      setPendingSubmission(submission);
+      setReviewForm({ ...manualSourceForm, topLevelCategory: "", subcategory: "" });
+      setIsCandidateApproved(false);
+      setManualSourceForm(emptyManualSourceForm);
+    } catch {
+      setErrorMessage("Manual Source Entry could not be created.");
+    } finally {
+      setIsSubmittingManualSource(false);
+    }
+  }
+
+  async function handleApproveCandidate() {
+    if (selectedPurchaseLines === null || pendingSubmission === null || reviewForm === null) {
+      return;
+    }
+
+    setIsApprovingCandidate(true);
+    setErrorMessage(null);
+
+    try {
+      await decideCandidate(
+        selectedPurchaseLines.project_workspace.id,
+        pendingSubmission.review_batch.id,
+        pendingSubmission.candidate.id,
+        {
+          decision: "approved",
+          reviewed_payload: buildReviewedPayload(reviewForm)
+        }
+      );
+      setIsCandidateApproved(true);
+    } catch {
+      setErrorMessage("Candidate could not be approved.");
+    } finally {
+      setIsApprovingCandidate(false);
+    }
+  }
+
+  async function handleImportBatch() {
+    if (selectedPurchaseLines === null || pendingSubmission === null) {
+      return;
+    }
+
+    setIsImportingBatch(true);
+    setErrorMessage(null);
+
+    try {
+      await importReviewBatch(
+        selectedPurchaseLines.project_workspace.id,
+        pendingSubmission.review_batch.id
+      );
+      const refreshedPurchaseLines = await getProjectWorkspacePurchaseLines(
+        selectedPurchaseLines.project_workspace.id
+      );
+      setSelectedPurchaseLines(refreshedPurchaseLines);
+      setPendingSubmission(null);
+      setReviewForm(null);
+      setIsCandidateApproved(false);
+    } catch {
+      setErrorMessage("Review Batch could not be imported.");
+    } finally {
+      setIsImportingBatch(false);
+    }
+  }
+
+  function updateManualSourceForm(field: keyof ManualSourceForm, value: string) {
+    setManualSourceForm((currentForm) => ({ ...currentForm, [field]: value }));
+  }
+
+  function updateReviewForm(field: keyof ReviewForm, value: string) {
+    setReviewForm((currentForm) =>
+      currentForm === null ? currentForm : { ...currentForm, [field]: value }
+    );
+    setIsCandidateApproved(false);
   }
 
   return (
@@ -235,11 +371,191 @@ function App() {
               <p className="eyebrow">{selectedPurchaseLines.project_workspace.project_name}</p>
               <h2>Purchase Lines</h2>
             </div>
+            <form
+              className="manual-source-form"
+              onSubmit={(event) => void handleCreateManualSourceEntry(event)}
+            >
+              <h3>Create Manual Source Entry</h3>
+              <div className="form-grid three-columns">
+                <label>
+                  Line type
+                  <select
+                    value={manualSourceForm.lineType}
+                    onChange={(event) =>
+                      updateManualSourceForm(
+                        "lineType",
+                        event.target.value as ManualSourceForm["lineType"]
+                      )
+                    }
+                  >
+                    <option value="material">Material</option>
+                    <option value="service">Service</option>
+                  </select>
+                </label>
+                <label>
+                  Item or service name
+                  <input
+                    required
+                    value={manualSourceForm.name}
+                    onChange={(event) => updateManualSourceForm("name", event.target.value)}
+                  />
+                </label>
+                <label>
+                  Quantity
+                  <input
+                    value={manualSourceForm.quantity}
+                    onChange={(event) => updateManualSourceForm("quantity", event.target.value)}
+                  />
+                </label>
+              </div>
+              <div className="form-grid three-columns">
+                <label>
+                  Unit
+                  <input
+                    value={manualSourceForm.unit}
+                    onChange={(event) => updateManualSourceForm("unit", event.target.value)}
+                  />
+                </label>
+                <label>
+                  Price
+                  <input
+                    value={manualSourceForm.price}
+                    onChange={(event) => updateManualSourceForm("price", event.target.value)}
+                  />
+                </label>
+                <label>
+                  Provider
+                  <input
+                    value={manualSourceForm.providerName}
+                    onChange={(event) => updateManualSourceForm("providerName", event.target.value)}
+                  />
+                </label>
+              </div>
+              <div className="form-grid">
+                <label>
+                  Purchase date
+                  <input
+                    type="date"
+                    value={manualSourceForm.purchaseDate}
+                    onChange={(event) => updateManualSourceForm("purchaseDate", event.target.value)}
+                  />
+                </label>
+                <label>
+                  Remarks or terms
+                  <input
+                    value={manualSourceForm.remarksOrTerms}
+                    onChange={(event) =>
+                      updateManualSourceForm("remarksOrTerms", event.target.value)
+                    }
+                  />
+                </label>
+              </div>
+              <button
+                className="primary-action compact-action"
+                disabled={isSubmittingManualSource}
+                type="submit"
+              >
+                <Upload aria-hidden="true" size={18} />
+                Create Manual Source Entry
+              </button>
+            </form>
+
+            {pendingSubmission && reviewForm ? (
+              <section className="review-panel" aria-label="Review Candidate panel">
+                <div className="view-heading">
+                  <p className="eyebrow">{pendingSubmission.review_batch.status}</p>
+                  <h3>Review Candidate</h3>
+                </div>
+                <div className="form-grid three-columns">
+                  <label>
+                    Item or service name
+                    <input
+                      value={reviewForm.name}
+                      onChange={(event) => updateReviewForm("name", event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Top-level category
+                    <input
+                      value={reviewForm.topLevelCategory}
+                      onChange={(event) =>
+                        updateReviewForm("topLevelCategory", event.target.value)
+                      }
+                    />
+                  </label>
+                  <label>
+                    Subcategory
+                    <input
+                      value={reviewForm.subcategory}
+                      onChange={(event) => updateReviewForm("subcategory", event.target.value)}
+                    />
+                  </label>
+                </div>
+                <div className="review-actions">
+                  <button
+                    className="primary-action compact-action"
+                    disabled={isApprovingCandidate}
+                    onClick={() => void handleApproveCandidate()}
+                    type="button"
+                  >
+                    <Check aria-hidden="true" size={18} />
+                    Approve Candidate
+                  </button>
+                  <button
+                    className="secondary-action"
+                    disabled={!isCandidateApproved || isImportingBatch}
+                    onClick={() => void handleImportBatch()}
+                    type="button"
+                  >
+                    Import Approved Batch
+                  </button>
+                </div>
+              </section>
+            ) : null}
+
             {selectedPurchaseLines.items.length === 0 ? (
               <div className="empty-state">
                 <h3>No Purchase Lines yet</h3>
               </div>
-            ) : null}
+            ) : (
+              <div className="purchase-lines-table-wrap">
+                <table className="purchase-lines-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Type</th>
+                      <th>Provider</th>
+                      <th>Quantity</th>
+                      <th>Price</th>
+                      <th>Date</th>
+                      <th>Category</th>
+                      <th>Evidence</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedPurchaseLines.items.map((purchaseLine) => (
+                      <tr key={purchaseLine.id}>
+                        <td>{purchaseLine.item_or_service_name}</td>
+                        <td>{purchaseLine.line_type}</td>
+                        <td>{purchaseLine.provider_name ?? "Unknown provider"}</td>
+                        <td>
+                          {purchaseLine.quantity ?? "Unknown"} {purchaseLine.unit ?? ""}
+                          {purchaseLine.unit_state === "unknown" ? " Unknown unit" : ""}
+                        </td>
+                        <td>
+                          {purchaseLine.price
+                            ? `${purchaseLine.currency ?? ""} ${purchaseLine.price}`.trim()
+                            : "Unknown price"}
+                        </td>
+                        <td>{purchaseLine.purchase_date ?? "Unknown date"}</td>
+                        <td>{purchaseLine.category_path}</td>
+                        <td>{purchaseLine.has_evidence ? purchaseLine.source_label : "No evidence"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </>
         ) : (
           <div className="empty-state">
@@ -271,6 +587,36 @@ function buildCreatePayload(form: ProjectWorkspaceForm): ProjectWorkspaceCreate 
 function optionalText(value: string): string | null {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function buildManualSourcePayload(form: ManualSourceForm): ManualSourceEntryCreate {
+  return {
+    line_type: form.lineType,
+    name: form.name.trim(),
+    quantity: optionalText(form.quantity),
+    unit: optionalText(form.unit),
+    price: optionalText(form.price),
+    currency: optionalText(form.currency),
+    provider_name: optionalText(form.providerName),
+    purchase_date: form.purchaseDate || null,
+    remarks_or_terms: optionalText(form.remarksOrTerms)
+  };
+}
+
+function buildReviewedPayload(form: ReviewForm): ReviewedPurchaseLinePayload {
+  return {
+    line_type: form.lineType,
+    name: form.name.trim(),
+    top_level_category: optionalText(form.topLevelCategory),
+    subcategory: optionalText(form.subcategory),
+    quantity: optionalText(form.quantity),
+    unit: optionalText(form.unit),
+    price: optionalText(form.price),
+    currency: optionalText(form.currency),
+    provider_name: optionalText(form.providerName),
+    purchase_date: form.purchaseDate || null,
+    remarks_or_terms: optionalText(form.remarksOrTerms)
+  };
 }
 
 export default App;
