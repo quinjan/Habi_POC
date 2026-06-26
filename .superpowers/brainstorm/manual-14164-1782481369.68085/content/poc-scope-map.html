@@ -1,0 +1,55 @@
+<h2>Habi POC Scope Map</h2>
+<p class="subtitle">The POC should prove one sharp thing before Habi becomes an MVP: that private project history can produce useful purchasing intelligence faster than the current manual workflow.</p>
+
+<div class="section">
+  <div class="label">Possible POC center of gravity</div>
+  <div class="options">
+    <div class="option" data-choice="memory" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content">
+        <h3>Private Project Memory</h3>
+        <p>Ingest 2-3 completed projects, normalize materials/services/suppliers, then search and retrieve evidence from past work.</p>
+      </div>
+    </div>
+    <div class="option" data-choice="starter-pack" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content">
+        <h3>Recommendation Starter Pack</h3>
+        <p>Given one new warehouse project profile, suggest likely materials, services, supplier references, missing scope questions, and confidence levels.</p>
+      </div>
+    </div>
+    <div class="option" data-choice="quote" onclick="toggleSelect(this)">
+      <div class="letter">C</div>
+      <div class="content">
+        <h3>Quote / Supplier Comparison</h3>
+        <p>Compare supplier options using historical price, bundle coverage, availability, delivery risk, and selection reasoning.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="mockup">
+  <div class="mockup-header">POC boundary sketch</div>
+  <div class="mockup-body">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:stretch;">
+      <div class="placeholder">
+        <strong>Inputs</strong><br>
+        Completed project files<br>
+        BOQs / quotes / POs<br>
+        New project profile
+      </div>
+      <div class="placeholder">
+        <strong>POC Engine</strong><br>
+        Extract and normalize<br>
+        Similarity search<br>
+        Evidence-backed suggestions
+      </div>
+      <div class="placeholder">
+        <strong>Outputs</strong><br>
+        Similar projects<br>
+        Starter pack<br>
+        RFQ / canvass draft
+      </div>
+    </div>
+  </div>
+</div>
