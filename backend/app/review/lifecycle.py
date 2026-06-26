@@ -226,7 +226,10 @@ def _approved_candidate_satisfies_import_gates(
     if candidate.decision != "approved" or candidate.reviewed_payload is None:
         return False
 
-    manual_source_entry = session.get(ManualSourceEntry, candidate.manual_source_entry_id)
+    manual_source_entry = _manual_entry_for_source_submission(
+        session=session,
+        source_submission_id=candidate.source_submission_id,
+    )
     if (
         manual_source_entry is None
         or manual_source_entry.project_workspace_id != candidate.project_workspace_id
@@ -244,3 +247,15 @@ def _approved_candidate_satisfies_import_gates(
 
 def _present(value: str | None) -> bool:
     return value is not None and value.strip() != ""
+
+
+def _manual_entry_for_source_submission(
+    *,
+    session: Session,
+    source_submission_id: int,
+) -> ManualSourceEntry | None:
+    return session.scalar(
+        select(ManualSourceEntry).where(
+            ManualSourceEntry.source_submission_id == source_submission_id
+        )
+    )

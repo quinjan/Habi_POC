@@ -1,14 +1,10 @@
-import os
-
 from fastapi.testclient import TestClient
 
+from backend.tests.db import make_postgres_test_client
 
-def make_client(tmp_path):
-    os.environ["HABI_DATABASE_URL"] = f"sqlite+pysqlite:///{tmp_path / 'habi_test.db'}"
 
-    from backend.app.main import create_app
-
-    return TestClient(create_app())
+def make_client(_tmp_path):
+    return make_postgres_test_client()
 
 
 def test_import_rejects_batch_with_pending_candidate(tmp_path):
@@ -27,7 +23,7 @@ def test_import_rejects_batch_with_no_approved_candidates(tmp_path):
     with make_client(tmp_path) as client:
         project, submission = create_manual_submission(client)
         client.post(
-            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/candidates/{submission['candidate']['id']}/decision",
+                f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/candidates/{submission['candidates'][0]['id']}/decision",
             json={"decision": "rejected", "reviewed_payload": None},
         )
 
@@ -43,7 +39,7 @@ def test_rejected_batch_stays_in_progress_until_explicit_close_with_no_import(tm
     with make_client(tmp_path) as client:
         project, submission = create_manual_submission(client)
         decision = client.post(
-            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/candidates/{submission['candidate']['id']}/decision",
+            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/candidates/{submission['candidates'][0]['id']}/decision",
             json={"decision": "rejected", "reviewed_payload": None},
         )
         before_close = client.get(
@@ -93,7 +89,7 @@ def test_import_rejects_approved_candidate_without_resolved_category_path(tmp_pa
     with make_client(tmp_path) as client:
         project, submission = create_manual_submission(client)
         client.post(
-            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/candidates/{submission['candidate']['id']}/decision",
+            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/candidates/{submission['candidates'][0]['id']}/decision",
             json={
                 "decision": "approved",
                 "reviewed_payload": {
@@ -164,7 +160,7 @@ def test_imported_batch_rejects_later_review_actions(tmp_path):
         )
 
         decision = client.post(
-            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/candidates/{submission['candidate']['id']}/decision",
+            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/candidates/{submission['candidates'][0]['id']}/decision",
             json={"decision": "rejected", "reviewed_payload": None},
         )
         close_response = client.post(
@@ -182,7 +178,7 @@ def test_review_closed_no_import_batch_rejects_later_review_actions(tmp_path):
     with make_client(tmp_path) as client:
         project, submission = create_manual_submission(client)
         client.post(
-            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/candidates/{submission['candidate']['id']}/decision",
+            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/candidates/{submission['candidates'][0]['id']}/decision",
             json={"decision": "rejected", "reviewed_payload": None},
         )
         closed = client.post(
@@ -190,7 +186,7 @@ def test_review_closed_no_import_batch_rejects_later_review_actions(tmp_path):
         )
 
         decision = client.post(
-            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/candidates/{submission['candidate']['id']}/decision",
+            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/candidates/{submission['candidates'][0]['id']}/decision",
             json={
                 "decision": "approved",
                 "reviewed_payload": {
@@ -230,14 +226,17 @@ def create_manual_submission(client: TestClient):
     submission = client.post(
         f"/api/project-workspaces/{project['id']}/manual-source-entries",
         json={
-            "line_type": "material",
-            "name": "PVC pipe",
-            "quantity": "20",
-            "unit": "pcs",
-            "price": "1500",
-            "provider_name": "ABC Trading",
-            "purchase_date": "2025-07-12",
-            "remarks_or_terms": "Delivery included",
+            "entry_type": "structured_row",
+            "structured_payload": {
+                "line_type": "material",
+                "name": "PVC pipe",
+                "quantity": "20",
+                "unit": "pcs",
+                "price": "1500",
+                "provider_name": "ABC Trading",
+                "purchase_date": "2025-07-12",
+                "remarks_or_terms": "Delivery included",
+            },
         },
     ).json()
     return project, submission
@@ -245,7 +244,7 @@ def create_manual_submission(client: TestClient):
 
 def approve_submission(client: TestClient, project: dict, submission: dict):
     return client.post(
-        f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/candidates/{submission['candidate']['id']}/decision",
+        f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/candidates/{submission['candidates'][0]['id']}/decision",
         json={
             "decision": "approved",
             "reviewed_payload": {

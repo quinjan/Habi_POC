@@ -2,11 +2,13 @@ from fastapi import FastAPI
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.database import Base, create_sqlalchemy_engine, database_url_from_env
+from backend.app.processing.router import router as processing_jobs_router
 from backend.app.projects.router import router as project_workspaces_router
 from backend.app.review.router import router as review_batches_router
 from backend.app.sources.router import router as manual_source_entries_router
 from backend.app.evidence import models as evidence_models  # noqa: F401
 from backend.app.memory import models as memory_models  # noqa: F401
+from backend.app.processing import models as processing_models  # noqa: F401
 from backend.app.review import models as review_models  # noqa: F401
 from backend.app.sources import models as sources_models  # noqa: F401
 from backend.app.taxonomy import models as taxonomy_models  # noqa: F401
@@ -27,6 +29,7 @@ def create_app(
 
     app.include_router(project_workspaces_router, prefix="/api/project-workspaces")
     app.include_router(manual_source_entries_router, prefix="/api/project-workspaces")
+    app.include_router(processing_jobs_router, prefix="/api/project-workspaces")
     app.include_router(review_batches_router, prefix="/api/project-workspaces")
     return app
 

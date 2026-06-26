@@ -20,9 +20,17 @@ _Avoid_: Global memory, company-wide search index
 An original uploaded project document that acts as evidence for extracted knowledge. A source file may contain many candidate records and memory records.
 _Avoid_: Memory record, item
 
+**Source Submission**:
+A project-scoped submitted source input, such as an uploaded file or manual source entry, that can be processed into reviewable candidates.
+_Avoid_: Candidate batch, import request
+
 **Manual Source Entry**:
-A reviewer-entered source input for project facts that follows the same candidate review and import workflow as uploaded files.
+A reviewer-entered source submission whose evidence content is typed or pasted rather than uploaded as a file.
 _Avoid_: Lower-trust note, unsupported memory
+
+**Processing Job**:
+A durable record of Habi processing a source input, including its classification, progress, outcome, and review readiness.
+_Avoid_: Background task, transient worker run
 
 **Upload**:
 The act of adding one source file to the project workspace so Habi can parse it and propose extracted candidates.
@@ -63,6 +71,10 @@ _Avoid_: Approval, truth
 **Taxonomy Gate**:
 A required reviewer decision for AI-suggested taxonomy changes before affected records can be imported into project memory.
 _Avoid_: Separate category import
+
+**Taxonomy Decision**:
+A retained project-scoped reviewer judgment on an AI-suggested category path, such as approving a new node, mapping it to an existing node, rejecting it, or deferring it.
+_Avoid_: Candidate outcome, import decision
 
 **Top-Level Category**:
 A broad taxonomy group used to organize project memory, such as Civil, Electrical, Plumbing, Services, or Suppliers/Providers.

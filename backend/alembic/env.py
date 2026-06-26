@@ -11,6 +11,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from backend.app.database import Base, database_url_from_env
 from backend.app.evidence import models as evidence_models  # noqa: F401
 from backend.app.memory import models as memory_models  # noqa: F401
+from backend.app.processing import models as processing_models  # noqa: F401
 from backend.app.projects import models  # noqa: F401
 from backend.app.review import models as review_models  # noqa: F401
 from backend.app.sources import models as sources_models  # noqa: F401

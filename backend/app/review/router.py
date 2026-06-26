@@ -280,7 +280,10 @@ def import_review_batch(
                 detail="Approved candidates require reviewed payloads",
             )
 
-        manual_source_entry = session.get(ManualSourceEntry, candidate.manual_source_entry_id)
+        manual_source_entry = _manual_entry_for_source_submission(
+            session=session,
+            source_submission_id=candidate.source_submission_id,
+        )
         if manual_source_entry is None or manual_source_entry.project_workspace_id != project_workspace_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -511,7 +514,7 @@ def _import_purchase_line(
         project_workspace_id=project_workspace_id,
         manual_source_entry_id=manual_source_entry.id,
         source_label="Manual Source Entry",
-        content=manual_source_entry.structured_payload,
+        content=_manual_source_evidence_content(manual_source_entry),
     )
     session.add(evidence)
     session.flush()
@@ -580,7 +583,10 @@ def _promote_merged_candidate_evidence(
         .order_by(ExtractedCandidate.id)
     )
     for merged_candidate in merged_candidates:
-        manual_source_entry = session.get(ManualSourceEntry, merged_candidate.manual_source_entry_id)
+        manual_source_entry = _manual_entry_for_source_submission(
+            session=session,
+            source_submission_id=merged_candidate.source_submission_id,
+        )
         if manual_source_entry is None or manual_source_entry.project_workspace_id != project_workspace_id:
             continue
 
@@ -588,7 +594,7 @@ def _promote_merged_candidate_evidence(
             project_workspace_id=project_workspace_id,
             manual_source_entry_id=manual_source_entry.id,
             source_label="Manual Source Entry",
-            content=manual_source_entry.structured_payload,
+            content=_manual_source_evidence_content(manual_source_entry),
         )
         session.add(evidence)
         session.flush()
@@ -695,3 +701,21 @@ def _clean(value: str | None) -> str | None:
 
 def _normalize(value: str) -> str:
     return " ".join(value.casefold().split())
+
+
+def _manual_entry_for_source_submission(
+    *,
+    session: Session,
+    source_submission_id: int,
+) -> ManualSourceEntry | None:
+    return session.scalar(
+        select(ManualSourceEntry).where(
+            ManualSourceEntry.source_submission_id == source_submission_id
+        )
+    )
+
+
+def _manual_source_evidence_content(manual_source_entry: ManualSourceEntry) -> dict:
+    if manual_source_entry.structured_payload is not None:
+        return manual_source_entry.structured_payload
+    return {"original_text": manual_source_entry.original_text}

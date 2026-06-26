@@ -3,7 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from backend.app.sources.schemas import ManualSourceEntryRead
+from backend.app.processing.schemas import ProcessingJobRead
+from backend.app.sources.schemas import ManualSourceEntryRead, SourceSubmissionRead
 
 
 class ReviewBatchRead(BaseModel):
@@ -11,7 +12,7 @@ class ReviewBatchRead(BaseModel):
 
     id: int
     project_workspace_id: int
-    manual_source_entry_id: int
+    source_submission_id: int
     status: str
 
 
@@ -21,7 +22,7 @@ class ExtractedCandidateRead(BaseModel):
     id: int
     project_workspace_id: int
     review_batch_id: int
-    manual_source_entry_id: int
+    source_submission_id: int
     status: str
     proposed_payload: dict
     decision: str | None
@@ -30,9 +31,11 @@ class ExtractedCandidateRead(BaseModel):
 
 
 class ManualSourceEntrySubmission(BaseModel):
+    source_submission: SourceSubmissionRead
     manual_source_entry: ManualSourceEntryRead
-    review_batch: ReviewBatchRead
-    candidate: ExtractedCandidateRead
+    processing_job: ProcessingJobRead
+    review_batch: ReviewBatchRead | None
+    candidates: list[ExtractedCandidateRead]
 
 
 class ReviewedPurchaseLinePayload(BaseModel):
