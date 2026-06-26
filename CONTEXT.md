@@ -36,6 +36,26 @@ _Avoid_: Upload, extraction
 An AI-proposed record waiting for human review before it can become active project memory.
 _Avoid_: Approved record, final record
 
+**Rejected Candidate**:
+An extracted candidate that the reviewer has explicitly excluded from import. In the POC, rejected and removed from import mean the same review outcome: visible in batch history, absent from active project memory.
+_Avoid_: Separate removed-from-import status, deleted candidate
+
+**Approved Candidate**:
+An extracted candidate that the reviewer has explicitly included in import. In the POC, approved-as-is and edited-before-approval share the same review outcome; edits are tracked by comparing proposed and reviewed payloads.
+_Avoid_: Separate edited decision, unreviewed approval
+
+**Merged Candidate**:
+An extracted candidate identified as a duplicate of another candidate in the same review batch. A merged candidate does not create its own import record; its include-or-exclude outcome follows its merge target until the reviewer unmerges it.
+_Avoid_: Auto-deleted duplicate, implicit rejection
+
+**Surviving Candidate**:
+The candidate in a duplicate candidate group that carries the final reviewed payload when other candidates are merged into it. Only the surviving candidate can create or update an import record for that duplicate group.
+_Avoid_: Group-level import payload, automatic winner
+
+**Duplicate Candidate Group**:
+A set of extracted candidates in the same review batch that appear to describe the same underlying project fact closely enough that importing them separately would create duplicate active project memory. AI may propose duplicate candidate groups, and reviewers may create or modify them during review.
+_Avoid_: Arbitrary merge set, cross-batch duplicate group
+
 **AI Confidence**:
 Habi's estimate of how reliable an AI-proposed extraction, classification, or match is before human review. In the POC, confidence changes review friction but never replaces human approval.
 _Avoid_: Approval, truth

@@ -25,6 +25,7 @@ class ExtractedCandidateRead(BaseModel):
     status: str
     proposed_payload: dict
     decision: str | None
+    merged_into_candidate_id: int | None
     reviewed_payload: dict | None
 
 
@@ -49,13 +50,32 @@ class ReviewedPurchaseLinePayload(BaseModel):
 
 
 class CandidateDecisionRequest(BaseModel):
-    decision: Literal["approved", "rejected"]
+    decision: Literal["approved", "rejected", "merged"] | None
     reviewed_payload: ReviewedPurchaseLinePayload | None = None
+    merged_into_candidate_id: int | None = None
 
 
 class ReviewBatchDetail(BaseModel):
     review_batch: ReviewBatchRead
     candidates: list[ExtractedCandidateRead]
+    duplicate_groups: list["DuplicateCandidateGroupRead"] = Field(default_factory=list)
+    duplicate_conflicts: list[str] = Field(default_factory=list)
+
+
+class DuplicateCandidateGroupCreate(BaseModel):
+    member_candidate_ids: list[int] = Field(min_length=2)
+
+
+class DuplicateCandidateGroupMembersRequest(BaseModel):
+    add_candidate_ids: list[int] = Field(default_factory=list)
+    remove_candidate_ids: list[int] = Field(default_factory=list)
+
+
+class DuplicateCandidateGroupRead(BaseModel):
+    id: int
+    project_workspace_id: int
+    review_batch_id: int
+    member_candidate_ids: list[int]
 
 
 class ImportedPurchaseLine(BaseModel):

@@ -280,6 +280,188 @@
         }
       }
     },
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/duplicate-groups": {
+      "post": {
+        "tags": [
+          "review-batches"
+        ],
+        "summary": "Create Duplicate Group",
+        "operationId": "create_duplicate_group_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__duplicate_groups_post",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          },
+          {
+            "name": "review_batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Review Batch Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DuplicateCandidateGroupCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DuplicateCandidateGroupRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/duplicate-groups/{duplicate_group_id}/members": {
+      "post": {
+        "tags": [
+          "review-batches"
+        ],
+        "summary": "Update Duplicate Group Members",
+        "operationId": "update_duplicate_group_members_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__duplicate_groups__duplicate_group_id__members_post",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          },
+          {
+            "name": "review_batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Review Batch Id"
+            }
+          },
+          {
+            "name": "duplicate_group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Duplicate Group Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DuplicateCandidateGroupMembersRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DuplicateCandidateGroupRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/close-with-no-import": {
+      "post": {
+        "tags": [
+          "review-batches"
+        ],
+        "summary": "Close Review Batch No Import",
+        "operationId": "close_review_batch_no_import_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__close_with_no_import_post",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          },
+          {
+            "name": "review_batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Review Batch Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewBatchRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/import": {
       "post": {
         "tags": [
@@ -337,10 +519,18 @@
       "CandidateDecisionRequest": {
         "properties": {
           "decision": {
-            "type": "string",
-            "enum": [
-              "approved",
-              "rejected"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "approved",
+                  "rejected",
+                  "merged"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
             "title": "Decision"
           },
@@ -353,6 +543,17 @@
                 "type": "null"
               }
             ]
+          },
+          "merged_into_candidate_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Merged Into Candidate Id"
           }
         },
         "type": "object",
@@ -360,6 +561,74 @@
           "decision"
         ],
         "title": "CandidateDecisionRequest"
+      },
+      "DuplicateCandidateGroupCreate": {
+        "properties": {
+          "member_candidate_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "minItems": 2,
+            "title": "Member Candidate Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "member_candidate_ids"
+        ],
+        "title": "DuplicateCandidateGroupCreate"
+      },
+      "DuplicateCandidateGroupMembersRequest": {
+        "properties": {
+          "add_candidate_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Add Candidate Ids"
+          },
+          "remove_candidate_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Remove Candidate Ids"
+          }
+        },
+        "type": "object",
+        "title": "DuplicateCandidateGroupMembersRequest"
+      },
+      "DuplicateCandidateGroupRead": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "project_workspace_id": {
+            "type": "integer",
+            "title": "Project Workspace Id"
+          },
+          "review_batch_id": {
+            "type": "integer",
+            "title": "Review Batch Id"
+          },
+          "member_candidate_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Member Candidate Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_workspace_id",
+          "review_batch_id",
+          "member_candidate_ids"
+        ],
+        "title": "DuplicateCandidateGroupRead"
       },
       "ExtractedCandidateRead": {
         "properties": {
@@ -399,6 +668,17 @@
             ],
             "title": "Decision"
           },
+          "merged_into_candidate_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Merged Into Candidate Id"
+          },
           "reviewed_payload": {
             "anyOf": [
               {
@@ -421,6 +701,7 @@
           "status",
           "proposed_payload",
           "decision",
+          "merged_into_candidate_id",
           "reviewed_payload"
         ],
         "title": "ExtractedCandidateRead"
@@ -1026,6 +1307,20 @@
             },
             "type": "array",
             "title": "Candidates"
+          },
+          "duplicate_groups": {
+            "items": {
+              "$ref": "#/components/schemas/DuplicateCandidateGroupRead"
+            },
+            "type": "array",
+            "title": "Duplicate Groups"
+          },
+          "duplicate_conflicts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Duplicate Conflicts"
           }
         },
         "type": "object",

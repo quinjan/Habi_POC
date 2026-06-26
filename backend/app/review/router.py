@@ -16,13 +16,28 @@ from backend.app.memory.models import (
     Service,
 )
 from backend.app.projects.models import ProjectWorkspace
-from backend.app.review.models import ExtractedCandidate, ReviewBatch
+from backend.app.review.lifecycle import (
+    TerminalReviewBatchError,
+    apply_candidate_decision,
+    close_review_batch_with_no_import,
+    detect_duplicate_conflicts,
+)
+from backend.app.review.models import (
+    DuplicateCandidateGroup,
+    DuplicateCandidateGroupMember,
+    ExtractedCandidate,
+    ReviewBatch,
+)
 from backend.app.review.schemas import (
     CandidateDecisionRequest,
+    DuplicateCandidateGroupCreate,
+    DuplicateCandidateGroupMembersRequest,
+    DuplicateCandidateGroupRead,
     ExtractedCandidateRead,
     ImportedPurchaseLine,
     ImportReviewBatchResponse,
     ReviewBatchDetail,
+    ReviewBatchRead,
     ReviewedPurchaseLinePayload,
 )
 from backend.app.sources.models import ManualSourceEntry
@@ -43,7 +58,16 @@ def get_review_batch(
 ) -> ReviewBatchDetail:
     review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
     candidates = _get_batch_candidates(session, review_batch.id)
-    return ReviewBatchDetail(review_batch=review_batch, candidates=candidates)
+    duplicate_groups = _get_duplicate_group_reads(session, review_batch.id)
+    return ReviewBatchDetail(
+        review_batch=review_batch,
+        candidates=candidates,
+        duplicate_groups=duplicate_groups,
+        duplicate_conflicts=detect_duplicate_conflicts(
+            session=session,
+            review_batch=review_batch,
+        ),
+    )
 
 
 @router.post(
@@ -68,25 +92,147 @@ def decide_candidate(
     if candidate is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found")
 
-    candidate.decision = payload.decision
-    candidate.status = f"{payload.decision}_for_import"
-    candidate.reviewed_payload = (
-        payload.reviewed_payload.model_dump(mode="json") if payload.reviewed_payload else None
-    )
-
-    candidates = _get_batch_candidates(session, review_batch.id)
-    if all(batch_candidate.decision is not None for batch_candidate in candidates):
-        review_batch.status = (
-            "ready_to_import"
-            if any(batch_candidate.decision == "approved" for batch_candidate in candidates)
-            else "review_closed_no_import"
+    try:
+        apply_candidate_decision(
+            session=session,
+            review_batch=review_batch,
+            candidate=candidate,
+            decision=payload.decision,
+            reviewed_payload=payload.reviewed_payload.model_dump(mode="json")
+            if payload.reviewed_payload
+            else None,
+            merged_into_candidate_id=payload.merged_into_candidate_id,
         )
-    else:
-        review_batch.status = "review_in_progress"
+    except TerminalReviewBatchError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(error),
+        ) from error
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
 
     session.commit()
     session.refresh(candidate)
     return candidate
+
+
+@router.post(
+    "/{project_workspace_id}/review-batches/{review_batch_id}/duplicate-groups",
+    response_model=DuplicateCandidateGroupRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_duplicate_group(
+    project_workspace_id: int,
+    review_batch_id: int,
+    payload: DuplicateCandidateGroupCreate,
+    session: Session = Depends(get_session),
+) -> DuplicateCandidateGroupRead:
+    review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
+    _ensure_review_batch_editable_or_conflict(review_batch)
+    _get_candidates_by_id(
+        session=session,
+        project_workspace_id=project_workspace_id,
+        review_batch_id=review_batch.id,
+        candidate_ids=payload.member_candidate_ids,
+    )
+
+    duplicate_group = DuplicateCandidateGroup(
+        project_workspace_id=project_workspace_id,
+        review_batch_id=review_batch.id,
+    )
+    session.add(duplicate_group)
+    session.flush()
+    for candidate_id in payload.member_candidate_ids:
+        session.add(
+            DuplicateCandidateGroupMember(
+                duplicate_group_id=duplicate_group.id,
+                candidate_id=candidate_id,
+            )
+        )
+
+    session.commit()
+    return _get_duplicate_group_read(session, duplicate_group.id)
+
+
+@router.post(
+    "/{project_workspace_id}/review-batches/{review_batch_id}/duplicate-groups/{duplicate_group_id}/members",
+    response_model=DuplicateCandidateGroupRead,
+)
+def update_duplicate_group_members(
+    project_workspace_id: int,
+    review_batch_id: int,
+    duplicate_group_id: int,
+    payload: DuplicateCandidateGroupMembersRequest,
+    session: Session = Depends(get_session),
+) -> DuplicateCandidateGroupRead:
+    review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
+    _ensure_review_batch_editable_or_conflict(review_batch)
+    duplicate_group = _get_duplicate_group(
+        session=session,
+        project_workspace_id=project_workspace_id,
+        review_batch_id=review_batch.id,
+        duplicate_group_id=duplicate_group_id,
+    )
+
+    if payload.add_candidate_ids:
+        _get_candidates_by_id(
+            session=session,
+            project_workspace_id=project_workspace_id,
+            review_batch_id=review_batch.id,
+            candidate_ids=payload.add_candidate_ids,
+        )
+        existing_member_ids = set(_get_duplicate_group_member_ids(session, duplicate_group.id))
+        for candidate_id in payload.add_candidate_ids:
+            if candidate_id not in existing_member_ids:
+                session.add(
+                    DuplicateCandidateGroupMember(
+                        duplicate_group_id=duplicate_group.id,
+                        candidate_id=candidate_id,
+                    )
+                )
+
+    if payload.remove_candidate_ids:
+        for member in session.scalars(
+            select(DuplicateCandidateGroupMember).where(
+                DuplicateCandidateGroupMember.duplicate_group_id == duplicate_group.id,
+                DuplicateCandidateGroupMember.candidate_id.in_(payload.remove_candidate_ids),
+            )
+        ):
+            session.delete(member)
+
+    session.commit()
+    return _get_duplicate_group_read(session, duplicate_group.id)
+
+
+@router.post(
+    "/{project_workspace_id}/review-batches/{review_batch_id}/close-with-no-import",
+    response_model=ReviewBatchRead,
+)
+def close_review_batch_no_import(
+    project_workspace_id: int,
+    review_batch_id: int,
+    session: Session = Depends(get_session),
+) -> ReviewBatch:
+    review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
+    try:
+        close_review_batch_with_no_import(session=session, review_batch=review_batch)
+    except TerminalReviewBatchError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(error),
+        ) from error
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
+
+    session.commit()
+    session.refresh(review_batch)
+    return review_batch
 
 
 @router.post(
@@ -101,6 +247,11 @@ def import_review_batch(
     review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
     if review_batch.status == "imported":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Review batch already imported")
+    if review_batch.status == "review_closed_no_import":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Terminal review batches cannot be imported",
+        )
 
     candidates = _get_batch_candidates(session, review_batch.id)
     if any(candidate.decision is None for candidate in candidates):
@@ -114,6 +265,11 @@ def import_review_batch(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="At least one approved candidate is required for import",
+        )
+    if detect_duplicate_conflicts(session=session, review_batch=review_batch):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Duplicate conflicts must be resolved before import",
         )
 
     imported_purchase_lines: list[ImportedPurchaseLine] = []
@@ -138,6 +294,12 @@ def import_review_batch(
             project_workspace_id=project_workspace_id,
             manual_source_entry=manual_source_entry,
             payload=payload,
+        )
+        _promote_merged_candidate_evidence(
+            session=session,
+            project_workspace_id=project_workspace_id,
+            survivor_candidate=candidate,
+            purchase_line=purchase_line,
         )
         imported_purchase_lines.append(ImportedPurchaseLine(id=purchase_line.id))
 
@@ -174,6 +336,101 @@ def _get_batch_candidates(session: Session, review_batch_id: int) -> list[Extrac
             .order_by(ExtractedCandidate.id)
         )
     )
+
+
+def _get_candidates_by_id(
+    *,
+    session: Session,
+    project_workspace_id: int,
+    review_batch_id: int,
+    candidate_ids: list[int],
+) -> list[ExtractedCandidate]:
+    candidates = list(
+        session.scalars(
+            select(ExtractedCandidate).where(
+                ExtractedCandidate.id.in_(candidate_ids),
+                ExtractedCandidate.project_workspace_id == project_workspace_id,
+                ExtractedCandidate.review_batch_id == review_batch_id,
+            )
+        )
+    )
+    if len(candidates) != len(set(candidate_ids)):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found")
+    return candidates
+
+
+def _get_duplicate_group(
+    *,
+    session: Session,
+    project_workspace_id: int,
+    review_batch_id: int,
+    duplicate_group_id: int,
+) -> DuplicateCandidateGroup:
+    duplicate_group = session.scalar(
+        select(DuplicateCandidateGroup).where(
+            DuplicateCandidateGroup.id == duplicate_group_id,
+            DuplicateCandidateGroup.project_workspace_id == project_workspace_id,
+            DuplicateCandidateGroup.review_batch_id == review_batch_id,
+        )
+    )
+    if duplicate_group is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Duplicate group not found")
+    return duplicate_group
+
+
+def _get_duplicate_group_reads(
+    session: Session,
+    review_batch_id: int,
+) -> list[DuplicateCandidateGroupRead]:
+    groups = session.scalars(
+        select(DuplicateCandidateGroup)
+        .where(DuplicateCandidateGroup.review_batch_id == review_batch_id)
+        .order_by(DuplicateCandidateGroup.id)
+    )
+    return [_duplicate_group_read(session, group) for group in groups]
+
+
+def _get_duplicate_group_read(
+    session: Session,
+    duplicate_group_id: int,
+) -> DuplicateCandidateGroupRead:
+    duplicate_group = session.get(DuplicateCandidateGroup, duplicate_group_id)
+    if duplicate_group is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Duplicate group not found")
+    return _duplicate_group_read(session, duplicate_group)
+
+
+def _duplicate_group_read(
+    session: Session,
+    duplicate_group: DuplicateCandidateGroup,
+) -> DuplicateCandidateGroupRead:
+    return DuplicateCandidateGroupRead(
+        id=duplicate_group.id,
+        project_workspace_id=duplicate_group.project_workspace_id,
+        review_batch_id=duplicate_group.review_batch_id,
+        member_candidate_ids=_get_duplicate_group_member_ids(session, duplicate_group.id),
+    )
+
+
+def _get_duplicate_group_member_ids(
+    session: Session,
+    duplicate_group_id: int,
+) -> list[int]:
+    return list(
+        session.scalars(
+            select(DuplicateCandidateGroupMember.candidate_id)
+            .where(DuplicateCandidateGroupMember.duplicate_group_id == duplicate_group_id)
+            .order_by(DuplicateCandidateGroupMember.id)
+        )
+    )
+
+
+def _ensure_review_batch_editable_or_conflict(review_batch: ReviewBatch) -> None:
+    if review_batch.status in {"imported", "review_closed_no_import"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Terminal review batches cannot be changed",
+        )
 
 
 def _validate_importable_payload(payload: ReviewedPurchaseLinePayload) -> None:
@@ -304,6 +561,51 @@ def _import_purchase_line(
     session.add(purchase_line)
     session.flush()
     return purchase_line
+
+
+def _promote_merged_candidate_evidence(
+    *,
+    session: Session,
+    project_workspace_id: int,
+    survivor_candidate: ExtractedCandidate,
+    purchase_line: PurchaseLine,
+) -> None:
+    merged_candidates = session.scalars(
+        select(ExtractedCandidate)
+        .where(
+            ExtractedCandidate.review_batch_id == survivor_candidate.review_batch_id,
+            ExtractedCandidate.decision == "merged",
+            ExtractedCandidate.merged_into_candidate_id == survivor_candidate.id,
+        )
+        .order_by(ExtractedCandidate.id)
+    )
+    for merged_candidate in merged_candidates:
+        manual_source_entry = session.get(ManualSourceEntry, merged_candidate.manual_source_entry_id)
+        if manual_source_entry is None or manual_source_entry.project_workspace_id != project_workspace_id:
+            continue
+
+        evidence = EvidenceRecord(
+            project_workspace_id=project_workspace_id,
+            manual_source_entry_id=manual_source_entry.id,
+            source_label="Manual Source Entry",
+            content=manual_source_entry.structured_payload,
+        )
+        session.add(evidence)
+        session.flush()
+
+        record_ids = [
+            purchase_line.memory_record_id,
+            purchase_line.item_memory_record_id,
+            purchase_line.provider_memory_record_id,
+        ]
+        for record_id in record_ids:
+            if record_id is not None:
+                session.add(
+                    MemoryRecordEvidenceLink(
+                        memory_record_id=record_id,
+                        evidence_record_id=evidence.id,
+                    )
+                )
 
 
 def _get_or_create_taxonomy_node(
