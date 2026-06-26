@@ -1,0 +1,412 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Habi Per-Project Memory Lab API",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/project-workspaces": {
+      "get": {
+        "tags": [
+          "project-workspaces"
+        ],
+        "summary": "List Project Workspaces",
+        "operationId": "list_project_workspaces_api_project_workspaces_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectWorkspaceList"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "project-workspaces"
+        ],
+        "summary": "Create Project Workspace",
+        "operationId": "create_project_workspace_api_project_workspaces_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectWorkspaceCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectWorkspaceRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project-workspaces/{project_workspace_id}/purchase-lines": {
+      "get": {
+        "tags": [
+          "project-workspaces"
+        ],
+        "summary": "Get Project Workspace Purchase Lines",
+        "operationId": "get_project_workspace_purchase_lines_api_project_workspaces__project_workspace_id__purchase_lines_get",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectWorkspacePurchaseLinesView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "ProjectWorkspaceCreate": {
+        "properties": {
+          "project_name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Project Name"
+          },
+          "project_type": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Project Type"
+          },
+          "location": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Location"
+          },
+          "completion_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Date"
+          },
+          "completion_year": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2100.0,
+                "minimum": 1900.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Year"
+          },
+          "floor_area": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Floor Area"
+          },
+          "trade_scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Trade Scopes"
+          },
+          "client_or_owner": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Or Owner"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project_name",
+          "project_type",
+          "location"
+        ],
+        "title": "ProjectWorkspaceCreate"
+      },
+      "ProjectWorkspaceList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectWorkspaceListItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "ProjectWorkspaceList"
+      },
+      "ProjectWorkspaceListItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "project_name": {
+            "type": "string",
+            "title": "Project Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_name"
+        ],
+        "title": "ProjectWorkspaceListItem"
+      },
+      "ProjectWorkspacePurchaseLinesView": {
+        "properties": {
+          "project_workspace": {
+            "$ref": "#/components/schemas/ProjectWorkspaceListItem"
+          },
+          "items": {
+            "items": {},
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project_workspace",
+          "items"
+        ],
+        "title": "ProjectWorkspacePurchaseLinesView"
+      },
+      "ProjectWorkspaceRead": {
+        "properties": {
+          "project_name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Project Name"
+          },
+          "project_type": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Project Type"
+          },
+          "location": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Location"
+          },
+          "completion_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Date"
+          },
+          "completion_year": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2100.0,
+                "minimum": 1900.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Year"
+          },
+          "floor_area": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Floor Area"
+          },
+          "trade_scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Trade Scopes"
+          },
+          "client_or_owner": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Or Owner"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project_name",
+          "project_type",
+          "location",
+          "id"
+        ],
+        "title": "ProjectWorkspaceRead"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
