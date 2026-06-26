@@ -52,6 +52,8 @@ type ManualSourceForm = {
   remarksOrTerms: string;
 };
 
+type ManualEntryMode = "structured_row" | "free_form_text";
+
 const emptyManualSourceForm: ManualSourceForm = {
   lineType: "material",
   name: "",
@@ -76,6 +78,8 @@ function App() {
   const [form, setForm] = useState<ProjectWorkspaceForm>(emptyForm);
   const [manualSourceForm, setManualSourceForm] =
     useState<ManualSourceForm>(emptyManualSourceForm);
+  const [manualEntryMode, setManualEntryMode] = useState<ManualEntryMode>("structured_row");
+  const [freeFormText, setFreeFormText] = useState("");
   const [pendingSubmission, setPendingSubmission] =
     useState<ManualSourceEntrySubmission | null>(null);
   const [reviewForm, setReviewForm] = useState<ReviewForm | null>(null);
@@ -147,6 +151,8 @@ function App() {
       setSelectedPurchaseLines(response);
       setPendingSubmission(null);
       setReviewForm(null);
+      setFreeFormText("");
+      setManualEntryMode("structured_row");
       setIsCandidateApproved(false);
       window.history.pushState({}, "", `/projects/${project.id}/purchase-lines`);
     } catch {
@@ -170,12 +176,16 @@ function App() {
     try {
       const submission = await createManualSourceEntry(
         selectedPurchaseLines.project_workspace.id,
-        buildManualSourcePayload(manualSourceForm)
+        buildManualSourcePayload(manualSourceForm, manualEntryMode, freeFormText)
       );
       setPendingSubmission(submission);
-      setReviewForm({ ...manualSourceForm, topLevelCategory: "", subcategory: "" });
+      setReviewForm(buildReviewForm(submission, manualSourceForm));
       setIsCandidateApproved(false);
-      setManualSourceForm(emptyManualSourceForm);
+      if (manualEntryMode === "structured_row") {
+        setManualSourceForm(emptyManualSourceForm);
+      } else {
+        setFreeFormText("");
+      }
     } catch {
       setErrorMessage("Manual Source Entry could not be created.");
     } finally {
@@ -184,7 +194,14 @@ function App() {
   }
 
   async function handleApproveCandidate() {
-    if (selectedPurchaseLines === null || pendingSubmission === null || reviewForm === null) {
+    const candidate = pendingSubmission?.candidates[0] ?? null;
+    if (
+      selectedPurchaseLines === null ||
+      pendingSubmission === null ||
+      pendingSubmission.review_batch === null ||
+      candidate === null ||
+      reviewForm === null
+    ) {
       return;
     }
 
@@ -195,7 +212,7 @@ function App() {
       await decideCandidate(
         selectedPurchaseLines.project_workspace.id,
         pendingSubmission.review_batch.id,
-        pendingSubmission.candidate.id,
+        candidate.id,
         {
           decision: "approved",
           reviewed_payload: buildReviewedPayload(reviewForm)
@@ -210,7 +227,11 @@ function App() {
   }
 
   async function handleImportBatch() {
-    if (selectedPurchaseLines === null || pendingSubmission === null) {
+    if (
+      selectedPurchaseLines === null ||
+      pendingSubmission === null ||
+      pendingSubmission.review_batch === null
+    ) {
       return;
     }
 
@@ -376,80 +397,117 @@ function App() {
               onSubmit={(event) => void handleCreateManualSourceEntry(event)}
             >
               <h3>Create Manual Source Entry</h3>
-              <div className="form-grid three-columns">
+              <div className="segmented-control" aria-label="Manual Source Entry mode">
+                <button
+                  aria-pressed={manualEntryMode === "structured_row"}
+                  className={manualEntryMode === "structured_row" ? "active" : ""}
+                  onClick={() => setManualEntryMode("structured_row")}
+                  type="button"
+                >
+                  Structured Row
+                </button>
+                <button
+                  aria-pressed={manualEntryMode === "free_form_text"}
+                  className={manualEntryMode === "free_form_text" ? "active" : ""}
+                  onClick={() => setManualEntryMode("free_form_text")}
+                  type="button"
+                >
+                  Free-Form Text
+                </button>
+              </div>
+
+              {manualEntryMode === "structured_row" ? (
+                <>
+                  <div className="form-grid three-columns">
+                    <label>
+                      Line type
+                      <select
+                        value={manualSourceForm.lineType}
+                        onChange={(event) =>
+                          updateManualSourceForm(
+                            "lineType",
+                            event.target.value as ManualSourceForm["lineType"]
+                          )
+                        }
+                      >
+                        <option value="material">Material</option>
+                        <option value="service">Service</option>
+                      </select>
+                    </label>
+                    <label>
+                      Item or service name
+                      <input
+                        required
+                        value={manualSourceForm.name}
+                        onChange={(event) => updateManualSourceForm("name", event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Quantity
+                      <input
+                        value={manualSourceForm.quantity}
+                        onChange={(event) => updateManualSourceForm("quantity", event.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <div className="form-grid three-columns">
+                    <label>
+                      Unit
+                      <input
+                        value={manualSourceForm.unit}
+                        onChange={(event) => updateManualSourceForm("unit", event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Price
+                      <input
+                        value={manualSourceForm.price}
+                        onChange={(event) => updateManualSourceForm("price", event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Provider
+                      <input
+                        value={manualSourceForm.providerName}
+                        onChange={(event) =>
+                          updateManualSourceForm("providerName", event.target.value)
+                        }
+                      />
+                    </label>
+                  </div>
+                  <div className="form-grid">
+                    <label>
+                      Purchase date
+                      <input
+                        type="date"
+                        value={manualSourceForm.purchaseDate}
+                        onChange={(event) =>
+                          updateManualSourceForm("purchaseDate", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label>
+                      Remarks or terms
+                      <input
+                        value={manualSourceForm.remarksOrTerms}
+                        onChange={(event) =>
+                          updateManualSourceForm("remarksOrTerms", event.target.value)
+                        }
+                      />
+                    </label>
+                  </div>
+                </>
+              ) : (
                 <label>
-                  Line type
-                  <select
-                    value={manualSourceForm.lineType}
-                    onChange={(event) =>
-                      updateManualSourceForm(
-                        "lineType",
-                        event.target.value as ManualSourceForm["lineType"]
-                      )
-                    }
-                  >
-                    <option value="material">Material</option>
-                    <option value="service">Service</option>
-                  </select>
-                </label>
-                <label>
-                  Item or service name
-                  <input
+                  Free-form source text
+                  <textarea
                     required
-                    value={manualSourceForm.name}
-                    onChange={(event) => updateManualSourceForm("name", event.target.value)}
+                    rows={5}
+                    value={freeFormText}
+                    onChange={(event) => setFreeFormText(event.target.value)}
                   />
                 </label>
-                <label>
-                  Quantity
-                  <input
-                    value={manualSourceForm.quantity}
-                    onChange={(event) => updateManualSourceForm("quantity", event.target.value)}
-                  />
-                </label>
-              </div>
-              <div className="form-grid three-columns">
-                <label>
-                  Unit
-                  <input
-                    value={manualSourceForm.unit}
-                    onChange={(event) => updateManualSourceForm("unit", event.target.value)}
-                  />
-                </label>
-                <label>
-                  Price
-                  <input
-                    value={manualSourceForm.price}
-                    onChange={(event) => updateManualSourceForm("price", event.target.value)}
-                  />
-                </label>
-                <label>
-                  Provider
-                  <input
-                    value={manualSourceForm.providerName}
-                    onChange={(event) => updateManualSourceForm("providerName", event.target.value)}
-                  />
-                </label>
-              </div>
-              <div className="form-grid">
-                <label>
-                  Purchase date
-                  <input
-                    type="date"
-                    value={manualSourceForm.purchaseDate}
-                    onChange={(event) => updateManualSourceForm("purchaseDate", event.target.value)}
-                  />
-                </label>
-                <label>
-                  Remarks or terms
-                  <input
-                    value={manualSourceForm.remarksOrTerms}
-                    onChange={(event) =>
-                      updateManualSourceForm("remarksOrTerms", event.target.value)
-                    }
-                  />
-                </label>
-              </div>
+              )}
               <button
                 className="primary-action compact-action"
                 disabled={isSubmittingManualSource}
@@ -460,7 +518,18 @@ function App() {
               </button>
             </form>
 
-            {pendingSubmission && reviewForm ? (
+            {pendingSubmission ? (
+              <section className="processing-status" aria-label="Processing Job outcome">
+                <p className="eyebrow">{pendingSubmission.processing_job.status}</p>
+                <h3>
+                  {pendingSubmission.processing_job.status === "no_candidates_found"
+                    ? "No candidates found"
+                    : "Processing Job"}
+                </h3>
+              </section>
+            ) : null}
+
+            {pendingSubmission?.review_batch && pendingSubmission.candidates[0] && reviewForm ? (
               <section className="review-panel" aria-label="Review Candidate panel">
                 <div className="view-heading">
                   <p className="eyebrow">{pendingSubmission.review_batch.status}</p>
@@ -589,17 +658,58 @@ function optionalText(value: string): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function buildManualSourcePayload(form: ManualSourceForm): ManualSourceEntryCreate {
+function buildManualSourcePayload(
+  form: ManualSourceForm,
+  mode: ManualEntryMode,
+  originalText: string
+): ManualSourceEntryCreate {
+  if (mode === "free_form_text") {
+    return {
+      entry_type: "free_form_text",
+      original_text: originalText
+    };
+  }
+
   return {
-    line_type: form.lineType,
-    name: form.name.trim(),
-    quantity: optionalText(form.quantity),
-    unit: optionalText(form.unit),
-    price: optionalText(form.price),
-    currency: optionalText(form.currency),
-    provider_name: optionalText(form.providerName),
-    purchase_date: form.purchaseDate || null,
-    remarks_or_terms: optionalText(form.remarksOrTerms)
+    entry_type: "structured_row",
+    structured_payload: {
+      line_type: form.lineType,
+      name: form.name.trim(),
+      quantity: optionalText(form.quantity),
+      unit: optionalText(form.unit),
+      price: optionalText(form.price),
+      currency: optionalText(form.currency),
+      provider_name: optionalText(form.providerName),
+      purchase_date: form.purchaseDate || null,
+      remarks_or_terms: optionalText(form.remarksOrTerms)
+    }
+  };
+}
+
+function buildReviewForm(
+  submission: ManualSourceEntrySubmission,
+  fallbackForm: ManualSourceForm
+): ReviewForm | null {
+  const proposedPayload = submission.candidates[0]?.proposed_payload;
+  if (!proposedPayload) {
+    return null;
+  }
+
+  return {
+    lineType:
+      proposedPayload.line_type === "service" || proposedPayload.line_type === "material"
+        ? proposedPayload.line_type
+        : fallbackForm.lineType,
+    name: String(proposedPayload.name ?? fallbackForm.name),
+    quantity: String(proposedPayload.quantity ?? fallbackForm.quantity ?? ""),
+    unit: String(proposedPayload.unit ?? fallbackForm.unit ?? ""),
+    price: String(proposedPayload.price ?? fallbackForm.price ?? ""),
+    currency: String(proposedPayload.currency ?? fallbackForm.currency ?? ""),
+    providerName: String(proposedPayload.provider_name ?? fallbackForm.providerName ?? ""),
+    purchaseDate: String(proposedPayload.purchase_date ?? fallbackForm.purchaseDate ?? ""),
+    remarksOrTerms: String(proposedPayload.remarks_or_terms ?? fallbackForm.remarksOrTerms ?? ""),
+    topLevelCategory: "",
+    subcategory: ""
   };
 }
 

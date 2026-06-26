@@ -56,6 +56,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/project-workspaces/{project_workspace_id}/processing-jobs/{processing_job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Processing Job */
+        get: operations["get_processing_job_api_project_workspaces__project_workspace_id__processing_jobs__processing_job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}": {
         parameters: {
             query?: never;
@@ -201,8 +218,8 @@ export interface components {
             project_workspace_id: number;
             /** Review Batch Id */
             review_batch_id: number;
-            /** Manual Source Entry Id */
-            manual_source_entry_id: number;
+            /** Source Submission Id */
+            source_submission_id: number;
             /** Status */
             status: string;
             /** Proposed Payload */
@@ -236,26 +253,13 @@ export interface components {
         /** ManualSourceEntryCreate */
         ManualSourceEntryCreate: {
             /**
-             * Line Type
+             * Entry Type
              * @enum {string}
              */
-            line_type: "material" | "service";
-            /** Name */
-            name: string;
-            /** Quantity */
-            quantity?: string | null;
-            /** Unit */
-            unit?: string | null;
-            /** Price */
-            price?: string | null;
-            /** Currency */
-            currency?: string | null;
-            /** Provider Name */
-            provider_name?: string | null;
-            /** Purchase Date */
-            purchase_date?: string | null;
-            /** Remarks Or Terms */
-            remarks_or_terms?: string | null;
+            entry_type: "structured_row" | "free_form_text";
+            structured_payload?: components["schemas"]["StructuredManualSourcePayload"] | null;
+            /** Original Text */
+            original_text?: string | null;
         };
         /** ManualSourceEntryRead */
         ManualSourceEntryRead: {
@@ -263,16 +267,62 @@ export interface components {
             id: number;
             /** Project Workspace Id */
             project_workspace_id: number;
+            /** Source Submission Id */
+            source_submission_id: number;
+            /** Entry Type */
+            entry_type: string;
             /** Structured Payload */
             structured_payload: {
                 [key: string]: unknown;
-            };
+            } | null;
+            /** Original Text */
+            original_text: string | null;
         };
         /** ManualSourceEntrySubmission */
         ManualSourceEntrySubmission: {
+            source_submission: components["schemas"]["SourceSubmissionRead"];
             manual_source_entry: components["schemas"]["ManualSourceEntryRead"];
-            review_batch: components["schemas"]["ReviewBatchRead"];
-            candidate: components["schemas"]["ExtractedCandidateRead"];
+            processing_job: components["schemas"]["ProcessingJobRead"];
+            review_batch: components["schemas"]["ReviewBatchRead"] | null;
+            /** Candidates */
+            candidates: components["schemas"]["ExtractedCandidateRead"][];
+        };
+        /** ProcessingJobDetail */
+        ProcessingJobDetail: {
+            processing_job: components["schemas"]["ProcessingJobRead"];
+            source_submission: components["schemas"]["SourceSubmissionSummary"];
+            /** Review Batch Id */
+            review_batch_id: number | null;
+        };
+        /** ProcessingJobRead */
+        ProcessingJobRead: {
+            /** Id */
+            id: number;
+            /** Project Workspace Id */
+            project_workspace_id: number;
+            /** Source Submission Id */
+            source_submission_id: number;
+            /** Status */
+            status: string;
+            /** Source Type */
+            source_type: string;
+            /** Processor Name */
+            processor_name: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Started At */
+            started_at: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Error Message */
+            error_message: string | null;
+            /** Candidate Count */
+            candidate_count: number;
+            /** Review Batch Id */
+            review_batch_id: number | null;
         };
         /** ProjectWorkspaceCreate */
         ProjectWorkspaceCreate: {
@@ -389,8 +439,8 @@ export interface components {
             id: number;
             /** Project Workspace Id */
             project_workspace_id: number;
-            /** Manual Source Entry Id */
-            manual_source_entry_id: number;
+            /** Source Submission Id */
+            source_submission_id: number;
             /** Status */
             status: string;
         };
@@ -404,6 +454,60 @@ export interface components {
             top_level_category?: string | null;
             /** Subcategory */
             subcategory?: string | null;
+            /** Quantity */
+            quantity?: string | null;
+            /** Unit */
+            unit?: string | null;
+            /** Price */
+            price?: string | null;
+            /** Currency */
+            currency?: string | null;
+            /** Provider Name */
+            provider_name?: string | null;
+            /** Purchase Date */
+            purchase_date?: string | null;
+            /** Remarks Or Terms */
+            remarks_or_terms?: string | null;
+        };
+        /** SourceSubmissionRead */
+        SourceSubmissionRead: {
+            /** Id */
+            id: number;
+            /** Project Workspace Id */
+            project_workspace_id: number;
+            /** Submission Type */
+            submission_type: string;
+            /**
+             * Submitted At
+             * Format: date-time
+             */
+            submitted_at: string;
+            /** Entered By */
+            entered_by: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** SourceSubmissionSummary */
+        SourceSubmissionSummary: {
+            /** Id */
+            id: number;
+            /** Submission Type */
+            submission_type: string;
+            /**
+             * Submitted At
+             * Format: date-time
+             */
+            submitted_at: string;
+        };
+        /** StructuredManualSourcePayload */
+        StructuredManualSourcePayload: {
+            /**
+             * Line Type
+             * @enum {string}
+             */
+            line_type: "material" | "service";
+            /** Name */
+            name: string;
             /** Quantity */
             quantity?: string | null;
             /** Unit */
@@ -543,6 +647,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ManualSourceEntrySubmission"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_processing_job_api_project_workspaces__project_workspace_id__processing_jobs__processing_job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+                processing_job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessingJobDetail"];
                 };
             };
             /** @description Validation Error */

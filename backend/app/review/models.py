@@ -11,8 +11,8 @@ class ReviewBatch(Base):
     project_workspace_id: Mapped[int] = mapped_column(
         ForeignKey("project_workspaces.id"), nullable=False, index=True
     )
-    manual_source_entry_id: Mapped[int] = mapped_column(
-        ForeignKey("manual_source_entries.id"), nullable=False
+    source_submission_id: Mapped[int] = mapped_column(
+        ForeignKey("source_submissions.id"), nullable=False
     )
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="review_pending")
 
@@ -27,8 +27,8 @@ class ExtractedCandidate(Base):
     review_batch_id: Mapped[int] = mapped_column(
         ForeignKey("review_batches.id"), nullable=False, index=True
     )
-    manual_source_entry_id: Mapped[int] = mapped_column(
-        ForeignKey("manual_source_entries.id"), nullable=False
+    source_submission_id: Mapped[int] = mapped_column(
+        ForeignKey("source_submissions.id"), nullable=False
     )
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending_review")
     proposed_payload: Mapped[dict] = mapped_column(JSON, nullable=False)

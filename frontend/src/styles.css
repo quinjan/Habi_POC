@@ -151,6 +151,7 @@ h3 {
 
 .manual-source-form input,
 .manual-source-form select,
+.manual-source-form textarea,
 .review-panel input {
   width: 100%;
   min-width: 0;
@@ -160,6 +161,10 @@ h3 {
   color: #1b1f26;
   background: #ffffff;
   font-weight: 500;
+}
+
+.manual-source-form textarea {
+  resize: vertical;
 }
 
 .project-form textarea {
@@ -214,6 +219,34 @@ h3 {
   opacity: 0.65;
 }
 
+.segmented-control {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 160px));
+  justify-self: start;
+  overflow: hidden;
+  border: 1px solid #b8c7c0;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.segmented-control button {
+  min-height: 40px;
+  border: 0;
+  border-right: 1px solid #b8c7c0;
+  color: #31413f;
+  background: #ffffff;
+  font-weight: 800;
+}
+
+.segmented-control button:last-child {
+  border-right: 0;
+}
+
+.segmented-control button.active {
+  color: #ffffff;
+  background: #2f6f73;
+}
+
 .workspace-view {
   display: grid;
   align-content: start;
@@ -224,12 +257,18 @@ h3 {
 }
 
 .manual-source-form,
+.processing-status,
 .review-panel,
 .purchase-lines-table-wrap {
   padding: 18px;
   border: 1px solid #d5ddd7;
   border-radius: 8px;
   background: #ffffff;
+}
+
+.processing-status {
+  display: grid;
+  gap: 4px;
 }
 
 .review-actions {

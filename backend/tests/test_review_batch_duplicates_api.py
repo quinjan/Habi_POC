@@ -1,33 +1,29 @@
-import os
-
 from fastapi.testclient import TestClient
 
+from backend.tests.db import make_postgres_test_client
 
-def make_client(tmp_path):
-    os.environ["HABI_DATABASE_URL"] = f"sqlite+pysqlite:///{tmp_path / 'habi_test.db'}"
 
-    from backend.app.main import create_app
-
-    return TestClient(create_app())
+def make_client(_tmp_path):
+    return make_postgres_test_client()
 
 
 def test_duplicate_group_membership_merge_and_unmerge_workflow(tmp_path):
     with make_client(tmp_path) as client:
         project = create_project(client)
         submission = create_manual_submission(client, project["id"])
-        first_candidate_id = submission["candidate"]["id"]
+        first_candidate_id = submission["candidates"][0]["id"]
         second_candidate_id = add_candidate_to_batch(
             client,
             project_workspace_id=project["id"],
             review_batch_id=submission["review_batch"]["id"],
-            manual_source_entry_id=submission["manual_source_entry"]["id"],
+            source_submission_id=submission["source_submission"]["id"],
             proposed_payload={"line_type": "material", "name": "PVC pipes"},
         )
         outside_group_candidate_id = add_candidate_to_batch(
             client,
             project_workspace_id=project["id"],
             review_batch_id=submission["review_batch"]["id"],
-            manual_source_entry_id=submission["manual_source_entry"]["id"],
+            source_submission_id=submission["source_submission"]["id"],
             proposed_payload={"line_type": "service", "name": "Hauling"},
         )
 
@@ -87,12 +83,12 @@ def test_duplicate_group_with_multiple_approved_survivors_blocks_readiness_and_i
     with make_client(tmp_path) as client:
         project = create_project(client)
         submission = create_manual_submission(client, project["id"])
-        first_candidate_id = submission["candidate"]["id"]
+        first_candidate_id = submission["candidates"][0]["id"]
         second_candidate_id = add_candidate_to_batch(
             client,
             project_workspace_id=project["id"],
             review_batch_id=submission["review_batch"]["id"],
-            manual_source_entry_id=submission["manual_source_entry"]["id"],
+            source_submission_id=submission["source_submission"]["id"],
             proposed_payload={"line_type": "material", "name": "PVC pipes"},
         )
         client.post(
@@ -132,12 +128,12 @@ def test_duplicate_merge_conflicts_are_reported_for_self_merge_unresolved_target
     with make_client(tmp_path) as client:
         project = create_project(client)
         submission = create_manual_submission(client, project["id"])
-        first_candidate_id = submission["candidate"]["id"]
+        first_candidate_id = submission["candidates"][0]["id"]
         second_candidate_id = add_candidate_to_batch(
             client,
             project_workspace_id=project["id"],
             review_batch_id=submission["review_batch"]["id"],
-            manual_source_entry_id=submission["manual_source_entry"]["id"],
+            source_submission_id=submission["source_submission"]["id"],
             proposed_payload={"line_type": "material", "name": "PVC pipes"},
         )
         client.post(
@@ -178,19 +174,19 @@ def test_persisted_invalid_merge_targets_are_reported_as_duplicate_conflicts(tmp
     with make_client(tmp_path) as client:
         project = create_project(client)
         submission = create_manual_submission(client, project["id"])
-        first_candidate_id = submission["candidate"]["id"]
+        first_candidate_id = submission["candidates"][0]["id"]
         second_candidate_id = add_candidate_to_batch(
             client,
             project_workspace_id=project["id"],
             review_batch_id=submission["review_batch"]["id"],
-            manual_source_entry_id=submission["manual_source_entry"]["id"],
+            source_submission_id=submission["source_submission"]["id"],
             proposed_payload={"line_type": "material", "name": "PVC pipes"},
         )
         outside_group_candidate_id = add_candidate_to_batch(
             client,
             project_workspace_id=project["id"],
             review_batch_id=submission["review_batch"]["id"],
-            manual_source_entry_id=submission["manual_source_entry"]["id"],
+            source_submission_id=submission["source_submission"]["id"],
             proposed_payload={"line_type": "service", "name": "Hauling"},
         )
         client.post(
@@ -225,8 +221,8 @@ def test_imports_approved_survivor_once_and_promotes_merged_candidate_evidence(t
     with make_client(tmp_path) as client:
         project = create_project(client)
         submission = create_manual_submission(client, project["id"])
-        survivor_candidate_id = submission["candidate"]["id"]
-        merged_source_entry_id = add_manual_source_entry(
+        survivor_candidate_id = submission["candidates"][0]["id"]
+        merged_source_submission_id = add_manual_source_entry(
             client,
             project_workspace_id=project["id"],
             structured_payload={
@@ -239,7 +235,7 @@ def test_imports_approved_survivor_once_and_promotes_merged_candidate_evidence(t
             client,
             project_workspace_id=project["id"],
             review_batch_id=submission["review_batch"]["id"],
-            manual_source_entry_id=merged_source_entry_id,
+            source_submission_id=merged_source_submission_id,
             proposed_payload={
                 "line_type": "material",
                 "name": "PVC pipe duplicate receipt",
@@ -300,14 +296,17 @@ def create_manual_submission(client: TestClient, project_workspace_id: int):
     return client.post(
         f"/api/project-workspaces/{project_workspace_id}/manual-source-entries",
         json={
-            "line_type": "material",
-            "name": "PVC pipe",
-            "quantity": "20",
-            "unit": "pcs",
-            "price": "1500",
-            "provider_name": "ABC Trading",
-            "purchase_date": "2025-07-12",
-            "remarks_or_terms": "Delivery included",
+            "entry_type": "structured_row",
+            "structured_payload": {
+                "line_type": "material",
+                "name": "PVC pipe",
+                "quantity": "20",
+                "unit": "pcs",
+                "price": "1500",
+                "provider_name": "ABC Trading",
+                "purchase_date": "2025-07-12",
+                "remarks_or_terms": "Delivery included",
+            },
         },
     ).json()
 
@@ -317,7 +316,7 @@ def add_candidate_to_batch(
     *,
     project_workspace_id: int,
     review_batch_id: int,
-    manual_source_entry_id: int,
+    source_submission_id: int,
     proposed_payload: dict,
 ) -> int:
     from backend.app.review.models import ExtractedCandidate
@@ -326,7 +325,7 @@ def add_candidate_to_batch(
         candidate = ExtractedCandidate(
             project_workspace_id=project_workspace_id,
             review_batch_id=review_batch_id,
-            manual_source_entry_id=manual_source_entry_id,
+            source_submission_id=source_submission_id,
             status="pending_review",
             proposed_payload=proposed_payload,
         )
@@ -341,16 +340,26 @@ def add_manual_source_entry(
     project_workspace_id: int,
     structured_payload: dict,
 ) -> int:
-    from backend.app.sources.models import ManualSourceEntry
+    from backend.app.sources.models import ManualSourceEntry, SourceSubmission
 
     with client.app.state.session_factory() as session:
+        source_submission = SourceSubmission(
+            project_workspace_id=project_workspace_id,
+            submission_type="manual_source_entry",
+            entered_by=None,
+        )
+        session.add(source_submission)
+        session.flush()
         manual_source_entry = ManualSourceEntry(
             project_workspace_id=project_workspace_id,
+            source_submission_id=source_submission.id,
+            entry_type="structured_row",
             structured_payload=structured_payload,
+            original_text=None,
         )
         session.add(manual_source_entry)
         session.commit()
-        return manual_source_entry.id
+        return source_submission.id
 
 
 def approve_candidate(

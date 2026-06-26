@@ -51,29 +51,109 @@ describe("Project Workspace app shell", () => {
 
         if (url === "/api/project-workspaces/1/manual-source-entries" && method === "POST") {
           const body = JSON.parse(String(init?.body));
+          const sourceSubmission = {
+            id: 30,
+            project_workspace_id: 1,
+            submission_type: "manual_source_entry",
+            submitted_at: "2026-06-27T00:00:00Z",
+            entered_by: null
+          };
+          const manualSourceEntry = {
+            id: 31,
+            project_workspace_id: 1,
+            source_submission_id: 30,
+            entry_type: body.entry_type,
+            structured_payload: body.structured_payload ?? null,
+            original_text: body.original_text ?? null
+          };
+          const processingJobBase = {
+            id: 32,
+            project_workspace_id: 1,
+            source_submission_id: 30,
+            source_type: "manual_source_entry",
+            processor_name:
+              body.entry_type === "free_form_text"
+                ? "manual_free_form_stub_v1"
+                : "structured_manual_row_v1",
+            created_at: "2026-06-27T00:00:00Z",
+            started_at: "2026-06-27T00:00:00Z",
+            finished_at: "2026-06-27T00:00:00Z",
+            error_message: null
+          };
+
+          if (body.entry_type === "free_form_text" && body.original_text === "Follow up with foreman") {
+            return jsonResponse(
+              {
+                source_submission: sourceSubmission,
+                manual_source_entry: manualSourceEntry,
+                processing_job: {
+                  ...processingJobBase,
+                  status: "no_candidates_found",
+                  candidate_count: 0,
+                  review_batch_id: null
+                },
+                review_batch: null,
+                candidates: []
+              },
+              201
+            );
+          }
+
+          const proposedPayload =
+            body.entry_type === "free_form_text"
+              ? {
+                  line_type: "material",
+                  name: "PVC pipe",
+                  quantity: "20",
+                  unit: "pcs",
+                  price: "1500",
+                  currency: "PHP",
+                  provider_name: "ABC Trading",
+                  purchase_date: null,
+                  remarks_or_terms: null,
+                  raw_text: body.original_text,
+                  confidence: 0.72,
+                  category_suggestion: {
+                    top_level_category: "Plumbing",
+                    subcategory: "Pipes"
+                  },
+                  evidence: {
+                    source_submission_id: 30,
+                    snippet: body.original_text,
+                    locator: "manual_source_entry.original_text"
+                  }
+                }
+              : body.structured_payload;
+
           return jsonResponse(
             {
-              manual_source_entry: {
-                id: 30,
-                project_workspace_id: 1,
-                structured_payload: body
+              source_submission: sourceSubmission,
+              manual_source_entry: manualSourceEntry,
+              processing_job: {
+                ...processingJobBase,
+                status: "review_ready",
+                candidate_count: 1,
+                review_batch_id: 10
               },
               review_batch: {
                 id: 10,
                 project_workspace_id: 1,
-                manual_source_entry_id: 30,
+                source_submission_id: 30,
                 status: "review_pending"
               },
-              candidate: {
-                id: 20,
-                project_workspace_id: 1,
-                review_batch_id: 10,
-                manual_source_entry_id: 30,
-                status: "pending_review",
-                proposed_payload: body,
-                decision: null,
-                reviewed_payload: null
-              }
+              candidates: [
+                {
+                  id: 20,
+                  project_workspace_id: 1,
+                  review_batch_id: 10,
+                  source_submission_id: 30,
+                  status: "pending_review",
+                  proposed_payload: proposedPayload,
+                  decision: null,
+                  merged_into_candidate_id: null,
+                  reviewed_payload: null
+                }
+              ]
             },
             201
           );
@@ -88,10 +168,11 @@ describe("Project Workspace app shell", () => {
             id: 20,
             project_workspace_id: 1,
             review_batch_id: 10,
-            manual_source_entry_id: 30,
+            source_submission_id: 30,
             status: "approved_for_import",
             proposed_payload: body.reviewed_payload,
             decision: body.decision,
+            merged_into_candidate_id: null,
             reviewed_payload: body.reviewed_payload
           });
         }
@@ -207,6 +288,61 @@ describe("Project Workspace app shell", () => {
     expect(within(selectedWorkspace).getByText("ABC Trading")).toBeInTheDocument();
     expect(within(selectedWorkspace).getByText("Plumbing / Pipes")).toBeInTheDocument();
     expect(within(selectedWorkspace).getByText("Manual Source Entry")).toBeInTheDocument();
+  });
+
+  test("reviewer submits free-form text, reviews the parsed candidate, and imports it", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+
+    await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
+    await user.type(
+      screen.getByLabelText("Free-form source text"),
+      "PVC pipe, 20 pcs, from ABC Trading, PHP 1,500"
+    );
+    await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
+
+    expect(await screen.findByText("review_ready")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Review Candidate" })).toBeInTheDocument();
+    expect(screen.getByDisplayValue("PVC pipe")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Top-level category"), "Plumbing");
+    await user.type(screen.getByLabelText("Subcategory"), "Pipes");
+    await user.click(screen.getByRole("button", { name: "Approve Candidate" }));
+    await user.click(await screen.findByRole("button", { name: "Import Approved Batch" }));
+
+    const selectedWorkspace = screen.getByRole("region", {
+      name: "Selected Project Workspace"
+    });
+    expect(await within(selectedWorkspace).findByText("PVC pipe")).toBeInTheDocument();
+    expect(within(selectedWorkspace).getByText("ABC Trading")).toBeInTheDocument();
+  });
+
+  test("reviewer sees no candidates found for unusable free-form text", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+
+    await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
+    await user.type(screen.getByLabelText("Free-form source text"), "Follow up with foreman");
+    await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
+
+    expect(await screen.findByText("no_candidates_found")).toBeInTheDocument();
+    expect(screen.getByText("No candidates found")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Review Candidate" })).not.toBeInTheDocument();
   });
 });
 
