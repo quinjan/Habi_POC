@@ -64,6 +64,10 @@ _Avoid_: Deleted record, deactivated record
 A final/as-used project purchasing fact that connects an item or service to quantity, unit, price, supplier or provider, date, and source evidence when available.
 _Avoid_: Bid estimate line, unselected canvass quote
 
+**Unknown Field State**:
+A reviewed data gap on a purchase line where a value such as unit, price, date, or provider is intentionally marked unknown instead of being invented or silently omitted.
+_Avoid_: Null display fallback, missing bug
+
 **Provider**:
 An external company or person that supplied materials, provided services, or handled bundled supply-and-install work for the completed project.
 _Avoid_: Separate supplier and service provider records for the same company

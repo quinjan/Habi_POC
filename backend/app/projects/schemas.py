@@ -40,6 +40,26 @@ class ProjectWorkspaceList(BaseModel):
     items: list[ProjectWorkspaceListItem]
 
 
+class PurchaseLineRow(BaseModel):
+    id: int
+    item_or_service_name: str
+    line_type: str
+    provider_name: str | None
+    provider_type: str
+    provider_role: str | None
+    quantity: str | None
+    unit: str | None
+    unit_state: str
+    price: str | None
+    currency: str | None
+    price_state: str
+    purchase_date: date | None
+    date_state: str
+    category_path: str
+    has_evidence: bool
+    source_label: str
+
+
 class ProjectWorkspacePurchaseLinesView(BaseModel):
     project_workspace: ProjectWorkspaceListItem
-    items: list[object]
+    items: list[PurchaseLineRow]

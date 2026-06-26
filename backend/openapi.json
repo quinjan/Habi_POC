@@ -106,10 +106,325 @@
           }
         }
       }
+    },
+    "/api/project-workspaces/{project_workspace_id}/manual-source-entries": {
+      "post": {
+        "tags": [
+          "manual-source-entries"
+        ],
+        "summary": "Create Manual Source Entry",
+        "operationId": "create_manual_source_entry_api_project_workspaces__project_workspace_id__manual_source_entries_post",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualSourceEntryCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualSourceEntrySubmission"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}": {
+      "get": {
+        "tags": [
+          "review-batches"
+        ],
+        "summary": "Get Review Batch",
+        "operationId": "get_review_batch_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__get",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          },
+          {
+            "name": "review_batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Review Batch Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewBatchDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/candidates/{candidate_id}/decision": {
+      "post": {
+        "tags": [
+          "review-batches"
+        ],
+        "summary": "Decide Candidate",
+        "operationId": "decide_candidate_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__candidates__candidate_id__decision_post",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          },
+          {
+            "name": "review_batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Review Batch Id"
+            }
+          },
+          {
+            "name": "candidate_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Candidate Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CandidateDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractedCandidateRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/import": {
+      "post": {
+        "tags": [
+          "review-batches"
+        ],
+        "summary": "Import Review Batch",
+        "operationId": "import_review_batch_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__import_post",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          },
+          {
+            "name": "review_batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Review Batch Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportReviewBatchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "CandidateDecisionRequest": {
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approved",
+              "rejected"
+            ],
+            "title": "Decision"
+          },
+          "reviewed_payload": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewedPurchaseLinePayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "decision"
+        ],
+        "title": "CandidateDecisionRequest"
+      },
+      "ExtractedCandidateRead": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "project_workspace_id": {
+            "type": "integer",
+            "title": "Project Workspace Id"
+          },
+          "review_batch_id": {
+            "type": "integer",
+            "title": "Review Batch Id"
+          },
+          "manual_source_entry_id": {
+            "type": "integer",
+            "title": "Manual Source Entry Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "proposed_payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Proposed Payload"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision"
+          },
+          "reviewed_payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed Payload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_workspace_id",
+          "review_batch_id",
+          "manual_source_entry_id",
+          "status",
+          "proposed_payload",
+          "decision",
+          "reviewed_payload"
+        ],
+        "title": "ExtractedCandidateRead"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -122,6 +437,187 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "ImportReviewBatchResponse": {
+        "properties": {
+          "imported_purchase_lines": {
+            "items": {
+              "$ref": "#/components/schemas/ImportedPurchaseLine"
+            },
+            "type": "array",
+            "title": "Imported Purchase Lines"
+          }
+        },
+        "type": "object",
+        "required": [
+          "imported_purchase_lines"
+        ],
+        "title": "ImportReviewBatchResponse"
+      },
+      "ImportedPurchaseLine": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "ImportedPurchaseLine"
+      },
+      "ManualSourceEntryCreate": {
+        "properties": {
+          "line_type": {
+            "type": "string",
+            "enum": [
+              "material",
+              "service"
+            ],
+            "title": "Line Type"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 10
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "provider_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Name"
+          },
+          "purchase_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purchase Date"
+          },
+          "remarks_or_terms": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remarks Or Terms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "line_type",
+          "name"
+        ],
+        "title": "ManualSourceEntryCreate"
+      },
+      "ManualSourceEntryRead": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "project_workspace_id": {
+            "type": "integer",
+            "title": "Project Workspace Id"
+          },
+          "structured_payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Structured Payload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_workspace_id",
+          "structured_payload"
+        ],
+        "title": "ManualSourceEntryRead"
+      },
+      "ManualSourceEntrySubmission": {
+        "properties": {
+          "manual_source_entry": {
+            "$ref": "#/components/schemas/ManualSourceEntryRead"
+          },
+          "review_batch": {
+            "$ref": "#/components/schemas/ReviewBatchRead"
+          },
+          "candidate": {
+            "$ref": "#/components/schemas/ExtractedCandidateRead"
+          }
+        },
+        "type": "object",
+        "required": [
+          "manual_source_entry",
+          "review_batch",
+          "candidate"
+        ],
+        "title": "ManualSourceEntrySubmission"
       },
       "ProjectWorkspaceCreate": {
         "properties": {
@@ -260,7 +756,9 @@
             "$ref": "#/components/schemas/ProjectWorkspaceListItem"
           },
           "items": {
-            "items": {},
+            "items": {
+              "$ref": "#/components/schemas/PurchaseLineRow"
+            },
             "type": "array",
             "title": "Items"
           }
@@ -373,6 +871,338 @@
           "id"
         ],
         "title": "ProjectWorkspaceRead"
+      },
+      "PurchaseLineRow": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "item_or_service_name": {
+            "type": "string",
+            "title": "Item Or Service Name"
+          },
+          "line_type": {
+            "type": "string",
+            "title": "Line Type"
+          },
+          "provider_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Name"
+          },
+          "provider_type": {
+            "type": "string",
+            "title": "Provider Type"
+          },
+          "provider_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Role"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "unit_state": {
+            "type": "string",
+            "title": "Unit State"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "price_state": {
+            "type": "string",
+            "title": "Price State"
+          },
+          "purchase_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purchase Date"
+          },
+          "date_state": {
+            "type": "string",
+            "title": "Date State"
+          },
+          "category_path": {
+            "type": "string",
+            "title": "Category Path"
+          },
+          "has_evidence": {
+            "type": "boolean",
+            "title": "Has Evidence"
+          },
+          "source_label": {
+            "type": "string",
+            "title": "Source Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "item_or_service_name",
+          "line_type",
+          "provider_name",
+          "provider_type",
+          "provider_role",
+          "quantity",
+          "unit",
+          "unit_state",
+          "price",
+          "currency",
+          "price_state",
+          "purchase_date",
+          "date_state",
+          "category_path",
+          "has_evidence",
+          "source_label"
+        ],
+        "title": "PurchaseLineRow"
+      },
+      "ReviewBatchDetail": {
+        "properties": {
+          "review_batch": {
+            "$ref": "#/components/schemas/ReviewBatchRead"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractedCandidateRead"
+            },
+            "type": "array",
+            "title": "Candidates"
+          }
+        },
+        "type": "object",
+        "required": [
+          "review_batch",
+          "candidates"
+        ],
+        "title": "ReviewBatchDetail"
+      },
+      "ReviewBatchRead": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "project_workspace_id": {
+            "type": "integer",
+            "title": "Project Workspace Id"
+          },
+          "manual_source_entry_id": {
+            "type": "integer",
+            "title": "Manual Source Entry Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_workspace_id",
+          "manual_source_entry_id",
+          "status"
+        ],
+        "title": "ReviewBatchRead"
+      },
+      "ReviewedPurchaseLinePayload": {
+        "properties": {
+          "line_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "material",
+                  "service"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Type"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "top_level_category": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Level Category"
+          },
+          "subcategory": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subcategory"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 10
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "provider_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Name"
+          },
+          "purchase_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purchase Date"
+          },
+          "remarks_or_terms": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remarks Or Terms"
+          }
+        },
+        "type": "object",
+        "title": "ReviewedPurchaseLinePayload"
       },
       "ValidationError": {
         "properties": {
