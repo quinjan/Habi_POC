@@ -125,6 +125,103 @@ def test_approved_manual_candidate_imports_active_purchase_line_with_evidence(tm
     ]
 
 
+def test_review_batch_status_reaches_ready_only_after_complete_importable_review(tmp_path):
+    with make_client(tmp_path) as client:
+        project = client.post(
+            "/api/project-workspaces",
+            json={
+                "project_name": "Arnaiz Residence Renovation",
+                "project_type": "Residential renovation",
+                "location": "Makati City",
+                "completion_year": 2025,
+            },
+        ).json()
+        submission = client.post(
+            f"/api/project-workspaces/{project['id']}/manual-source-entries",
+            json={
+                "line_type": "material",
+                "name": "PVC pipe",
+                "quantity": "20",
+                "unit": "pcs",
+                "price": "1500",
+                "provider_name": "ABC Trading",
+                "purchase_date": "2025-07-12",
+                "remarks_or_terms": "Delivery included",
+            },
+        ).json()
+        extra_candidate_id = add_candidate_to_batch(
+            client,
+            project_workspace_id=project["id"],
+            review_batch_id=submission["review_batch"]["id"],
+            manual_source_entry_id=submission["manual_source_entry"]["id"],
+            proposed_payload={
+                "line_type": "service",
+                "name": "Hauling",
+                "quantity": "1",
+                "unit": "lot",
+                "price": "2500",
+                "provider_name": "ABC Trading",
+            },
+        )
+
+        first_decision = client.post(
+            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/candidates/{submission['candidate']['id']}/decision",
+            json={
+                "decision": "approved",
+                "reviewed_payload": {
+                    "line_type": "material",
+                    "name": "PVC pipe",
+                    "top_level_category": "Plumbing",
+                    "subcategory": "",
+                    "quantity": "20",
+                    "unit": "pcs",
+                    "price": "1500",
+                    "provider_name": "ABC Trading",
+                    "purchase_date": "2025-07-12",
+                },
+            },
+        )
+        after_first_decision = client.get(
+            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}"
+        )
+
+        rejection = client.post(
+            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/candidates/{extra_candidate_id}/decision",
+            json={"decision": "rejected", "reviewed_payload": None},
+        )
+        after_rejection = client.get(
+            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}"
+        )
+
+        corrected_decision = client.post(
+            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/candidates/{submission['candidate']['id']}/decision",
+            json={
+                "decision": "approved",
+                "reviewed_payload": {
+                    "line_type": "material",
+                    "name": "PVC pipe",
+                    "top_level_category": "Plumbing",
+                    "subcategory": "Pipes",
+                    "quantity": "20",
+                    "unit": "pcs",
+                    "price": "1500",
+                    "provider_name": "ABC Trading",
+                    "purchase_date": "2025-07-12",
+                },
+            },
+        )
+        after_correction = client.get(
+            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}"
+        )
+
+    assert first_decision.status_code == 200
+    assert after_first_decision.json()["review_batch"]["status"] == "review_in_progress"
+    assert rejection.status_code == 200
+    assert after_rejection.json()["review_batch"]["status"] == "review_in_progress"
+    assert corrected_decision.status_code == 200
+    assert after_correction.json()["review_batch"]["status"] == "ready_to_import"
+
+
 def test_manual_import_preserves_unknown_states_and_project_scope(tmp_path):
     with make_client(tmp_path) as client:
         project = client.post(
@@ -209,3 +306,26 @@ def test_manual_import_preserves_unknown_states_and_project_scope(tmp_path):
     }
     assert other_purchase_lines.status_code == 200
     assert other_purchase_lines.json()["items"] == []
+
+
+def add_candidate_to_batch(
+    client: TestClient,
+    *,
+    project_workspace_id: int,
+    review_batch_id: int,
+    manual_source_entry_id: int,
+    proposed_payload: dict,
+) -> int:
+    from backend.app.review.models import ExtractedCandidate
+
+    with client.app.state.session_factory() as session:
+        candidate = ExtractedCandidate(
+            project_workspace_id=project_workspace_id,
+            review_batch_id=review_batch_id,
+            manual_source_entry_id=manual_source_entry_id,
+            status="pending_review",
+            proposed_payload=proposed_payload,
+        )
+        session.add(candidate)
+        session.commit()
+        return candidate.id

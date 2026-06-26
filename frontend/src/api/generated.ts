@@ -90,6 +90,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/duplicate-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Duplicate Group */
+        post: operations["create_duplicate_group_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__duplicate_groups_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/duplicate-groups/{duplicate_group_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Update Duplicate Group Members */
+        post: operations["update_duplicate_group_members_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__duplicate_groups__duplicate_group_id__members_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/close-with-no-import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Close Review Batch No Import */
+        post: operations["close_review_batch_no_import_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__close_with_no_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/import": {
         parameters: {
             query?: never;
@@ -113,12 +164,34 @@ export interface components {
     schemas: {
         /** CandidateDecisionRequest */
         CandidateDecisionRequest: {
-            /**
-             * Decision
-             * @enum {string}
-             */
-            decision: "approved" | "rejected";
+            /** Decision */
+            decision: ("approved" | "rejected" | "merged") | null;
             reviewed_payload?: components["schemas"]["ReviewedPurchaseLinePayload"] | null;
+            /** Merged Into Candidate Id */
+            merged_into_candidate_id?: number | null;
+        };
+        /** DuplicateCandidateGroupCreate */
+        DuplicateCandidateGroupCreate: {
+            /** Member Candidate Ids */
+            member_candidate_ids: number[];
+        };
+        /** DuplicateCandidateGroupMembersRequest */
+        DuplicateCandidateGroupMembersRequest: {
+            /** Add Candidate Ids */
+            add_candidate_ids?: number[];
+            /** Remove Candidate Ids */
+            remove_candidate_ids?: number[];
+        };
+        /** DuplicateCandidateGroupRead */
+        DuplicateCandidateGroupRead: {
+            /** Id */
+            id: number;
+            /** Project Workspace Id */
+            project_workspace_id: number;
+            /** Review Batch Id */
+            review_batch_id: number;
+            /** Member Candidate Ids */
+            member_candidate_ids: number[];
         };
         /** ExtractedCandidateRead */
         ExtractedCandidateRead: {
@@ -138,6 +211,8 @@ export interface components {
             };
             /** Decision */
             decision: string | null;
+            /** Merged Into Candidate Id */
+            merged_into_candidate_id: number | null;
             /** Reviewed Payload */
             reviewed_payload: {
                 [key: string]: unknown;
@@ -303,6 +378,10 @@ export interface components {
             review_batch: components["schemas"]["ReviewBatchRead"];
             /** Candidates */
             candidates: components["schemas"]["ExtractedCandidateRead"][];
+            /** Duplicate Groups */
+            duplicate_groups?: components["schemas"]["DuplicateCandidateGroupRead"][];
+            /** Duplicate Conflicts */
+            duplicate_conflicts?: string[];
         };
         /** ReviewBatchRead */
         ReviewBatchRead: {
@@ -533,6 +612,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExtractedCandidateRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_duplicate_group_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__duplicate_groups_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+                review_batch_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DuplicateCandidateGroupCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DuplicateCandidateGroupRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_duplicate_group_members_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__duplicate_groups__duplicate_group_id__members_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+                review_batch_id: number;
+                duplicate_group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DuplicateCandidateGroupMembersRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DuplicateCandidateGroupRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    close_review_batch_no_import_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__close_with_no_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+                review_batch_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewBatchRead"];
                 };
             };
             /** @description Validation Error */
