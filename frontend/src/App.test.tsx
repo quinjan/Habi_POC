@@ -691,6 +691,45 @@ describe("Project Workspace app shell", () => {
     });
   });
 
+  test("reviewer sees mapped taxonomy status after saving a custom taxonomy", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+    await user.click(screen.getByRole("tab", { name: "Upload / Review" }));
+    await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
+    await user.type(
+      screen.getByLabelText("Free-form source text"),
+      "PVC pipe and PVC elbow, 20 pcs, from ABC Trading, PHP 1,500"
+    );
+    await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
+    await user.click(await screen.findByRole("button", { name: "Open Review Batch" }));
+
+    await user.click(screen.getAllByRole("button", { name: "Details" })[0]);
+    let detail = await screen.findByRole("dialog", { name: "Candidate Detail" });
+    await user.click(within(detail).getByRole("button", { name: "Change Taxonomy" }));
+
+    const taxonomy = await screen.findByRole("dialog", { name: "Resolve Taxonomy" });
+    await user.clear(within(taxonomy).getByLabelText("Top-Level Category"));
+    await user.type(within(taxonomy).getByLabelText("Top-Level Category"), "Custom");
+    await user.clear(within(taxonomy).getByLabelText("Subcategory"));
+    await user.type(within(taxonomy).getByLabelText("Subcategory"), "Materials");
+    await user.click(within(taxonomy).getByRole("button", { name: "Save Mapping" }));
+
+    expect(await screen.findByText("Taxonomy mapping saved.")).toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: "Details" })[0]);
+    detail = await screen.findByRole("dialog", { name: "Candidate Detail" });
+    expect(within(detail).getByText("Taxonomy Status")).toBeInTheDocument();
+    expect(within(detail).getByText("Reviewer mapped taxonomy")).toBeInTheDocument();
+    expect(within(detail).queryByText("AI suggested default")).not.toBeInTheDocument();
+  });
+
   test("reviewer opens Candidate Detail and sees review context", async () => {
     const user = userEvent.setup();
 

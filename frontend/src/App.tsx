@@ -1126,6 +1126,7 @@ function App() {
                       reviewedPayload.top_level_category && reviewedPayload.subcategory
                         ? `${reviewedPayload.top_level_category} / ${reviewedPayload.subcategory}`
                         : "Needs taxonomy";
+                    const taxonomyStatus = taxonomyStatusLabel(detailCandidate, reviewedPayload);
                     return (
                       <>
                         <div className="view-heading">
@@ -1143,11 +1144,7 @@ function App() {
                           </div>
                           <div>
                             <dt>Taxonomy Status</dt>
-                            <dd>
-                              {reviewedPayload.top_level_category && reviewedPayload.subcategory
-                                ? "AI suggested default"
-                                : "Needs taxonomy"}
-                            </dd>
+                            <dd>{taxonomyStatus}</dd>
                           </div>
                           <div>
                             <dt>Name</dt>
@@ -1570,6 +1567,21 @@ function normalizedTaxonomySuggestionKey(candidate: ExtractedCandidateRead): str
     )}`;
   }
   return null;
+}
+
+function taxonomyStatusLabel(
+  candidate: ExtractedCandidateRead,
+  reviewedPayload: ReviewedPurchaseLinePayload
+): string {
+  if (!reviewedPayload.top_level_category || !reviewedPayload.subcategory) {
+    return "Needs taxonomy";
+  }
+
+  const reviewedKey = `${normalizeTaxonomyPart(
+    reviewedPayload.top_level_category
+  )} / ${normalizeTaxonomyPart(reviewedPayload.subcategory)}`;
+  const suggestedKey = normalizedTaxonomySuggestionKey(candidate);
+  return suggestedKey === reviewedKey ? "AI suggested default" : "Reviewer mapped taxonomy";
 }
 
 function normalizeTaxonomyPart(value: string): string {
