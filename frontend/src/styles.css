@@ -128,7 +128,8 @@ h3 {
 
 .project-form label,
 .manual-source-form label,
-.review-panel label {
+.review-panel label,
+.modal-panel label {
   display: grid;
   gap: 6px;
   color: #34403f;
@@ -153,7 +154,9 @@ h3 {
 .manual-source-form select,
 .manual-source-form textarea,
 .review-panel input,
-.review-panel select {
+.review-panel select,
+.modal-panel input,
+.modal-panel select {
   width: 100%;
   min-width: 0;
   border: 1px solid #c7cec8;
@@ -248,6 +251,28 @@ h3 {
   background: #2f6f73;
 }
 
+.workspace-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px solid #d5ddd7;
+}
+
+.workspace-tabs button {
+  min-height: 40px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  padding: 8px 12px;
+  color: #31413f;
+  background: transparent;
+  font-weight: 800;
+}
+
+.workspace-tabs button[aria-selected="true"] {
+  border-bottom-color: #2f6f73;
+  color: #234e52;
+}
+
 .workspace-view {
   display: grid;
   align-content: start;
@@ -260,6 +285,7 @@ h3 {
 .manual-source-form,
 .processing-job-queue,
 .review-panel,
+.review-batch-page,
 .purchase-lines-table-wrap {
   padding: 18px;
   border: 1px solid #d5ddd7;
@@ -270,6 +296,140 @@ h3 {
 .processing-job-queue {
   display: grid;
   gap: 12px;
+}
+
+.review-batch-page {
+  display: grid;
+  gap: 12px;
+  overflow-x: auto;
+}
+
+.review-batch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.toast-message {
+  margin: 0;
+  border: 1px solid #a9c7b4;
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #244a37;
+  background: #eef8f1;
+  font-size: 0.92rem;
+}
+
+.candidate-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.candidate-table th,
+.candidate-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e0e5e0;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.candidate-table th {
+  color: #3f4c49;
+  background: #eef3ef;
+  font-size: 0.78rem;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(27 31 38 / 42%);
+}
+
+.modal-panel {
+  display: grid;
+  gap: 14px;
+  width: min(100%, 560px);
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  border: 1px solid #d5ddd7;
+  border-radius: 8px;
+  padding: 18px;
+  background: #ffffff;
+  box-shadow: 0 20px 48px rgb(27 31 38 / 20%);
+}
+
+.modal-panel.compact-modal {
+  width: min(100%, 440px);
+}
+
+.candidate-detail-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.candidate-detail-list div {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 12px;
+  border-bottom: 1px solid #e0e5e0;
+  padding-bottom: 10px;
+}
+
+.candidate-detail-list dt {
+  color: #657170;
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.candidate-detail-list dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.candidate-detail-sections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.candidate-detail-sections section {
+  border: 1px solid #d5ddd7;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8faf7;
+}
+
+.candidate-detail-sections h4,
+.candidate-detail-sections p {
+  margin: 0;
+}
+
+.candidate-detail-sections h4 {
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+}
+
+.modal-panel .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+}
+
+.modal-panel .checkbox-label input {
+  width: auto;
 }
 
 .job-queue-list {
@@ -430,6 +590,11 @@ h3 {
   }
 
   .job-queue-item {
+    grid-template-columns: 1fr;
+  }
+
+  .candidate-detail-list div,
+  .candidate-detail-sections {
     grid-template-columns: 1fr;
   }
 }

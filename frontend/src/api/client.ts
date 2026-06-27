@@ -14,7 +14,11 @@ export type ManualSourceEntryQueuedSubmission =
   components["schemas"]["ManualSourceEntryQueuedSubmission"];
 export type ProcessingJobList = components["schemas"]["ProcessingJobList"];
 export type ProcessingJobListItem = components["schemas"]["ProcessingJobListItem"];
+export type ReviewBatchDraftSaveRequest =
+  components["schemas"]["ReviewBatchDraftSaveRequest"];
 export type ReviewBatchDetail = components["schemas"]["ReviewBatchDetail"];
+export type ReviewBatchTaxonomyMappingRequest =
+  components["schemas"]["ReviewBatchTaxonomyMappingRequest"];
 export type ReviewedPurchaseLinePayload = components["schemas"]["ReviewedPurchaseLinePayload"];
 export type TaxonomyDecisionCreate = components["schemas"]["TaxonomyDecisionCreate"];
 export type TaxonomyNodeListRead = components["schemas"]["TaxonomyNodeListRead"];
@@ -84,6 +88,34 @@ export async function getReviewBatch(
 ): Promise<ReviewBatchDetail> {
   return request<ReviewBatchDetail>(
     `/api/project-workspaces/${projectWorkspaceId}/review-batches/${reviewBatchId}`
+  );
+}
+
+export async function saveReviewBatchDraft(
+  projectWorkspaceId: number,
+  reviewBatchId: number,
+  payload: ReviewBatchDraftSaveRequest
+): Promise<ReviewBatchDetail> {
+  return request<ReviewBatchDetail>(
+    `/api/project-workspaces/${projectWorkspaceId}/review-batches/${reviewBatchId}/review-draft`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    }
+  );
+}
+
+export async function saveReviewBatchTaxonomyMapping(
+  projectWorkspaceId: number,
+  reviewBatchId: number,
+  payload: ReviewBatchTaxonomyMappingRequest
+): Promise<ReviewBatchDetail> {
+  return request<ReviewBatchDetail>(
+    `/api/project-workspaces/${projectWorkspaceId}/review-batches/${reviewBatchId}/taxonomy-mappings`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }
   );
 }
 

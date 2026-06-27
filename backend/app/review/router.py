@@ -15,6 +15,7 @@ from backend.app.memory.models import (
     PurchaseLine,
     Service,
 )
+from backend.app.processing.models import ProcessingJob
 from backend.app.projects.models import ProjectWorkspace
 from backend.app.review.lifecycle import (
     TerminalReviewBatchError,
@@ -26,6 +27,7 @@ from backend.app.review.lifecycle import (
     normalized_taxonomy_path_key,
     recalculate_review_batch_status,
     taxonomy_leaf_node_for_path,
+    validate_approved_reviewed_payload,
 )
 from backend.app.review.models import (
     DuplicateCandidateGroup,
@@ -41,8 +43,10 @@ from backend.app.review.schemas import (
     ExtractedCandidateRead,
     ImportedPurchaseLine,
     ImportReviewBatchResponse,
+    ReviewBatchDraftSaveRequest,
     ReviewBatchDetail,
     ReviewBatchRead,
+    ReviewBatchTaxonomyMappingRequest,
     ReviewedPurchaseLinePayload,
     TaxonomyDecisionCreate,
     TaxonomyDefaultRead,
@@ -201,6 +205,75 @@ def decide_candidate(
     return _candidate_read(session, candidate)
 
 
+@router.put(
+    "/{project_workspace_id}/review-batches/{review_batch_id}/review-draft",
+    response_model=ReviewBatchDetail,
+)
+def save_review_batch_draft(
+    project_workspace_id: int,
+    review_batch_id: int,
+    payload: ReviewBatchDraftSaveRequest,
+    session: Session = Depends(get_session),
+) -> ReviewBatchDetail:
+    review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
+    _ensure_review_batch_editable_or_conflict(review_batch)
+    candidates_by_id = {
+        candidate.id: candidate
+        for candidate in _get_batch_candidates(session, review_batch.id)
+    }
+    requested_ids = [item.candidate_id for item in payload.candidates]
+    if len(set(requested_ids)) != len(requested_ids):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Review draft cannot contain duplicate candidates",
+        )
+    if set(requested_ids) != set(candidates_by_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Review draft must include every candidate in the Review Batch",
+        )
+
+    try:
+        for item in payload.candidates:
+            reviewed_payload = (
+                item.reviewed_payload.model_dump(mode="json")
+                if item.reviewed_payload is not None
+                else None
+            )
+            if item.included:
+                validate_approved_reviewed_payload(reviewed_payload)
+                apply_candidate_decision(
+                    session=session,
+                    review_batch=review_batch,
+                    candidate=candidates_by_id[item.candidate_id],
+                    decision="approved",
+                    reviewed_payload=reviewed_payload,
+                )
+            else:
+                apply_candidate_decision(
+                    session=session,
+                    review_batch=review_batch,
+                    candidate=candidates_by_id[item.candidate_id],
+                    decision="rejected",
+                    reviewed_payload=None,
+                )
+    except TerminalReviewBatchError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(error),
+        ) from error
+    except ValueError as error:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
+
+    session.commit()
+    session.refresh(review_batch)
+    return _review_batch_detail(session, review_batch)
+
+
 @router.post(
     "/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-decisions",
     response_model=ReviewBatchDetail,
@@ -267,6 +340,96 @@ def create_taxonomy_decision(
     )
     session.add(taxonomy_decision)
     session.flush()
+    recalculate_review_batch_status(session=session, review_batch=review_batch)
+    session.commit()
+    session.refresh(review_batch)
+    return _review_batch_detail(session, review_batch)
+
+
+@router.post(
+    "/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-mappings",
+    response_model=ReviewBatchDetail,
+)
+def save_review_batch_taxonomy_mapping(
+    project_workspace_id: int,
+    review_batch_id: int,
+    payload: ReviewBatchTaxonomyMappingRequest,
+    session: Session = Depends(get_session),
+) -> ReviewBatchDetail:
+    review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
+    _ensure_review_batch_editable_or_conflict(review_batch)
+    target_candidate = session.scalar(
+        select(ExtractedCandidate).where(
+            ExtractedCandidate.id == payload.candidate_id,
+            ExtractedCandidate.review_batch_id == review_batch.id,
+            ExtractedCandidate.project_workspace_id == project_workspace_id,
+        )
+    )
+    if target_candidate is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found")
+
+    candidate_suggestion = _candidate_taxonomy_suggestion(target_candidate)
+    if candidate_suggestion is None and payload.apply_to_similar:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Apply to similar requires a complete AI taxonomy suggestion",
+        )
+    suggestion = candidate_suggestion or {
+        "top_level_category": payload.top_level_category.strip(),
+        "subcategory": payload.subcategory.strip(),
+    }
+
+    resolved_leaf = _approve_taxonomy_path(
+        session=session,
+        project_workspace_id=project_workspace_id,
+        top_level_category=payload.top_level_category,
+        subcategory=payload.subcategory,
+    )
+    taxonomy_decision = TaxonomyDecision(
+        project_workspace_id=project_workspace_id,
+        review_batch_id=review_batch.id,
+        suggested_top_level_category=suggestion["top_level_category"],
+        suggested_subcategory=suggestion["subcategory"],
+        normalized_suggested_path_key=normalized_taxonomy_path_key(
+            suggestion["top_level_category"],
+            suggestion["subcategory"],
+        ),
+        decision="mapped",
+        resolved_taxonomy_node_id=resolved_leaf.id,
+    )
+    session.add(taxonomy_decision)
+
+    target_path_key = (
+        normalized_taxonomy_path_key(
+            suggestion["top_level_category"],
+            suggestion["subcategory"],
+        )
+        if candidate_suggestion is not None
+        else None
+    )
+    candidates_to_update = []
+    for candidate in _get_batch_candidates(session, review_batch.id):
+        candidate_suggestion = _candidate_taxonomy_suggestion(candidate)
+        if not payload.apply_to_similar and candidate.id != target_candidate.id:
+            continue
+        if payload.apply_to_similar and (
+            candidate_suggestion is None
+            or normalized_taxonomy_path_key(
+                candidate_suggestion["top_level_category"],
+                candidate_suggestion["subcategory"],
+            )
+            != target_path_key
+        ):
+            continue
+        candidates_to_update.append(candidate)
+
+    for candidate in candidates_to_update:
+        candidate.reviewed_payload = _reviewed_payload_with_category(
+            candidate=candidate,
+            top_level_category=payload.top_level_category,
+            subcategory=payload.subcategory,
+        )
+
     recalculate_review_batch_status(session=session, review_batch=review_batch)
     session.commit()
     session.refresh(review_batch)
@@ -384,6 +547,11 @@ def close_review_batch_no_import(
             detail=str(error),
         ) from error
 
+    _mark_review_processing_job_completed(
+        session=session,
+        project_workspace_id=project_workspace_id,
+        review_batch=review_batch,
+    )
     session.commit()
     session.refresh(review_batch)
     return review_batch
@@ -416,6 +584,15 @@ def import_review_batch(
 
     approved_candidates = [candidate for candidate in candidates if candidate.decision == "approved"]
     if not approved_candidates:
+        if all(candidate.decision == "rejected" for candidate in candidates):
+            review_batch.status = "review_closed_no_import"
+            _mark_review_processing_job_completed(
+                session=session,
+                project_workspace_id=project_workspace_id,
+                review_batch=review_batch,
+            )
+            session.commit()
+            return ImportReviewBatchResponse(imported_purchase_lines=[])
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="At least one approved candidate is required for import",
@@ -466,6 +643,11 @@ def import_review_batch(
         imported_purchase_lines.append(ImportedPurchaseLine(id=purchase_line.id))
 
     review_batch.status = "imported"
+    _mark_review_processing_job_completed(
+        session=session,
+        project_workspace_id=project_workspace_id,
+        review_batch=review_batch,
+    )
     session.commit()
     return ImportReviewBatchResponse(imported_purchase_lines=imported_purchase_lines)
 
@@ -486,6 +668,22 @@ def _get_project_review_batch(
     if review_batch is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review batch not found")
     return review_batch
+
+
+def _mark_review_processing_job_completed(
+    *,
+    session: Session,
+    project_workspace_id: int,
+    review_batch: ReviewBatch,
+) -> None:
+    processing_job = session.scalar(
+        select(ProcessingJob).where(
+            ProcessingJob.project_workspace_id == project_workspace_id,
+            ProcessingJob.review_batch_id == review_batch.id,
+        )
+    )
+    if processing_job is not None:
+        processing_job.status = "completed"
 
 
 def _ensure_project_workspace_exists(session: Session, project_workspace_id: int) -> None:
@@ -548,6 +746,41 @@ def _batch_has_taxonomy_suggestion(
         if candidate_path_key == normalized_suggested_path_key:
             return True
     return False
+
+
+def _candidate_taxonomy_suggestion(candidate: ExtractedCandidate) -> dict[str, str] | None:
+    suggestion = candidate.proposed_payload.get("category_suggestion")
+    if not isinstance(suggestion, dict):
+        return None
+    top_level_category = suggestion.get("top_level_category")
+    subcategory = suggestion.get("subcategory")
+    if not isinstance(top_level_category, str) or not _present(top_level_category):
+        return None
+    if not isinstance(subcategory, str) or not _present(subcategory):
+        return None
+    return {
+        "top_level_category": top_level_category.strip(),
+        "subcategory": subcategory.strip(),
+    }
+
+
+def _reviewed_payload_with_category(
+    *,
+    candidate: ExtractedCandidate,
+    top_level_category: str,
+    subcategory: str,
+) -> dict:
+    payload = {
+        **candidate.proposed_payload,
+        **(candidate.reviewed_payload or {}),
+        "top_level_category": top_level_category.strip(),
+        "subcategory": subcategory.strip(),
+    }
+    payload.pop("category_suggestion", None)
+    payload.pop("confidence", None)
+    payload.pop("currency_state", None)
+    payload.pop("evidence", None)
+    return ReviewedPurchaseLinePayload.model_validate(payload).model_dump(mode="json")
 
 
 def _candidate_read(session: Session, candidate: ExtractedCandidate) -> ExtractedCandidateRead:

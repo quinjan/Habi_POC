@@ -158,6 +158,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/review-draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Save Review Batch Draft */
+        put: operations["save_review_batch_draft_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__review_draft_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-decisions": {
         parameters: {
             query?: never;
@@ -169,6 +186,23 @@ export interface paths {
         put?: never;
         /** Create Taxonomy Decision */
         post: operations["create_taxonomy_decision_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__taxonomy_decisions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-mappings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Save Review Batch Taxonomy Mapping */
+        post: operations["save_review_batch_taxonomy_mapping_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__taxonomy_mappings_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -518,6 +552,19 @@ export interface components {
             /** Taxonomy Decisions */
             taxonomy_decisions?: components["schemas"]["TaxonomyDecisionRead"][];
         };
+        /** ReviewBatchDraftCandidate */
+        ReviewBatchDraftCandidate: {
+            /** Candidate Id */
+            candidate_id: number;
+            /** Included */
+            included: boolean;
+            reviewed_payload?: components["schemas"]["ReviewedPurchaseLinePayload"] | null;
+        };
+        /** ReviewBatchDraftSaveRequest */
+        ReviewBatchDraftSaveRequest: {
+            /** Candidates */
+            candidates: components["schemas"]["ReviewBatchDraftCandidate"][];
+        };
         /** ReviewBatchRead */
         ReviewBatchRead: {
             /** Id */
@@ -528,6 +575,20 @@ export interface components {
             source_submission_id: number;
             /** Status */
             status: string;
+        };
+        /** ReviewBatchTaxonomyMappingRequest */
+        ReviewBatchTaxonomyMappingRequest: {
+            /** Candidate Id */
+            candidate_id: number;
+            /** Top Level Category */
+            top_level_category: string;
+            /** Subcategory */
+            subcategory: string;
+            /**
+             * Apply To Similar
+             * @default false
+             */
+            apply_to_similar: boolean;
         };
         /** ReviewedPurchaseLinePayload */
         ReviewedPurchaseLinePayload: {
@@ -1030,6 +1091,42 @@ export interface operations {
             };
         };
     };
+    save_review_batch_draft_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__review_draft_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+                review_batch_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewBatchDraftSaveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewBatchDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_taxonomy_decision_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__taxonomy_decisions_post: {
         parameters: {
             query?: never;
@@ -1048,6 +1145,42 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewBatchDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_review_batch_taxonomy_mapping_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__taxonomy_mappings_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+                review_batch_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewBatchTaxonomyMappingRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

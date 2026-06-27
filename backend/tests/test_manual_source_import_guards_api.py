@@ -20,7 +20,7 @@ def test_import_rejects_batch_with_pending_candidate(tmp_path):
     assert response.json()["detail"] == "All candidates must have a review decision before import"
 
 
-def test_import_rejects_batch_with_no_approved_candidates(tmp_path):
+def test_import_closes_fully_excluded_batch_with_no_imported_lines(tmp_path):
     with make_client(tmp_path) as client:
         project, submission = create_manual_submission(client)
         client.post(
@@ -31,9 +31,13 @@ def test_import_rejects_batch_with_no_approved_candidates(tmp_path):
         response = client.post(
             f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/import"
         )
+        batch = client.get(
+            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}"
+        )
 
-    assert response.status_code == 400
-    assert response.json()["detail"] == "At least one approved candidate is required for import"
+    assert response.status_code == 200
+    assert response.json()["imported_purchase_lines"] == []
+    assert batch.json()["review_batch"]["status"] == "review_closed_no_import"
 
 
 def test_rejected_batch_stays_in_progress_until_explicit_close_with_no_import(tmp_path):

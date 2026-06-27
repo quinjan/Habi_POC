@@ -66,11 +66,28 @@ class CandidateDecisionRequest(BaseModel):
     merged_into_candidate_id: int | None = None
 
 
+class ReviewBatchDraftCandidate(BaseModel):
+    candidate_id: int
+    included: bool
+    reviewed_payload: ReviewedPurchaseLinePayload | None = None
+
+
+class ReviewBatchDraftSaveRequest(BaseModel):
+    candidates: list[ReviewBatchDraftCandidate] = Field(min_length=1)
+
+
 class TaxonomyDecisionCreate(BaseModel):
     decision: Literal["approved", "mapped", "rejected"]
     suggested_top_level_category: str = Field(min_length=1, max_length=255)
     suggested_subcategory: str | None = Field(default=None, max_length=255)
     resolved_taxonomy_node_id: int | None = None
+
+
+class ReviewBatchTaxonomyMappingRequest(BaseModel):
+    candidate_id: int
+    top_level_category: str = Field(min_length=1, max_length=255)
+    subcategory: str = Field(min_length=1, max_length=255)
+    apply_to_similar: bool = False
 
 
 class TaxonomyDecisionRead(BaseModel):
