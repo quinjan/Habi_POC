@@ -82,4 +82,4 @@ def create_manual_source_entry(
 def _processor_name(entry_type: str) -> str:
     if entry_type == "structured_row":
         return "structured_manual_row_v1"
-    return "manual_free_form_stub_v1"
+    return "ai_manual_free_form_v1"

@@ -686,7 +686,7 @@ def create_review_ready_manual_submission(
             processor_name=(
                 "structured_manual_row_v1"
                 if entry_type == "structured_row"
-                else "manual_free_form_stub_v1"
+                else "ai_manual_free_form_v1"
             ),
             candidate_count=1,
             review_batch_id=review_batch.id,
