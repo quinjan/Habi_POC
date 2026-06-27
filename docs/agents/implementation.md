@@ -31,6 +31,10 @@ For each implementation issue:
 
 Prefer tests through public seams such as API endpoints, UI behavior, generated contracts, or other stable user-facing interfaces. Do not test private functions or implementation details. Do not write all tests upfront before implementation.
 
+## Python test database
+
+When running Python/backend tests, use the local environment's Postgres test database. Set `HABI_TEST_DATABASE_URL` to a dedicated local Postgres database URL before invoking `pytest`, and do not fall back to SQLite for backend behavior tests. The test helpers reset the configured database, so never point `HABI_TEST_DATABASE_URL` at shared, production, or irreplaceable data.
+
 ## Implementation prompt template
 
 Use this shape when starting a fresh implementation session:
@@ -58,6 +62,7 @@ Use test-driven development for this issue:
 Testing guidance:
 - Prefer tests through public seams such as backend API endpoints, generated contracts, or visible UI behavior.
 - Do not test private functions or implementation details.
+- Run Python/backend tests against the local Postgres test database by setting `HABI_TEST_DATABASE_URL`; do not use SQLite for backend behavior tests.
 - Keep tests focused on the scope of issue #<implementation-issue-number>.
 - Do not implement future PRD scope unless the issue explicitly requires it.
 
