@@ -229,13 +229,13 @@ def test_approved_free_form_candidate_imports_purchase_line_with_original_text_e
         purchase_lines = client.get(
             f"/api/project-workspaces/{project['id']}/purchase-lines"
         )
-        evidence_contents = imported_purchase_line_evidence_contents(
-            client,
-            imported.json()["imported_purchase_lines"][0]["id"],
-        )
 
     assert decision.status_code == 200
     assert imported.status_code == 200
+    evidence_contents = imported_purchase_line_evidence_contents(
+        client,
+        imported.json()["imported_purchase_lines"][0]["id"],
+    )
     assert purchase_lines.json()["items"][0]["item_or_service_name"] == "PVC pipe"
     assert purchase_lines.json()["items"][0]["has_evidence"] is True
     assert evidence_contents == [{"original_text": original_text}]

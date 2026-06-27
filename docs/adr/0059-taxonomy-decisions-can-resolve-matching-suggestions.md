@@ -1,0 +1,3 @@
+# Taxonomy Decisions Can Resolve Matching Suggestions
+
+One Taxonomy Decision may resolve multiple affected candidates with the same AI-suggested category path inside the selected Project Workspace. In a Review Batch, resolving a repeated suggestion once should apply the resulting Resolved Category Path to other unresolved candidates with that same suggestion, while the UI makes the affected candidates visible to the reviewer. If multiple Taxonomy Decisions exist for the same normalized suggested path, the latest decision wins for gate display, prior rejection context, and future default resolution.

@@ -1,0 +1,3 @@
+# Rejecting Taxonomy Suggestions Does Not Reject Candidates
+
+Rejecting a Taxonomy Decision means the reviewer judged the AI-suggested category path to be wrong and Habi must not create taxonomy nodes or learn future defaults from that suggestion. It does not reject the affected Extracted Candidate; an otherwise valid candidate may still be imported after the reviewer supplies a Resolved Category Path by mapping, editing, or selecting an approved project taxonomy node. Future identical AI suggestions should appear again as unresolved Taxonomy Gates with prior rejection context rather than being silently suppressed.

@@ -19,8 +19,13 @@ from backend.app.projects.models import ProjectWorkspace
 from backend.app.review.lifecycle import (
     TerminalReviewBatchError,
     apply_candidate_decision,
+    approved_candidate_has_unresolved_taxonomy_gate,
     close_review_batch_with_no_import,
     detect_duplicate_conflicts,
+    latest_taxonomy_decision_for_path,
+    normalized_taxonomy_path_key,
+    recalculate_review_batch_status,
+    taxonomy_leaf_node_for_path,
 )
 from backend.app.review.models import (
     DuplicateCandidateGroup,
@@ -39,12 +44,99 @@ from backend.app.review.schemas import (
     ReviewBatchDetail,
     ReviewBatchRead,
     ReviewedPurchaseLinePayload,
+    TaxonomyDecisionCreate,
+    TaxonomyDefaultRead,
+    TaxonomyGateRead,
+    TaxonomyNodeListRead,
+    TaxonomyNodePathRead,
+    TaxonomyNodeUpdate,
 )
 from backend.app.sources.models import ManualSourceEntry
-from backend.app.taxonomy.models import TaxonomyNode
+from backend.app.taxonomy.models import TaxonomyDecision, TaxonomyNode, normalize_taxonomy_name
 
 
 router = APIRouter(tags=["review-batches"])
+
+
+@router.get(
+    "/{project_workspace_id}/taxonomy-nodes",
+    response_model=TaxonomyNodeListRead,
+)
+def list_taxonomy_nodes(
+    project_workspace_id: int,
+    leaf_only: bool = False,
+    session: Session = Depends(get_session),
+) -> TaxonomyNodeListRead:
+    _ensure_project_workspace_exists(session, project_workspace_id)
+    nodes = list(
+        session.scalars(
+            select(TaxonomyNode)
+            .where(TaxonomyNode.project_workspace_id == project_workspace_id)
+            .order_by(TaxonomyNode.id)
+        )
+    )
+    node_ids_with_children = {node.parent_id for node in nodes if node.parent_id is not None}
+    items: list[TaxonomyNodePathRead] = []
+    for node in nodes:
+        if leaf_only and (node.parent_id is None or node.id in node_ids_with_children):
+            continue
+        path = _taxonomy_node_path(session, node.id)
+        if path is None:
+            continue
+        items.append(
+            TaxonomyNodePathRead(
+                id=node.id,
+                name=node.name,
+                parent_id=node.parent_id,
+                path=path,
+            )
+        )
+    return TaxonomyNodeListRead(items=items)
+
+
+@router.patch(
+    "/{project_workspace_id}/taxonomy-nodes/{taxonomy_node_id}",
+    response_model=TaxonomyNodePathRead,
+)
+def update_taxonomy_node(
+    project_workspace_id: int,
+    taxonomy_node_id: int,
+    payload: TaxonomyNodeUpdate,
+    session: Session = Depends(get_session),
+) -> TaxonomyNodePathRead:
+    _ensure_project_workspace_exists(session, project_workspace_id)
+    taxonomy_node = session.get(TaxonomyNode, taxonomy_node_id)
+    if taxonomy_node is None or taxonomy_node.project_workspace_id != project_workspace_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Taxonomy node not found")
+
+    cleaned_name = payload.name.strip()
+    if not cleaned_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Taxonomy node name cannot be blank",
+        )
+    _ensure_unique_taxonomy_sibling_name(
+        session=session,
+        project_workspace_id=project_workspace_id,
+        parent_id=taxonomy_node.parent_id,
+        normalized_name=normalize_taxonomy_name(cleaned_name),
+        exclude_taxonomy_node_id=taxonomy_node.id,
+    )
+    taxonomy_node.name = cleaned_name
+    taxonomy_node.normalized_name = normalize_taxonomy_name(cleaned_name)
+    session.flush()
+    _refresh_purchase_line_category_paths(session, project_workspace_id)
+    session.commit()
+    session.refresh(taxonomy_node)
+    path = _taxonomy_node_path(session, taxonomy_node.id)
+    if path is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Taxonomy node not found")
+    return TaxonomyNodePathRead(
+        id=taxonomy_node.id,
+        name=taxonomy_node.name,
+        parent_id=taxonomy_node.parent_id,
+        path=path,
+    )
 
 
 @router.get(
@@ -57,17 +149,7 @@ def get_review_batch(
     session: Session = Depends(get_session),
 ) -> ReviewBatchDetail:
     review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
-    candidates = _get_batch_candidates(session, review_batch.id)
-    duplicate_groups = _get_duplicate_group_reads(session, review_batch.id)
-    return ReviewBatchDetail(
-        review_batch=review_batch,
-        candidates=candidates,
-        duplicate_groups=duplicate_groups,
-        duplicate_conflicts=detect_duplicate_conflicts(
-            session=session,
-            review_batch=review_batch,
-        ),
-    )
+    return _review_batch_detail(session, review_batch)
 
 
 @router.post(
@@ -80,7 +162,7 @@ def decide_candidate(
     candidate_id: int,
     payload: CandidateDecisionRequest,
     session: Session = Depends(get_session),
-) -> ExtractedCandidate:
+) -> ExtractedCandidateRead:
     review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
     candidate = session.scalar(
         select(ExtractedCandidate).where(
@@ -116,7 +198,79 @@ def decide_candidate(
 
     session.commit()
     session.refresh(candidate)
-    return candidate
+    return _candidate_read(session, candidate)
+
+
+@router.post(
+    "/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-decisions",
+    response_model=ReviewBatchDetail,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_taxonomy_decision(
+    project_workspace_id: int,
+    review_batch_id: int,
+    payload: TaxonomyDecisionCreate,
+    session: Session = Depends(get_session),
+) -> TaxonomyDecision:
+    review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
+    _ensure_review_batch_editable_or_conflict(review_batch)
+    normalized_suggested_path_key = normalized_taxonomy_path_key(
+        payload.suggested_top_level_category,
+        payload.suggested_subcategory,
+    )
+    if not _batch_has_taxonomy_suggestion(
+        session=session,
+        project_workspace_id=project_workspace_id,
+        review_batch_id=review_batch.id,
+        normalized_suggested_path_key=normalized_suggested_path_key,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Taxonomy decision suggestion must appear in the Review Batch",
+        )
+
+    resolved_taxonomy_node_id = payload.resolved_taxonomy_node_id
+    if payload.decision == "mapped":
+        if resolved_taxonomy_node_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Mapped taxonomy decisions require a resolved taxonomy node",
+            )
+        _get_project_taxonomy_node_for_mapping(
+            session=session,
+            project_workspace_id=project_workspace_id,
+            taxonomy_node_id=resolved_taxonomy_node_id,
+        )
+    elif payload.decision == "approved":
+        if not _present(payload.suggested_subcategory):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Approved taxonomy decisions require a two-level category path",
+            )
+        resolved_taxonomy_node_id = _approve_taxonomy_path(
+            session=session,
+            project_workspace_id=project_workspace_id,
+            top_level_category=payload.suggested_top_level_category,
+            subcategory=payload.suggested_subcategory or "",
+        ).id
+    else:
+        resolved_taxonomy_node_id = None
+
+    taxonomy_decision = TaxonomyDecision(
+        project_workspace_id=project_workspace_id,
+        review_batch_id=review_batch.id,
+        suggested_top_level_category=payload.suggested_top_level_category.strip(),
+        suggested_subcategory=_clean(payload.suggested_subcategory),
+        normalized_suggested_path_key=normalized_suggested_path_key,
+        decision=payload.decision,
+        resolved_taxonomy_node_id=resolved_taxonomy_node_id,
+    )
+    session.add(taxonomy_decision)
+    session.flush()
+    recalculate_review_batch_status(session=session, review_batch=review_batch)
+    session.commit()
+    session.refresh(review_batch)
+    return _review_batch_detail(session, review_batch)
 
 
 @router.post(
@@ -292,6 +446,11 @@ def import_review_batch(
 
         payload = ReviewedPurchaseLinePayload.model_validate(candidate.reviewed_payload)
         _validate_importable_payload(payload)
+        if approved_candidate_has_unresolved_taxonomy_gate(session, candidate):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Approved candidates require a resolved taxonomy gate",
+            )
         purchase_line = _import_purchase_line(
             session=session,
             project_workspace_id=project_workspace_id,
@@ -316,9 +475,7 @@ def _get_project_review_batch(
     project_workspace_id: int,
     review_batch_id: int,
 ) -> ReviewBatch:
-    project_workspace = session.get(ProjectWorkspace, project_workspace_id)
-    if project_workspace is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project workspace not found")
+    _ensure_project_workspace_exists(session, project_workspace_id)
 
     review_batch = session.scalar(
         select(ReviewBatch).where(
@@ -331,6 +488,12 @@ def _get_project_review_batch(
     return review_batch
 
 
+def _ensure_project_workspace_exists(session: Session, project_workspace_id: int) -> None:
+    project_workspace = session.get(ProjectWorkspace, project_workspace_id)
+    if project_workspace is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project workspace not found")
+
+
 def _get_batch_candidates(session: Session, review_batch_id: int) -> list[ExtractedCandidate]:
     return list(
         session.scalars(
@@ -338,6 +501,62 @@ def _get_batch_candidates(session: Session, review_batch_id: int) -> list[Extrac
             .where(ExtractedCandidate.review_batch_id == review_batch_id)
             .order_by(ExtractedCandidate.id)
         )
+    )
+
+
+def _review_batch_detail(session: Session, review_batch: ReviewBatch) -> ReviewBatchDetail:
+    candidates = _get_batch_candidates(session, review_batch.id)
+    return ReviewBatchDetail(
+        review_batch=review_batch,
+        candidates=[_candidate_read(session, candidate) for candidate in candidates],
+        duplicate_groups=_get_duplicate_group_reads(session, review_batch.id),
+        duplicate_conflicts=detect_duplicate_conflicts(
+            session=session,
+            review_batch=review_batch,
+        ),
+        taxonomy_decisions=list(
+            session.scalars(
+                select(TaxonomyDecision)
+                .where(TaxonomyDecision.review_batch_id == review_batch.id)
+                .order_by(TaxonomyDecision.id)
+            )
+        ),
+    )
+
+
+def _batch_has_taxonomy_suggestion(
+    *,
+    session: Session,
+    project_workspace_id: int,
+    review_batch_id: int,
+    normalized_suggested_path_key: str,
+) -> bool:
+    for candidate in _get_batch_candidates(session, review_batch_id):
+        if candidate.project_workspace_id != project_workspace_id:
+            continue
+        suggestion = candidate.proposed_payload.get("category_suggestion")
+        if not isinstance(suggestion, dict):
+            continue
+        top_level_category = suggestion.get("top_level_category")
+        subcategory = suggestion.get("subcategory")
+        if not isinstance(top_level_category, str) or not _present(top_level_category):
+            continue
+        candidate_path_key = normalized_taxonomy_path_key(
+            top_level_category,
+            subcategory if isinstance(subcategory, str) else None,
+        )
+        if candidate_path_key == normalized_suggested_path_key:
+            return True
+    return False
+
+
+def _candidate_read(session: Session, candidate: ExtractedCandidate) -> ExtractedCandidateRead:
+    candidate_read = ExtractedCandidateRead.model_validate(candidate)
+    return candidate_read.model_copy(
+        update={
+            "taxonomy_gate": _taxonomy_gate_for_candidate(session, candidate),
+            "taxonomy_default": _taxonomy_default_for_candidate(session, candidate),
+        }
     )
 
 
@@ -622,24 +841,97 @@ def _get_or_create_taxonomy_node(
     parent_id: int | None,
 ) -> TaxonomyNode:
     cleaned_name = name.strip()
+    normalized_name = normalize_taxonomy_name(cleaned_name)
     taxonomy_node = session.scalar(
         select(TaxonomyNode).where(
             TaxonomyNode.project_workspace_id == project_workspace_id,
             TaxonomyNode.parent_id == parent_id,
-            TaxonomyNode.name == cleaned_name,
+            TaxonomyNode.normalized_name == normalized_name,
         )
     )
     if taxonomy_node is not None:
         return taxonomy_node
+    _ensure_unique_taxonomy_sibling_name(
+        session=session,
+        project_workspace_id=project_workspace_id,
+        parent_id=parent_id,
+        normalized_name=normalized_name,
+    )
 
     taxonomy_node = TaxonomyNode(
         project_workspace_id=project_workspace_id,
         parent_id=parent_id,
         name=cleaned_name,
+        normalized_name=normalized_name,
     )
     session.add(taxonomy_node)
     session.flush()
     return taxonomy_node
+
+
+def _ensure_unique_taxonomy_sibling_name(
+    *,
+    session: Session,
+    project_workspace_id: int,
+    parent_id: int | None,
+    normalized_name: str,
+    exclude_taxonomy_node_id: int | None = None,
+) -> None:
+    query = select(TaxonomyNode).where(
+        TaxonomyNode.project_workspace_id == project_workspace_id,
+        TaxonomyNode.parent_id == parent_id,
+        TaxonomyNode.normalized_name == normalized_name,
+    )
+    if exclude_taxonomy_node_id is not None:
+        query = query.where(TaxonomyNode.id != exclude_taxonomy_node_id)
+    if session.scalar(query) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Taxonomy node names must be unique among siblings",
+        )
+
+
+def _get_project_taxonomy_node_for_mapping(
+    *,
+    session: Session,
+    project_workspace_id: int,
+    taxonomy_node_id: int,
+) -> TaxonomyNode:
+    taxonomy_node = session.get(TaxonomyNode, taxonomy_node_id)
+    if taxonomy_node is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Taxonomy node not found")
+    if taxonomy_node.project_workspace_id != project_workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mapped taxonomy node must belong to the selected Project Workspace",
+        )
+    if taxonomy_node.parent_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mapped taxonomy decisions require a subcategory leaf node",
+        )
+    return taxonomy_node
+
+
+def _approve_taxonomy_path(
+    *,
+    session: Session,
+    project_workspace_id: int,
+    top_level_category: str,
+    subcategory: str,
+) -> TaxonomyNode:
+    top_level = _get_or_create_taxonomy_node(
+        session=session,
+        project_workspace_id=project_workspace_id,
+        name=top_level_category,
+        parent_id=None,
+    )
+    return _get_or_create_taxonomy_node(
+        session=session,
+        project_workspace_id=project_workspace_id,
+        name=subcategory,
+        parent_id=top_level.id,
+    )
 
 
 def _get_or_create_entity_record(
@@ -701,6 +993,194 @@ def _clean(value: str | None) -> str | None:
 
 def _normalize(value: str) -> str:
     return " ".join(value.casefold().split())
+
+
+def _taxonomy_gate_for_candidate(
+    session: Session,
+    candidate: ExtractedCandidate,
+) -> TaxonomyGateRead | None:
+    if _candidate_reviewed_category_path(candidate) is not None:
+        return None
+
+    suggestion = candidate.proposed_payload.get("category_suggestion")
+    if not isinstance(suggestion, dict):
+        return None
+
+    top_level_category = suggestion.get("top_level_category")
+    subcategory = suggestion.get("subcategory")
+    if not isinstance(top_level_category, str) or not _present(top_level_category):
+        return None
+
+    suggested_category_path = _display_taxonomy_path(top_level_category, subcategory)
+    path_key = normalized_taxonomy_path_key(
+        top_level_category,
+        subcategory if isinstance(subcategory, str) else None,
+    )
+    decision = latest_taxonomy_decision_for_path(
+        session=session,
+        project_workspace_id=candidate.project_workspace_id,
+        normalized_path_key=path_key,
+    )
+    if decision is not None:
+        resolved_category_path = (
+            _taxonomy_node_path(session, decision.resolved_taxonomy_node_id)
+            if decision.resolved_taxonomy_node_id is not None
+            else None
+        )
+        if decision.decision in {"approved", "mapped"}:
+            status_by_decision = {
+                "approved": "resolved_by_approval",
+                "mapped": "resolved_by_mapping",
+            }
+            reason_by_decision = {
+                "approved": "approved_taxonomy_decision",
+                "mapped": "mapped_taxonomy_decision",
+            }
+            return TaxonomyGateRead(
+                status=status_by_decision[decision.decision],
+                reason=reason_by_decision[decision.decision],
+                suggested_category_path=suggested_category_path,
+                resolved_category_path=resolved_category_path,
+                decision=decision.decision,
+                taxonomy_decision_id=decision.id,
+            )
+        prior_rejection = {
+            "taxonomy_decision_id": decision.id,
+            "suggested_category_path": suggested_category_path,
+        }
+    else:
+        prior_rejection = None
+
+    if not isinstance(subcategory, str) or not _present(subcategory):
+        return TaxonomyGateRead(
+            status="subcategory_required",
+            reason="subcategory_required",
+            suggested_category_path=suggested_category_path,
+            prior_rejection=prior_rejection,
+        )
+
+    if prior_rejection is not None:
+        return TaxonomyGateRead(
+            status="new_taxonomy_path",
+            reason="new_taxonomy_path",
+            suggested_category_path=suggested_category_path,
+            prior_rejection=prior_rejection,
+        )
+
+    if taxonomy_leaf_node_for_path(
+        session=session,
+        project_workspace_id=candidate.project_workspace_id,
+        top_level_category=top_level_category,
+        subcategory=subcategory,
+    ) is None:
+        return TaxonomyGateRead(
+            status="new_taxonomy_path",
+            reason="new_taxonomy_path",
+            suggested_category_path=suggested_category_path,
+            prior_rejection=prior_rejection,
+        )
+    return None
+
+
+def _taxonomy_default_for_candidate(
+    session: Session,
+    candidate: ExtractedCandidate,
+) -> TaxonomyDefaultRead | None:
+    if candidate.reviewed_payload is not None:
+        return None
+
+    review_batch = session.get(ReviewBatch, candidate.review_batch_id)
+    if review_batch is not None and review_batch.status in {"imported", "review_closed_no_import"}:
+        return None
+
+    suggestion = candidate.proposed_payload.get("category_suggestion")
+    if not isinstance(suggestion, dict):
+        return None
+
+    top_level_category = suggestion.get("top_level_category")
+    subcategory = suggestion.get("subcategory")
+    if (
+        not isinstance(top_level_category, str)
+        or not _present(top_level_category)
+        or not isinstance(subcategory, str)
+        or not _present(subcategory)
+    ):
+        return None
+
+    decision = latest_taxonomy_decision_for_path(
+        session=session,
+        project_workspace_id=candidate.project_workspace_id,
+        normalized_path_key=normalized_taxonomy_path_key(top_level_category, subcategory),
+    )
+    if decision is None or decision.decision not in {"approved", "mapped"}:
+        return None
+    if decision.resolved_taxonomy_node_id is None:
+        return None
+
+    resolved_category_path = _taxonomy_node_path(session, decision.resolved_taxonomy_node_id)
+    if resolved_category_path is None:
+        return None
+
+    suggested_category_path = _display_taxonomy_path(
+        decision.suggested_top_level_category,
+        decision.suggested_subcategory,
+    )
+    source = (
+        "approved_taxonomy_decision"
+        if decision.decision == "approved"
+        else "mapped_taxonomy_decision"
+    )
+    provenance_text = (
+        f"Defaulted from a previous approved taxonomy decision: {resolved_category_path}"
+        if decision.decision == "approved"
+        else f"Defaulted from a previous mapping: {suggested_category_path} -> {resolved_category_path}"
+    )
+    return TaxonomyDefaultRead(
+        resolved_category_path=resolved_category_path,
+        source=source,
+        provenance_text=provenance_text,
+        taxonomy_decision_id=decision.id,
+    )
+
+
+def _display_taxonomy_path(top_level_category: str, subcategory: object) -> str:
+    if isinstance(subcategory, str) and _present(subcategory):
+        return f"{top_level_category.strip()} / {subcategory.strip()}"
+    return top_level_category.strip()
+
+
+def _taxonomy_node_path(session: Session, taxonomy_node_id: int) -> str | None:
+    taxonomy_node = session.get(TaxonomyNode, taxonomy_node_id)
+    if taxonomy_node is None:
+        return None
+    if taxonomy_node.parent_id is None:
+        return taxonomy_node.name
+    parent = session.get(TaxonomyNode, taxonomy_node.parent_id)
+    if parent is None:
+        return taxonomy_node.name
+    return f"{parent.name} / {taxonomy_node.name}"
+
+
+def _refresh_purchase_line_category_paths(session: Session, project_workspace_id: int) -> None:
+    for purchase_line in session.scalars(
+        select(PurchaseLine).where(PurchaseLine.project_workspace_id == project_workspace_id)
+    ):
+        memory_record = session.get(MemoryRecord, purchase_line.memory_record_id)
+        if memory_record is None:
+            continue
+        category_path = _taxonomy_node_path(session, memory_record.taxonomy_node_id)
+        if category_path is not None:
+            purchase_line.category_path = category_path
+
+
+def _candidate_reviewed_category_path(candidate: ExtractedCandidate) -> str | None:
+    if candidate.reviewed_payload is None:
+        return None
+
+    payload = ReviewedPurchaseLinePayload.model_validate(candidate.reviewed_payload)
+    if not _present(payload.top_level_category) or not _present(payload.subcategory):
+        return None
+    return f"{payload.top_level_category.strip()} / {payload.subcategory.strip()}"
 
 
 def _manual_entry_for_source_submission(

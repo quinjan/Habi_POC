@@ -73,7 +73,7 @@ A required reviewer decision for AI-suggested taxonomy changes before affected r
 _Avoid_: Separate category import
 
 **Taxonomy Decision**:
-A retained project-scoped reviewer judgment on an AI-suggested category path, such as approving a new node, mapping it to an existing node, rejecting it, or deferring it.
+A retained project-scoped reviewer judgment on an AI-suggested category path: approving a new node, mapping it to an existing node, or rejecting it as wrong.
 _Avoid_: Candidate outcome, import decision
 
 **Top-Level Category**:

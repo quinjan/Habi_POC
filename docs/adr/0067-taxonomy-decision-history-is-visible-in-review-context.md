@@ -1,0 +1,3 @@
+# Taxonomy Decision History Is Visible In Review Context
+
+Rejected Taxonomy Decisions should remain visible in the affected Review Batch while it is non-terminal, with clear status text that they do not resolve import readiness or influence future defaults. If a later identical AI suggestion appears, Habi should show it again as an unresolved Taxonomy Gate with prior rejection context rather than suppressing it. Unresolved Taxonomy Gates remain visible as unresolved review work rather than as deferred decisions. After terminal review, retained Taxonomy Decisions remain batch history, while separate taxonomy analytics or scorecard UI stays outside this slice.

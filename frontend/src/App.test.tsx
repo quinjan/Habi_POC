@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -12,6 +12,10 @@ describe("Project Workspace app shell", () => {
     const projectList = [{ id: 1, project_name: "Arnaiz Residence Renovation" }];
     const purchaseLinesByProject = new Map<number, unknown[]>([[1, []]]);
     const projectNamesById = new Map<number, string>([[1, "Arnaiz Residence Renovation"]]);
+    const taxonomyLeafPathsByProject = new Map<
+      number,
+      { id: number; name: string; parent_id: number; path: string }[]
+    >([[1, []]]);
 
     vi.stubGlobal(
       "fetch",
@@ -46,6 +50,16 @@ describe("Project Workspace app shell", () => {
               project_name: projectNamesById.get(projectId)
             },
             items: purchaseLinesByProject.get(projectId) ?? []
+          });
+        }
+
+        const taxonomyNodesMatch = url.match(
+          /^\/api\/project-workspaces\/(\d+)\/taxonomy-nodes\?leaf_only=true$/
+        );
+        if (taxonomyNodesMatch && method === "GET") {
+          const projectId = Number(taxonomyNodesMatch[1]);
+          return jsonResponse({
+            items: taxonomyLeafPathsByProject.get(projectId) ?? []
           });
         }
 
@@ -151,12 +165,76 @@ describe("Project Workspace app shell", () => {
                   proposed_payload: proposedPayload,
                   decision: null,
                   merged_into_candidate_id: null,
-                  reviewed_payload: null
+                  reviewed_payload: null,
+                  taxonomy_gate:
+                    body.entry_type === "free_form_text"
+                      ? {
+                          status: "new_taxonomy_path",
+                          reason: "new_taxonomy_path",
+                          suggested_category_path: "Plumbing / Pipes",
+                          resolved_category_path: null,
+                          decision: null,
+                          taxonomy_decision_id: null,
+                          prior_rejection: null
+                        }
+                      : null,
+                  taxonomy_default: null
                 }
               ]
             },
             201
           );
+        }
+
+        if (url === "/api/project-workspaces/1/review-batches/10" && method === "GET") {
+          return jsonResponse({
+            review_batch: {
+              id: 10,
+              project_workspace_id: 1,
+              source_submission_id: 30,
+              status: "review_pending"
+            },
+            candidates: [
+              {
+                id: 20,
+                project_workspace_id: 1,
+                review_batch_id: 10,
+                source_submission_id: 30,
+                status: "pending_review",
+                proposed_payload: {
+                  line_type: "material",
+                  name: "PVC pipe",
+                  quantity: "20",
+                  unit: "pcs",
+                  price: "1500",
+                  currency: "PHP",
+                  provider_name: "ABC Trading",
+                  purchase_date: null,
+                  remarks_or_terms: null,
+                  category_suggestion: {
+                    top_level_category: "Plumbing",
+                    subcategory: "Pipes"
+                  }
+                },
+                decision: null,
+                merged_into_candidate_id: null,
+                reviewed_payload: null,
+                taxonomy_gate: {
+                  status: "new_taxonomy_path",
+                  reason: "new_taxonomy_path",
+                  suggested_category_path: "Plumbing / Pipes",
+                  resolved_category_path: null,
+                  decision: null,
+                  taxonomy_decision_id: null,
+                  prior_rejection: null
+                },
+                taxonomy_default: null
+              }
+            ],
+            duplicate_groups: [],
+            duplicate_conflicts: [],
+            taxonomy_decisions: []
+          });
         }
 
         if (
@@ -173,8 +251,123 @@ describe("Project Workspace app shell", () => {
             proposed_payload: body.reviewed_payload,
             decision: body.decision,
             merged_into_candidate_id: null,
-            reviewed_payload: body.reviewed_payload
+            reviewed_payload: body.reviewed_payload,
+            taxonomy_gate: null,
+            taxonomy_default: null
           });
+        }
+
+        if (
+          url === "/api/project-workspaces/1/review-batches/10/taxonomy-decisions" &&
+          method === "POST"
+        ) {
+          const body = JSON.parse(String(init?.body));
+          if (body.decision === "approved") {
+            taxonomyLeafPathsByProject.set(1, [
+              {
+                id: 50,
+                name: "Pipes",
+                parent_id: 49,
+                path: "Plumbing / Pipes"
+              }
+            ]);
+          }
+          return jsonResponse(
+            {
+              review_batch: {
+                id: 10,
+                project_workspace_id: 1,
+                source_submission_id: 30,
+                status: "review_pending"
+              },
+              candidates: [
+                {
+                  id: 20,
+                  project_workspace_id: 1,
+                  review_batch_id: 10,
+                  source_submission_id: 30,
+                  status: "pending_review",
+                  proposed_payload: {
+                    line_type: "material",
+                    name: "PVC pipe",
+                    quantity: "20",
+                    unit: "pcs",
+                    price: "1500",
+                    currency: "PHP",
+                    provider_name: "ABC Trading",
+                    purchase_date: null,
+                    remarks_or_terms: null,
+                    category_suggestion: {
+                      top_level_category: "Plumbing",
+                      subcategory: "Pipes"
+                    }
+                  },
+                  decision: null,
+                  merged_into_candidate_id: null,
+                  reviewed_payload: null,
+                  taxonomy_gate:
+                    body.decision === "rejected"
+                      ? {
+                          status: "new_taxonomy_path",
+                          reason: "new_taxonomy_path",
+                          suggested_category_path: "Plumbing / Pipes",
+                          resolved_category_path: null,
+                          decision: null,
+                          taxonomy_decision_id: null,
+                          prior_rejection: {
+                            taxonomy_decision_id: 70,
+                            suggested_category_path: "Plumbing / Pipes"
+                          }
+                        }
+                      : {
+                          status:
+                            body.decision === "mapped"
+                              ? "resolved_by_mapping"
+                              : "resolved_by_approval",
+                          reason:
+                            body.decision === "mapped"
+                              ? "mapped_taxonomy_decision"
+                              : "approved_taxonomy_decision",
+                          suggested_category_path: "Plumbing / Pipes",
+                          resolved_category_path: "Plumbing / Pipes",
+                          decision: body.decision,
+                          taxonomy_decision_id: 70,
+                          prior_rejection: null
+                        },
+                  taxonomy_default:
+                    body.decision === "rejected"
+                      ? null
+                      : {
+                          resolved_category_path: "Plumbing / Pipes",
+                          source:
+                            body.decision === "mapped"
+                              ? "mapped_taxonomy_decision"
+                              : "approved_taxonomy_decision",
+                          provenance_text:
+                            body.decision === "mapped"
+                              ? "Defaulted from a previous mapping: Plumbing / Pipes -> Plumbing / Pipes"
+                              : "Defaulted from a previous approved taxonomy decision: Plumbing / Pipes",
+                          taxonomy_decision_id: 70
+                        }
+                }
+              ],
+              duplicate_groups: [],
+              duplicate_conflicts: [],
+              taxonomy_decisions: [
+                {
+                  id: 70,
+                  project_workspace_id: 1,
+                  review_batch_id: 10,
+                  suggested_top_level_category: "Plumbing",
+                  suggested_subcategory: "Pipes",
+                  normalized_suggested_path_key: "plumbing / pipes",
+                  decision: body.decision,
+                  resolved_taxonomy_node_id: body.decision === "rejected" ? null : 50
+                }
+              ]
+            },
+            201
+          );
         }
 
         if (
@@ -322,6 +515,130 @@ describe("Project Workspace app shell", () => {
     });
     expect(await within(selectedWorkspace).findByText("PVC pipe")).toBeInTheDocument();
     expect(within(selectedWorkspace).getByText("ABC Trading")).toBeInTheDocument();
+  });
+
+  test("reviewer resolves a taxonomy gate and gets default category provenance", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+
+    await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
+    await user.type(
+      screen.getByLabelText("Free-form source text"),
+      "PVC pipe, 20 pcs, from ABC Trading, PHP 1,500"
+    );
+    await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
+
+    const gate = await screen.findByRole("group", { name: "Taxonomy Gate" });
+    expect(within(gate).getByText("new_taxonomy_path")).toBeInTheDocument();
+    expect(within(gate).getAllByText("Plumbing / Pipes").length).toBeGreaterThan(0);
+
+    await user.click(within(gate).getByRole("button", { name: "Approve Taxonomy" }));
+
+    expect(
+      await screen.findByText("Defaulted from a previous approved taxonomy decision: Plumbing / Pipes")
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Top-level category")).toHaveValue("Plumbing");
+    expect(screen.getByLabelText("Subcategory")).toHaveValue("Pipes");
+  });
+
+  test("reviewer sees newly approved taxonomy path in map options", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+
+    await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
+    await user.type(
+      screen.getByLabelText("Free-form source text"),
+      "PVC pipe, 20 pcs, from ABC Trading, PHP 1,500"
+    );
+    await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
+
+    const gate = await screen.findByRole("group", { name: "Taxonomy Gate" });
+    expect(within(gate).queryByRole("option", { name: "Plumbing / Pipes" })).not.toBeInTheDocument();
+
+    await user.click(within(gate).getByRole("button", { name: "Approve Taxonomy" }));
+
+    await waitFor(() => {
+      expect(
+        within(screen.getByRole("group", { name: "Taxonomy Gate" })).getByRole("option", {
+          name: "Plumbing / Pipes"
+        })
+      ).toBeInTheDocument();
+    });
+  });
+
+  test("reviewer approval applies returned candidate state and clears resolved gate", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+
+    await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
+    await user.type(
+      screen.getByLabelText("Free-form source text"),
+      "PVC pipe, 20 pcs, from ABC Trading, PHP 1,500"
+    );
+    await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
+
+    expect(await screen.findByRole("group", { name: "Taxonomy Gate" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Top-level category"), "Plumbing");
+    await user.type(screen.getByLabelText("Subcategory"), "Pipes");
+    await user.click(screen.getByRole("button", { name: "Approve Candidate" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("group", { name: "Taxonomy Gate" })).not.toBeInTheDocument();
+    });
+  });
+
+  test("reviewer sees prior rejection context on an unresolved taxonomy gate", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+
+    await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
+    await user.type(
+      screen.getByLabelText("Free-form source text"),
+      "PVC pipe, 20 pcs, from ABC Trading, PHP 1,500"
+    );
+    await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
+
+    const gate = await screen.findByRole("group", { name: "Taxonomy Gate" });
+    await user.click(within(gate).getByRole("button", { name: "Reject Taxonomy" }));
+
+    expect(
+      await screen.findByText("Previously rejected for this Project Workspace.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Taxonomy Gate" })).toHaveTextContent(
+      "new_taxonomy_path"
+    );
   });
 
   test("reviewer sees no candidates found for unusable free-form text", async () => {

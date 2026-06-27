@@ -1,0 +1,3 @@
+# Manual Category Paths Can Create Taxonomy Nodes Without Taxonomy Decisions
+
+When a reviewer manually supplies a valid two-level category path for an Extracted Candidate, Habi may create or reuse the corresponding project-scoped Taxonomy Nodes at import time without recording a Taxonomy Decision. Candidate approval should persist the reviewed payload while the batch remains editable; import is the point where reviewed candidates become Project Memory and need taxonomy-node references. Taxonomy Decisions record reviewer judgment on AI-suggested category paths, while manual reviewer-selected paths are project-owned taxonomy growth but not AI suggestion decisions.

@@ -1,0 +1,3 @@
+# Taxonomy Node Names Are Unique Among Siblings
+
+Inside one Project Workspace, Taxonomy Node names must be unique among nodes with the same parent after normalization such as trimming, collapsing whitespace, and case folding. The same subcategory name may exist under different parent nodes, but duplicate sibling names are rejected so each Resolved Category Path remains unambiguous without introducing a shared global taxonomy. This invariant should be enforced with a database-level uniqueness constraint on normalized sibling names, with application-level validation used for clearer reviewer-facing errors.

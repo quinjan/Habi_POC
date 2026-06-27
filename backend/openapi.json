@@ -210,6 +210,119 @@
         }
       }
     },
+    "/api/project-workspaces/{project_workspace_id}/taxonomy-nodes": {
+      "get": {
+        "tags": [
+          "review-batches"
+        ],
+        "summary": "List Taxonomy Nodes",
+        "operationId": "list_taxonomy_nodes_api_project_workspaces__project_workspace_id__taxonomy_nodes_get",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          },
+          {
+            "name": "leaf_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Leaf Only"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaxonomyNodeListRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project-workspaces/{project_workspace_id}/taxonomy-nodes/{taxonomy_node_id}": {
+      "patch": {
+        "tags": [
+          "review-batches"
+        ],
+        "summary": "Update Taxonomy Node",
+        "operationId": "update_taxonomy_node_api_project_workspaces__project_workspace_id__taxonomy_nodes__taxonomy_node_id__patch",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          },
+          {
+            "name": "taxonomy_node_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Taxonomy Node Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaxonomyNodeUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaxonomyNodePathRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}": {
       "get": {
         "tags": [
@@ -314,6 +427,67 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ExtractedCandidateRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-decisions": {
+      "post": {
+        "tags": [
+          "review-batches"
+        ],
+        "summary": "Create Taxonomy Decision",
+        "operationId": "create_taxonomy_decision_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__taxonomy_decisions_post",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          },
+          {
+            "name": "review_batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Review Batch Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaxonomyDecisionCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewBatchDetail"
                 }
               }
             }
@@ -741,6 +915,26 @@
               }
             ],
             "title": "Reviewed Payload"
+          },
+          "taxonomy_gate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaxonomyGateRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "taxonomy_default": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaxonomyDefaultRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -1478,6 +1672,13 @@
             },
             "type": "array",
             "title": "Duplicate Conflicts"
+          },
+          "taxonomy_decisions": {
+            "items": {
+              "$ref": "#/components/schemas/TaxonomyDecisionRead"
+            },
+            "type": "array",
+            "title": "Taxonomy Decisions"
           }
         },
         "type": "object",
@@ -1829,6 +2030,285 @@
           "name"
         ],
         "title": "StructuredManualSourcePayload"
+      },
+      "TaxonomyDecisionCreate": {
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approved",
+              "mapped",
+              "rejected"
+            ],
+            "title": "Decision"
+          },
+          "suggested_top_level_category": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Suggested Top Level Category"
+          },
+          "suggested_subcategory": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Subcategory"
+          },
+          "resolved_taxonomy_node_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved Taxonomy Node Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "decision",
+          "suggested_top_level_category"
+        ],
+        "title": "TaxonomyDecisionCreate"
+      },
+      "TaxonomyDecisionRead": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "project_workspace_id": {
+            "type": "integer",
+            "title": "Project Workspace Id"
+          },
+          "review_batch_id": {
+            "type": "integer",
+            "title": "Review Batch Id"
+          },
+          "suggested_top_level_category": {
+            "type": "string",
+            "title": "Suggested Top Level Category"
+          },
+          "suggested_subcategory": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Subcategory"
+          },
+          "normalized_suggested_path_key": {
+            "type": "string",
+            "title": "Normalized Suggested Path Key"
+          },
+          "decision": {
+            "type": "string",
+            "title": "Decision"
+          },
+          "resolved_taxonomy_node_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved Taxonomy Node Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_workspace_id",
+          "review_batch_id",
+          "suggested_top_level_category",
+          "suggested_subcategory",
+          "normalized_suggested_path_key",
+          "decision",
+          "resolved_taxonomy_node_id"
+        ],
+        "title": "TaxonomyDecisionRead"
+      },
+      "TaxonomyDefaultRead": {
+        "properties": {
+          "resolved_category_path": {
+            "type": "string",
+            "title": "Resolved Category Path"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "provenance_text": {
+            "type": "string",
+            "title": "Provenance Text"
+          },
+          "taxonomy_decision_id": {
+            "type": "integer",
+            "title": "Taxonomy Decision Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "resolved_category_path",
+          "source",
+          "provenance_text",
+          "taxonomy_decision_id"
+        ],
+        "title": "TaxonomyDefaultRead"
+      },
+      "TaxonomyGateRead": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "suggested_category_path": {
+            "type": "string",
+            "title": "Suggested Category Path"
+          },
+          "resolved_category_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved Category Path"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision"
+          },
+          "taxonomy_decision_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Taxonomy Decision Id"
+          },
+          "prior_rejection": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Rejection"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "suggested_category_path"
+        ],
+        "title": "TaxonomyGateRead"
+      },
+      "TaxonomyNodeListRead": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TaxonomyNodePathRead"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "TaxonomyNodeListRead"
+      },
+      "TaxonomyNodePathRead": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "parent_id",
+          "path"
+        ],
+        "title": "TaxonomyNodePathRead"
+      },
+      "TaxonomyNodeUpdate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "TaxonomyNodeUpdate"
       },
       "ValidationError": {
         "properties": {

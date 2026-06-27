@@ -28,6 +28,8 @@ class ExtractedCandidateRead(BaseModel):
     decision: str | None
     merged_into_candidate_id: int | None
     reviewed_payload: dict | None
+    taxonomy_gate: "TaxonomyGateRead | None" = None
+    taxonomy_default: "TaxonomyDefaultRead | None" = None
 
 
 class ManualSourceEntrySubmission(BaseModel):
@@ -58,11 +60,66 @@ class CandidateDecisionRequest(BaseModel):
     merged_into_candidate_id: int | None = None
 
 
+class TaxonomyDecisionCreate(BaseModel):
+    decision: Literal["approved", "mapped", "rejected"]
+    suggested_top_level_category: str = Field(min_length=1, max_length=255)
+    suggested_subcategory: str | None = Field(default=None, max_length=255)
+    resolved_taxonomy_node_id: int | None = None
+
+
+class TaxonomyDecisionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_workspace_id: int
+    review_batch_id: int
+    suggested_top_level_category: str
+    suggested_subcategory: str | None
+    normalized_suggested_path_key: str
+    decision: str
+    resolved_taxonomy_node_id: int | None
+
+
+class TaxonomyGateRead(BaseModel):
+    status: str
+    reason: str | None = None
+    suggested_category_path: str
+    resolved_category_path: str | None = None
+    decision: str | None = None
+    taxonomy_decision_id: int | None = None
+    prior_rejection: dict | None = None
+
+
+class TaxonomyDefaultRead(BaseModel):
+    resolved_category_path: str
+    source: str
+    provenance_text: str
+    taxonomy_decision_id: int
+
+
+class TaxonomyNodePathRead(BaseModel):
+    id: int
+    name: str
+    parent_id: int | None
+    path: str
+
+
+class TaxonomyNodeListRead(BaseModel):
+    items: list[TaxonomyNodePathRead]
+
+
+class TaxonomyNodeUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=255)
+
+
 class ReviewBatchDetail(BaseModel):
     review_batch: ReviewBatchRead
     candidates: list[ExtractedCandidateRead]
     duplicate_groups: list["DuplicateCandidateGroupRead"] = Field(default_factory=list)
     duplicate_conflicts: list[str] = Field(default_factory=list)
+    taxonomy_decisions: list[TaxonomyDecisionRead] = Field(default_factory=list)
 
 
 class DuplicateCandidateGroupCreate(BaseModel):
