@@ -568,6 +568,10 @@ def import_review_batch(
 
     approved_candidates = [candidate for candidate in candidates if candidate.decision == "approved"]
     if not approved_candidates:
+        if all(candidate.decision == "rejected" for candidate in candidates):
+            review_batch.status = "review_closed_no_import"
+            session.commit()
+            return ImportReviewBatchResponse(imported_purchase_lines=[])
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="At least one approved candidate is required for import",
