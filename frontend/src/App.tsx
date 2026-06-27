@@ -12,6 +12,7 @@ import {
   listProcessingJobs,
   listTaxonomyLeafPaths,
   listProjectWorkspaces,
+  saveReviewBatchDraft,
   type ExtractedCandidateRead,
   type ManualSourceEntryCreate,
   type ProcessingJobListItem,
@@ -82,6 +83,11 @@ type WorkspaceRoute =
   | { name: "upload_review" }
   | { name: "review_batch"; reviewBatchId: number };
 
+type CandidateDraft = {
+  included: boolean;
+  reviewedPayload: ReviewedPurchaseLinePayload | null;
+};
+
 function App() {
   const [projects, setProjects] = useState<ProjectWorkspaceListItem[]>([]);
   const [selectedPurchaseLines, setSelectedPurchaseLines] =
@@ -96,6 +102,8 @@ function App() {
   const [workspaceRoute, setWorkspaceRoute] = useState<WorkspaceRoute>({
     name: "purchase_lines"
   });
+  const [candidateDrafts, setCandidateDrafts] = useState<Record<number, CandidateDraft>>({});
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [reviewForm, setReviewForm] = useState<ReviewForm | null>(null);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -276,9 +284,11 @@ function App() {
     try {
       const detail = await getReviewBatch(selectedPurchaseLines.project_workspace.id, reviewBatchId);
       setActiveReviewBatch(detail);
+      setCandidateDrafts(initialDraftsForCandidates(detail.candidates));
       setReviewForm(buildReviewForm(detail, manualSourceForm));
       setSelectedTaxonomyNodeId("");
       setIsCandidateApproved(false);
+      setToastMessage(null);
       navigateWorkspace(selectedPurchaseLines.project_workspace.id, {
         name: "review_batch",
         reviewBatchId
@@ -286,6 +296,44 @@ function App() {
     } catch {
       setErrorMessage("Review Batch could not be loaded.");
     }
+  }
+
+  function updateCandidateIncluded(candidate: ExtractedCandidateRead, included: boolean) {
+    setCandidateDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [candidate.id]: {
+        included,
+        reviewedPayload: included ? reviewedPayloadForCandidate(candidate) : null
+      }
+    }));
+  }
+
+  async function handleSaveReviewDraft() {
+    if (selectedPurchaseLines === null || activeReviewBatch === null) {
+      return null;
+    }
+    setErrorMessage(null);
+    const detail = await saveReviewBatchDraft(
+      selectedPurchaseLines.project_workspace.id,
+      activeReviewBatch.review_batch.id,
+      {
+        candidates: activeReviewBatch.candidates.map((candidate) => {
+          const draft = candidateDrafts[candidate.id] ?? {
+            included: true,
+            reviewedPayload: reviewedPayloadForCandidate(candidate)
+          };
+          return {
+            candidate_id: candidate.id,
+            included: draft.included,
+            reviewed_payload: draft.included ? draft.reviewedPayload : null
+          };
+        })
+      }
+    );
+    setActiveReviewBatch(detail);
+    setCandidateDrafts(initialDraftsForCandidates(detail.candidates));
+    setToastMessage("Review draft saved.");
+    return detail;
   }
 
   async function handleApproveCandidate() {
@@ -435,7 +483,38 @@ function App() {
       setSelectedPurchaseLines(refreshedPurchaseLines);
       setActiveReviewBatch(null);
       setReviewForm(null);
+      setCandidateDrafts({});
       setIsCandidateApproved(false);
+      navigateWorkspace(selectedPurchaseLines.project_workspace.id, { name: "purchase_lines" });
+    } catch {
+      setErrorMessage("Review Batch could not be imported.");
+    } finally {
+      setIsImportingBatch(false);
+    }
+  }
+
+  async function handleImportIncludedCandidates() {
+    if (selectedPurchaseLines === null || activeReviewBatch === null) {
+      return;
+    }
+
+    setIsImportingBatch(true);
+    setErrorMessage(null);
+
+    try {
+      await handleSaveReviewDraft();
+      await importReviewBatch(
+        selectedPurchaseLines.project_workspace.id,
+        activeReviewBatch.review_batch.id
+      );
+      const refreshedPurchaseLines = await getProjectWorkspacePurchaseLines(
+        selectedPurchaseLines.project_workspace.id
+      );
+      setSelectedPurchaseLines(refreshedPurchaseLines);
+      setActiveReviewBatch(null);
+      setCandidateDrafts({});
+      setReviewForm(null);
+      navigateWorkspace(selectedPurchaseLines.project_workspace.id, { name: "purchase_lines" });
     } catch {
       setErrorMessage("Review Batch could not be imported.");
     } finally {
@@ -796,6 +875,75 @@ function App() {
                   <p className="eyebrow">{activeReviewBatch.review_batch.status}</p>
                   <h3>Review Batch #{activeReviewBatch.review_batch.id}</h3>
                 </div>
+                {toastMessage ? <p className="toast-message">{toastMessage}</p> : null}
+                <div className="review-batch-actions">
+                  <button
+                    className="secondary-action"
+                    onClick={() => void handleSaveReviewDraft()}
+                    type="button"
+                  >
+                    Save
+                  </button>
+                  <button
+                    className="primary-action compact-action"
+                    disabled={isImportingBatch}
+                    onClick={() => void handleImportIncludedCandidates()}
+                    type="button"
+                  >
+                    Import Included Candidates
+                  </button>
+                </div>
+                <table className="candidate-table">
+                  <thead>
+                    <tr>
+                      <th>Include</th>
+                      <th>Candidate</th>
+                      <th>Type</th>
+                      <th>Category</th>
+                      <th>Status</th>
+                      <th>Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeReviewBatch.candidates.map((candidate) => {
+                      const draft = candidateDrafts[candidate.id] ?? {
+                        included: true,
+                        reviewedPayload: reviewedPayloadForCandidate(candidate)
+                      };
+                      const reviewedPayload =
+                        draft.reviewedPayload ?? reviewedPayloadForCandidate(candidate);
+                      return (
+                        <tr key={candidate.id}>
+                          <td>
+                            <input
+                              aria-label={`Include ${
+                                reviewedPayload.name ?? candidate.proposed_payload.name ?? "candidate"
+                              }`}
+                              checked={draft.included}
+                              onChange={(event) =>
+                                updateCandidateIncluded(candidate, event.target.checked)
+                              }
+                              type="checkbox"
+                            />
+                          </td>
+                          <td>{reviewedPayload.name ?? candidate.proposed_payload.name}</td>
+                          <td>{reviewedPayload.line_type ?? candidate.proposed_payload.line_type}</td>
+                          <td>
+                            {reviewedPayload.top_level_category && reviewedPayload.subcategory
+                              ? `${reviewedPayload.top_level_category} / ${reviewedPayload.subcategory}`
+                              : "Needs taxonomy"}
+                          </td>
+                          <td>{draft.included ? "Included draft" : "Excluded draft"}</td>
+                          <td>
+                            <button className="secondary-action" type="button">
+                              Details
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </section>
             ) : null}
 
@@ -1089,6 +1237,47 @@ function buildReviewedPayload(form: ReviewForm): ReviewedPurchaseLinePayload {
     purchase_date: form.purchaseDate || null,
     remarks_or_terms: optionalText(form.remarksOrTerms)
   };
+}
+
+function reviewedPayloadForCandidate(candidate: ExtractedCandidateRead): ReviewedPurchaseLinePayload {
+  const reviewedPayload = candidate.reviewed_payload as ReviewedPurchaseLinePayload | null;
+  if (reviewedPayload) {
+    return reviewedPayload;
+  }
+  const proposedPayload = candidate.proposed_payload;
+  const suggestion = taxonomySuggestion(candidate);
+  return {
+    line_type:
+      proposedPayload.line_type === "service" || proposedPayload.line_type === "material"
+        ? proposedPayload.line_type
+        : "material",
+    name: String(proposedPayload.name ?? ""),
+    top_level_category: suggestion?.topLevelCategory ?? null,
+    subcategory: suggestion?.subcategory ?? null,
+    quantity: optionalText(String(proposedPayload.quantity ?? "")),
+    unit: optionalText(String(proposedPayload.unit ?? "")),
+    price: optionalText(String(proposedPayload.price ?? "")),
+    currency: optionalText(String(proposedPayload.currency ?? "")),
+    provider_name: optionalText(String(proposedPayload.provider_name ?? "")),
+    purchase_date:
+      typeof proposedPayload.purchase_date === "string" ? proposedPayload.purchase_date : null,
+    remarks_or_terms: optionalText(String(proposedPayload.remarks_or_terms ?? ""))
+  };
+}
+
+function initialDraftsForCandidates(
+  candidates: ExtractedCandidateRead[]
+): Record<number, CandidateDraft> {
+  return Object.fromEntries(
+    candidates.map((candidate) => [
+      candidate.id,
+      {
+        included: candidate.decision !== "rejected",
+        reviewedPayload:
+          candidate.decision === "rejected" ? null : reviewedPayloadForCandidate(candidate)
+      }
+    ])
+  );
 }
 
 function taxonomySuggestion(candidate: ExtractedCandidateRead | null):

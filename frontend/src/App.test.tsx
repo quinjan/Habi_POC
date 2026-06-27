@@ -177,42 +177,38 @@ describe("Project Workspace app shell", () => {
               status: "review_pending"
             },
             candidates: [
-              {
-                id: 20,
-                project_workspace_id: 1,
-                review_batch_id: 10,
-                source_submission_id: 30,
-                status: "pending_review",
-                proposed_payload: {
-                  line_type: "material",
-                  name: "PVC pipe",
-                  quantity: "20",
-                  unit: "pcs",
-                  price: "1500",
-                  currency: "PHP",
-                  provider_name: "ABC Trading",
-                  purchase_date: null,
-                  remarks_or_terms: null,
-                  category_suggestion: {
-                    top_level_category: "Plumbing",
-                    subcategory: "Pipes"
-                  }
-                },
-                decision: null,
-                merged_into_candidate_id: null,
-                reviewed_payload: null,
-                taxonomy_gate: {
-                  status: "new_taxonomy_path",
-                  reason: "new_taxonomy_path",
-                  suggested_category_path: "Plumbing / Pipes",
-                  resolved_category_path: null,
-                  decision: null,
-                  taxonomy_decision_id: null,
-                  prior_rejection: null
-                },
-                taxonomy_default: null
-              }
+              buildCandidate(20, "PVC pipe", "material", "Plumbing", "Pipes"),
+              buildCandidate(21, "PVC elbow", "material", "Plumbing", "Pipes")
             ],
+            duplicate_groups: [],
+            duplicate_conflicts: [],
+            taxonomy_decisions: []
+          });
+        }
+
+        if (url === "/api/project-workspaces/1/review-batches/10/review-draft" && method === "PUT") {
+          const body = JSON.parse(String(init?.body));
+          return jsonResponse({
+            review_batch: {
+              id: 10,
+              project_workspace_id: 1,
+              source_submission_id: 30,
+              status: "ready_to_import"
+            },
+            candidates: body.candidates.map(
+              (item: { candidate_id: number; included: boolean; reviewed_payload: unknown }) => ({
+                ...buildCandidate(
+                  item.candidate_id,
+                  item.candidate_id === 20 ? "PVC pipe" : "PVC elbow",
+                  "material",
+                  "Plumbing",
+                  "Pipes"
+                ),
+                status: item.included ? "approved_for_import" : "rejected_for_import",
+                decision: item.included ? "approved" : "rejected",
+                reviewed_payload: item.included ? item.reviewed_payload : null
+              })
+            ),
             duplicate_groups: [],
             duplicate_conflicts: [],
             taxonomy_decisions: []
@@ -439,6 +435,7 @@ describe("Project Workspace app shell", () => {
     await user.click(
       within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
     );
+    await user.click(screen.getByRole("tab", { name: "Upload / Review" }));
 
     await user.type(screen.getByLabelText("Item or service name"), "PVC pipe");
     await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
@@ -490,6 +487,84 @@ describe("Project Workspace app shell", () => {
     expect(screen.queryByRole("heading", { name: "Purchase Lines" })).not.toBeInTheDocument();
   });
 
+  test("reviewer saves multi-candidate inclusion draft from the Review Batch page", async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi.mocked(fetch);
+
+    render(<App />);
+
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+    await user.click(screen.getByRole("tab", { name: "Upload / Review" }));
+    await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
+    await user.type(
+      screen.getByLabelText("Free-form source text"),
+      "PVC pipe and PVC elbow, 20 pcs, from ABC Trading, PHP 1,500"
+    );
+    await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
+    await user.click(await screen.findByRole("button", { name: "Open Review Batch" }));
+
+    const batch = await screen.findByRole("region", { name: "Review Batch" });
+    expect(within(batch).getByText("PVC pipe")).toBeInTheDocument();
+    expect(within(batch).getByText("PVC elbow")).toBeInTheDocument();
+    const elbowCheckbox = within(batch).getByRole("checkbox", { name: "Include PVC elbow" });
+    expect(elbowCheckbox).toBeChecked();
+    await user.click(elbowCheckbox);
+    expect(elbowCheckbox).not.toBeChecked();
+
+    expect(fetchSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("/review-draft"),
+      expect.anything()
+    );
+
+    await user.click(within(batch).getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Review draft saved.")).toBeInTheDocument();
+    const draftCall = fetchSpy.mock.calls.find(([input]) =>
+      input.toString().includes("/review-draft")
+    );
+    expect(draftCall).toBeDefined();
+    expect(JSON.parse(String(draftCall?.[1]?.body))).toEqual({
+      candidates: [
+        expect.objectContaining({ candidate_id: 20, included: true }),
+        expect.objectContaining({ candidate_id: 21, included: false, reviewed_payload: null })
+      ]
+    });
+  });
+
+  test("reviewer imports included candidates after saving the latest draft", async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi.mocked(fetch);
+
+    render(<App />);
+
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+    await user.click(screen.getByRole("tab", { name: "Upload / Review" }));
+    await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
+    await user.type(screen.getByLabelText("Free-form source text"), "PVC pipe, 20 pcs");
+    await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
+    await user.click(await screen.findByRole("button", { name: "Open Review Batch" }));
+
+    await user.click(screen.getByRole("button", { name: "Import Included Candidates" }));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/projects/1/purchase-lines");
+    });
+    expect(await screen.findByRole("heading", { name: "Purchase Lines" })).toBeInTheDocument();
+    const calledPaths = fetchSpy.mock.calls.map(([input]) => input.toString());
+    expect(calledPaths.findIndex((path) => path.includes("/review-draft"))).toBeLessThan(
+      calledPaths.findIndex((path) => path.includes("/import"))
+    );
+  });
+
   test("reviewer submits a manual source entry, approves it, and sees the imported purchase line", async () => {
     const user = userEvent.setup();
 
@@ -501,6 +576,7 @@ describe("Project Workspace app shell", () => {
     await user.click(
       within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
     );
+    await user.click(screen.getByRole("tab", { name: "Upload / Review" }));
 
     await user.selectOptions(screen.getByLabelText("Line type"), "material");
     await user.type(screen.getByLabelText("Item or service name"), "PVC pipe");
@@ -513,11 +589,8 @@ describe("Project Workspace app shell", () => {
     await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
 
     await user.click(await screen.findByRole("button", { name: "Open Review Batch" }));
-    expect(await screen.findByRole("heading", { name: "Review Candidate" })).toBeInTheDocument();
-    await user.type(screen.getByLabelText("Top-level category"), "Plumbing");
-    await user.type(screen.getByLabelText("Subcategory"), "Pipes");
-    await user.click(screen.getByRole("button", { name: "Approve Candidate" }));
-    await user.click(await screen.findByRole("button", { name: "Import Approved Batch" }));
+    expect(await screen.findByRole("heading", { name: "Review Batch #10" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Import Included Candidates" }));
 
     const selectedWorkspace = screen.getByRole("region", {
       name: "Selected Project Workspace"
@@ -539,6 +612,7 @@ describe("Project Workspace app shell", () => {
     await user.click(
       within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
     );
+    await user.click(screen.getByRole("tab", { name: "Upload / Review" }));
 
     await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
     await user.type(
@@ -549,146 +623,15 @@ describe("Project Workspace app shell", () => {
 
     expect(await screen.findByText("review_ready")).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: "Open Review Batch" }));
-    expect(await screen.findByRole("heading", { name: "Review Candidate" })).toBeInTheDocument();
-    expect(screen.getByDisplayValue("PVC pipe")).toBeInTheDocument();
-    await user.type(screen.getByLabelText("Top-level category"), "Plumbing");
-    await user.type(screen.getByLabelText("Subcategory"), "Pipes");
-    await user.click(screen.getByRole("button", { name: "Approve Candidate" }));
-    await user.click(await screen.findByRole("button", { name: "Import Approved Batch" }));
+    expect(await screen.findByRole("heading", { name: "Review Batch #10" })).toBeInTheDocument();
+    expect(screen.getByText("PVC pipe")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Import Included Candidates" }));
 
     const selectedWorkspace = screen.getByRole("region", {
       name: "Selected Project Workspace"
     });
     expect(await within(selectedWorkspace).findByText("PVC pipe")).toBeInTheDocument();
     expect(within(selectedWorkspace).getByText("ABC Trading")).toBeInTheDocument();
-  });
-
-  test("reviewer resolves a taxonomy gate and gets default category provenance", async () => {
-    const user = userEvent.setup();
-
-    render(<App />);
-
-    const selector = await screen.findByRole("navigation", {
-      name: "Project Workspace selector"
-    });
-    await user.click(
-      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
-    );
-
-    await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
-    await user.type(
-      screen.getByLabelText("Free-form source text"),
-      "PVC pipe, 20 pcs, from ABC Trading, PHP 1,500"
-    );
-    await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
-
-    await user.click(await screen.findByRole("button", { name: "Open Review Batch" }));
-    const gate = await screen.findByRole("group", { name: "Taxonomy Gate" });
-    expect(within(gate).getByText("new_taxonomy_path")).toBeInTheDocument();
-    expect(within(gate).getAllByText("Plumbing / Pipes").length).toBeGreaterThan(0);
-
-    await user.click(within(gate).getByRole("button", { name: "Approve Taxonomy" }));
-
-    expect(
-      await screen.findByText("Defaulted from a previous approved taxonomy decision: Plumbing / Pipes")
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText("Top-level category")).toHaveValue("Plumbing");
-    expect(screen.getByLabelText("Subcategory")).toHaveValue("Pipes");
-  });
-
-  test("reviewer sees newly approved taxonomy path in map options", async () => {
-    const user = userEvent.setup();
-
-    render(<App />);
-
-    const selector = await screen.findByRole("navigation", {
-      name: "Project Workspace selector"
-    });
-    await user.click(
-      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
-    );
-
-    await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
-    await user.type(
-      screen.getByLabelText("Free-form source text"),
-      "PVC pipe, 20 pcs, from ABC Trading, PHP 1,500"
-    );
-    await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
-
-    await user.click(await screen.findByRole("button", { name: "Open Review Batch" }));
-    const gate = await screen.findByRole("group", { name: "Taxonomy Gate" });
-    expect(within(gate).queryByRole("option", { name: "Plumbing / Pipes" })).not.toBeInTheDocument();
-
-    await user.click(within(gate).getByRole("button", { name: "Approve Taxonomy" }));
-
-    await waitFor(() => {
-      expect(
-        within(screen.getByRole("group", { name: "Taxonomy Gate" })).getByRole("option", {
-          name: "Plumbing / Pipes"
-        })
-      ).toBeInTheDocument();
-    });
-  });
-
-  test("reviewer approval applies returned candidate state and clears resolved gate", async () => {
-    const user = userEvent.setup();
-
-    render(<App />);
-
-    const selector = await screen.findByRole("navigation", {
-      name: "Project Workspace selector"
-    });
-    await user.click(
-      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
-    );
-
-    await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
-    await user.type(
-      screen.getByLabelText("Free-form source text"),
-      "PVC pipe, 20 pcs, from ABC Trading, PHP 1,500"
-    );
-    await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
-
-    await user.click(await screen.findByRole("button", { name: "Open Review Batch" }));
-    expect(await screen.findByRole("group", { name: "Taxonomy Gate" })).toBeInTheDocument();
-    await user.type(screen.getByLabelText("Top-level category"), "Plumbing");
-    await user.type(screen.getByLabelText("Subcategory"), "Pipes");
-    await user.click(screen.getByRole("button", { name: "Approve Candidate" }));
-
-    await waitFor(() => {
-      expect(screen.queryByRole("group", { name: "Taxonomy Gate" })).not.toBeInTheDocument();
-    });
-  });
-
-  test("reviewer sees prior rejection context on an unresolved taxonomy gate", async () => {
-    const user = userEvent.setup();
-
-    render(<App />);
-
-    const selector = await screen.findByRole("navigation", {
-      name: "Project Workspace selector"
-    });
-    await user.click(
-      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
-    );
-
-    await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
-    await user.type(
-      screen.getByLabelText("Free-form source text"),
-      "PVC pipe, 20 pcs, from ABC Trading, PHP 1,500"
-    );
-    await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
-
-    await user.click(await screen.findByRole("button", { name: "Open Review Batch" }));
-    const gate = await screen.findByRole("group", { name: "Taxonomy Gate" });
-    await user.click(within(gate).getByRole("button", { name: "Reject Taxonomy" }));
-
-    expect(
-      await screen.findByText("Previously rejected for this Project Workspace.")
-    ).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "Taxonomy Gate" })).toHaveTextContent(
-      "new_taxonomy_path"
-    );
   });
 
   test("reviewer sees no candidates found for unusable free-form text", async () => {
@@ -702,6 +645,7 @@ describe("Project Workspace app shell", () => {
     await user.click(
       within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
     );
+    await user.click(screen.getByRole("tab", { name: "Upload / Review" }));
 
     await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
     await user.type(screen.getByLabelText("Free-form source text"), "Follow up with foreman");
@@ -722,6 +666,7 @@ describe("Project Workspace app shell", () => {
     await user.click(
       within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
     );
+    await user.click(screen.getByRole("tab", { name: "Upload / Review" }));
 
     await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
     await user.type(
@@ -750,4 +695,40 @@ function jsonResponse(body: unknown, status = 200): Response {
     status,
     headers: { "Content-Type": "application/json" }
   });
+}
+
+function buildCandidate(
+  id: number,
+  name: string,
+  lineType: "material" | "service",
+  topLevelCategory: string,
+  subcategory: string
+) {
+  return {
+    id,
+    project_workspace_id: 1,
+    review_batch_id: 10,
+    source_submission_id: 30,
+    status: "pending_review",
+    proposed_payload: {
+      line_type: lineType,
+      name,
+      quantity: "20",
+      unit: "pcs",
+      price: "1500",
+      currency: "PHP",
+      provider_name: "ABC Trading",
+      purchase_date: null,
+      remarks_or_terms: null,
+      category_suggestion: {
+        top_level_category: topLevelCategory,
+        subcategory
+      }
+    },
+    decision: null,
+    merged_into_candidate_id: null,
+    reviewed_payload: null,
+    taxonomy_gate: null,
+    taxonomy_default: null
+  };
 }
