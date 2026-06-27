@@ -52,6 +52,10 @@ def test_ai_candidate_validation_accepts_minimal_valid_purchase_line():
                 "currency": "PHP",
                 "currency_state": "source_stated",
                 "confidence": 0.8,
+                "category_suggestion": {
+                    "top_level_category": "Plumbing",
+                    "subcategory": "Pipes",
+                },
                 "evidence": {
                     "source_submission_id": 10,
                     "locator": "manual_source_entry.original_text",
@@ -62,6 +66,41 @@ def test_ai_candidate_validation_accepts_minimal_valid_purchase_line():
 
     assert len(valid) == 1
     assert dropped == 0
+
+
+def test_ai_candidate_validation_drops_candidates_without_complete_taxonomy():
+    from backend.app.processing.ai_extraction import validate_ai_candidates
+
+    valid, dropped = validate_ai_candidates(
+        source_submission_id=10,
+        raw_candidates=[
+            {
+                "line_type": "material",
+                "name": "PVC pipe",
+                "confidence": 0.8,
+                "category_suggestion": {
+                    "top_level_category": "Plumbing",
+                    "subcategory": "",
+                },
+                "evidence": {
+                    "source_submission_id": 10,
+                    "locator": "manual_source_entry.original_text",
+                },
+            },
+            {
+                "line_type": "service",
+                "name": "Hauling",
+                "confidence": 0.7,
+                "evidence": {
+                    "source_submission_id": 10,
+                    "locator": "manual_source_entry.original_text",
+                },
+            },
+        ],
+    )
+
+    assert valid == []
+    assert dropped == 2
 
 
 def test_ai_candidate_validation_drops_invalid_candidates():
@@ -115,6 +154,10 @@ def test_ai_candidate_defaults_missing_currency_to_php_when_price_exists():
                 "name": "PVC pipe",
                 "price": "1500",
                 "confidence": 0.8,
+                "category_suggestion": {
+                    "top_level_category": "Plumbing",
+                    "subcategory": "Pipes",
+                },
                 "evidence": {
                     "source_submission_id": 10,
                     "locator": "manual_source_entry.original_text",
@@ -141,6 +184,10 @@ def test_ai_candidate_preserves_explicit_non_php_iso_currency():
                 "currency": "USD",
                 "currency_state": "source_stated",
                 "confidence": 0.8,
+                "category_suggestion": {
+                    "top_level_category": "Plumbing",
+                    "subcategory": "Pipes",
+                },
                 "evidence": {
                     "source_submission_id": 10,
                     "locator": "manual_source_entry.original_text",
@@ -227,6 +274,10 @@ def test_worker_processes_free_form_ai_candidates_with_fake_provider(client):
                 "currency": "PHP",
                 "currency_state": "source_stated",
                 "confidence": 0.8,
+                "category_suggestion": {
+                    "top_level_category": "Plumbing",
+                    "subcategory": "Pipes",
+                },
                 "evidence": {
                     "source_submission_id": source_submission_id,
                     "locator": "manual_source_entry.original_text",
@@ -237,6 +288,10 @@ def test_worker_processes_free_form_ai_candidates_with_fake_provider(client):
                 "name": "Hauling",
                 "currency_state": "unknown",
                 "confidence": 0.7,
+                "category_suggestion": {
+                    "top_level_category": "Services",
+                    "subcategory": "Hauling",
+                },
                 "evidence": {
                     "source_submission_id": source_submission_id,
                     "locator": "manual_source_entry.original_text",
@@ -310,6 +365,10 @@ def test_free_form_ai_keeps_valid_and_drops_invalid_candidates(client):
                 "name": "PVC pipe",
                 "currency_state": "unknown",
                 "confidence": 0.8,
+                "category_suggestion": {
+                    "top_level_category": "Plumbing",
+                    "subcategory": "Pipes",
+                },
                 "evidence": {
                     "source_submission_id": source_submission_id,
                     "locator": "manual_source_entry.original_text",

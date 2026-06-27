@@ -28,8 +28,15 @@ class AiCandidateEvidence(BaseModel):
 class AiCategorySuggestion(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    top_level_category: str | None = Field(default=None, max_length=255)
-    subcategory: str | None = Field(default=None, max_length=255)
+    top_level_category: str = Field(min_length=1, max_length=255)
+    subcategory: str = Field(min_length=1, max_length=255)
+
+    @field_validator("top_level_category", "subcategory", mode="before")
+    @classmethod
+    def strip_required_taxonomy_fields(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
 
 
 class AiPurchaseLineCandidate(BaseModel):
@@ -46,7 +53,7 @@ class AiPurchaseLineCandidate(BaseModel):
     purchase_date: date | None = None
     remarks_or_terms: str | None = Field(default=None, max_length=2000)
     confidence: float = Field(ge=0, le=1)
-    category_suggestion: AiCategorySuggestion | None = None
+    category_suggestion: AiCategorySuggestion
     evidence: AiCandidateEvidence
 
     @field_validator("name", mode="before")
