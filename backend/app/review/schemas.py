@@ -66,6 +66,16 @@ class CandidateDecisionRequest(BaseModel):
     merged_into_candidate_id: int | None = None
 
 
+class ReviewBatchDraftCandidate(BaseModel):
+    candidate_id: int
+    included: bool
+    reviewed_payload: ReviewedPurchaseLinePayload | None = None
+
+
+class ReviewBatchDraftSaveRequest(BaseModel):
+    candidates: list[ReviewBatchDraftCandidate] = Field(min_length=1)
+
+
 class TaxonomyDecisionCreate(BaseModel):
     decision: Literal["approved", "mapped", "rejected"]
     suggested_top_level_category: str = Field(min_length=1, max_length=255)

@@ -26,6 +26,7 @@ from backend.app.review.lifecycle import (
     normalized_taxonomy_path_key,
     recalculate_review_batch_status,
     taxonomy_leaf_node_for_path,
+    validate_approved_reviewed_payload,
 )
 from backend.app.review.models import (
     DuplicateCandidateGroup,
@@ -41,6 +42,7 @@ from backend.app.review.schemas import (
     ExtractedCandidateRead,
     ImportedPurchaseLine,
     ImportReviewBatchResponse,
+    ReviewBatchDraftSaveRequest,
     ReviewBatchDetail,
     ReviewBatchRead,
     ReviewedPurchaseLinePayload,
@@ -199,6 +201,75 @@ def decide_candidate(
     session.commit()
     session.refresh(candidate)
     return _candidate_read(session, candidate)
+
+
+@router.put(
+    "/{project_workspace_id}/review-batches/{review_batch_id}/review-draft",
+    response_model=ReviewBatchDetail,
+)
+def save_review_batch_draft(
+    project_workspace_id: int,
+    review_batch_id: int,
+    payload: ReviewBatchDraftSaveRequest,
+    session: Session = Depends(get_session),
+) -> ReviewBatchDetail:
+    review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
+    _ensure_review_batch_editable_or_conflict(review_batch)
+    candidates_by_id = {
+        candidate.id: candidate
+        for candidate in _get_batch_candidates(session, review_batch.id)
+    }
+    requested_ids = [item.candidate_id for item in payload.candidates]
+    if len(set(requested_ids)) != len(requested_ids):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Review draft cannot contain duplicate candidates",
+        )
+    if set(requested_ids) != set(candidates_by_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Review draft must include every candidate in the Review Batch",
+        )
+
+    try:
+        for item in payload.candidates:
+            reviewed_payload = (
+                item.reviewed_payload.model_dump(mode="json")
+                if item.reviewed_payload is not None
+                else None
+            )
+            if item.included:
+                validate_approved_reviewed_payload(reviewed_payload)
+                apply_candidate_decision(
+                    session=session,
+                    review_batch=review_batch,
+                    candidate=candidates_by_id[item.candidate_id],
+                    decision="approved",
+                    reviewed_payload=reviewed_payload,
+                )
+            else:
+                apply_candidate_decision(
+                    session=session,
+                    review_batch=review_batch,
+                    candidate=candidates_by_id[item.candidate_id],
+                    decision="rejected",
+                    reviewed_payload=None,
+                )
+    except TerminalReviewBatchError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(error),
+        ) from error
+    except ValueError as error:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
+
+    session.commit()
+    session.refresh(review_batch)
+    return _review_batch_detail(session, review_batch)
 
 
 @router.post(

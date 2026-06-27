@@ -88,6 +88,19 @@ def ensure_review_batch_editable(review_batch: ReviewBatch) -> None:
         raise TerminalReviewBatchError("Terminal review batches cannot be changed")
 
 
+def validate_approved_reviewed_payload(reviewed_payload: dict | None) -> None:
+    if reviewed_payload is None:
+        raise ValueError("Included candidates require reviewed payloads")
+
+    payload = ReviewedPurchaseLinePayload.model_validate(reviewed_payload)
+    if payload.line_type not in {"material", "service"}:
+        raise ValueError("Included candidates require a Material or Service line type")
+    if not _present(payload.name):
+        raise ValueError("Included candidates require an item or service name")
+    if not _present(payload.top_level_category) or not _present(payload.subcategory):
+        raise ValueError("Included candidates require a resolved category path")
+
+
 def detect_duplicate_conflicts(*, session: Session, review_batch: ReviewBatch) -> list[str]:
     conflicts: list[str] = []
     candidates = {
