@@ -69,6 +69,52 @@ def test_worker_module_exposes_once_and_loop_commands():
     assert "--loop" in result.stdout
 
 
+def test_worker_command_processes_structured_job_outside_fastapi_app(client, monkeypatch):
+    import os
+    import subprocess
+    import sys
+
+    project = client.post(
+        "/api/project-workspaces",
+        json={
+            "project_name": "Arnaiz Residence Renovation",
+            "project_type": "Residential renovation",
+            "location": "Makati City",
+            "completion_year": 2025,
+        },
+    ).json()
+    submission = client.post(
+        f"/api/project-workspaces/{project['id']}/manual-source-entries",
+        json={
+            "entry_type": "structured_row",
+            "structured_payload": {
+                "line_type": "material",
+                "name": "PVC pipe",
+            },
+        },
+    ).json()
+
+    env = os.environ.copy()
+    env["HABI_DATABASE_URL"] = env["HABI_TEST_DATABASE_URL"]
+    env["OPENAI_API_KEY"] = "test-key"
+    env["OPENAI_MODEL"] = "gpt-5.4-nano"
+
+    result = subprocess.run(
+        [sys.executable, "-m", "backend.app.processing", "--once"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    job_detail = client.get(
+        f"/api/project-workspaces/{project['id']}/processing-jobs/"
+        f"{submission['processing_job']['id']}"
+    ).json()
+    assert job_detail["processing_job"]["status"] == "review_ready"
+
+
 def test_worker_run_once_processes_only_one_queued_job(client):
     from backend.app.processing.worker import run_once
 

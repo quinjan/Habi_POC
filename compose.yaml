@@ -43,6 +43,33 @@ services:
         "-c",
         "alembic -c backend/alembic.ini upgrade head && uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload"
       ]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/project-workspaces', timeout=2)"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: habi-worker
+    env_file:
+      - .env
+    environment:
+      HABI_DATABASE_URL: ${HABI_DATABASE_URL:?HABI_DATABASE_URL is required}
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app/backend
+    command: ["python", "-m", "backend.app.processing", "--loop"]
 
   frontend:
     build:
@@ -54,7 +81,8 @@ services:
     environment:
       VITE_API_PROXY_TARGET: ${VITE_API_PROXY_TARGET:?VITE_API_PROXY_TARGET is required}
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "${FRONTEND_PORT:?FRONTEND_PORT is required}:5173"
     volumes:

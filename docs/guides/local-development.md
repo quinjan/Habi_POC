@@ -4,6 +4,7 @@ This guide runs Habi with Docker Compose:
 
 - Postgres in Docker, with a persistent Docker volume.
 - FastAPI backend in Docker on `http://127.0.0.1:8000`.
+- Processing Job worker in Docker for Manual Source Entry extraction.
 - React/Vite frontend in Docker on `http://127.0.0.1:5173`.
 
 ## Prerequisites
@@ -32,7 +33,9 @@ postgresql+psycopg://habi:habi_local_password@postgres:5432/habi_poc
 docker compose up --build
 ```
 
-Compose starts Postgres, waits for it to become healthy, runs backend migrations, starts the FastAPI backend, and starts the Vite frontend.
+Compose starts Postgres, waits for it to become healthy, runs backend
+migrations, starts the FastAPI backend, waits for backend health, starts the
+Processing Job worker, and starts the Vite frontend.
 
 Open:
 
@@ -74,7 +77,7 @@ After backend API changes:
 docker compose run --rm frontend npm run generate:api
 ```
 
-## 6. Run Processing Worker
+## 6. Processing Worker
 
 ### AI Extraction Worker
 
@@ -97,13 +100,19 @@ $env:OPENAI_BASE_URL="https://api.openai.com/v1"
 
 If `OPENAI_MODEL` is not set, the worker defaults to `gpt-5.4-nano`.
 
-Process one queued job and exit:
+The worker starts automatically with:
+
+```powershell
+docker compose up --build
+```
+
+For focused debugging, process one queued job and exit:
 
 ```powershell
 docker compose run --rm backend python -m backend.app.processing --once
 ```
 
-Run the worker loop beside the API and frontend:
+Or run a temporary worker loop manually:
 
 ```powershell
 docker compose run --rm backend python -m backend.app.processing --loop

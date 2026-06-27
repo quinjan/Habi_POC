@@ -3,6 +3,8 @@ import json
 import os
 
 
+DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
+
 EXTRACTION_SYSTEM_PROMPT = (
     "Extract final/as-used construction purchase lines from the manual source text. "
     "Return only purchase-line candidates that are clearly materials or services. "
@@ -103,10 +105,11 @@ class OpenAiProviderConfig:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY is required for AI Extraction worker")
+        base_url = os.getenv("OPENAI_BASE_URL")
         return cls(
             api_key=api_key,
             model=os.getenv("OPENAI_MODEL", "gpt-5.4-nano"),
-            base_url=os.getenv("OPENAI_BASE_URL"),
+            base_url=base_url.strip() if base_url and base_url.strip() else None,
         )
 
 
@@ -118,9 +121,10 @@ class OpenAiExtractionProvider:
         if client is None:
             from openai import OpenAI
 
-            client_kwargs = {"api_key": config.api_key}
-            if config.base_url is not None:
-                client_kwargs["base_url"] = config.base_url
+            client_kwargs = {
+                "api_key": config.api_key,
+                "base_url": config.base_url or DEFAULT_OPENAI_BASE_URL,
+            }
             client = OpenAI(**client_kwargs)
         self.client = client
 

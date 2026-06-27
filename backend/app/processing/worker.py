@@ -3,12 +3,17 @@ import time
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
+from backend.app.evidence import models as evidence_models  # noqa: F401
+from backend.app.memory import models as memory_models  # noqa: F401
 from backend.app.processing.models import ProcessingJob
 from backend.app.processing.processors import (
     process_ai_manual_free_form,
     process_structured_manual_row,
 )
+from backend.app.projects import models as projects_models  # noqa: F401
+from backend.app.review import models as review_models  # noqa: F401
 from backend.app.sources.models import utc_now
+from backend.app.taxonomy import models as taxonomy_models  # noqa: F401
 
 
 STRUCTURED_PROCESSOR_NAME = "structured_manual_row_v1"

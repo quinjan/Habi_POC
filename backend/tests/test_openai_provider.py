@@ -73,6 +73,39 @@ def test_openai_provider_config_defaults_model_to_nano(monkeypatch):
     assert config.model == "gpt-5.4-nano"
 
 
+def test_openai_provider_config_ignores_blank_base_url(monkeypatch):
+    from backend.app.processing.openai_provider import OpenAiProviderConfig
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_BASE_URL", "")
+
+    config = OpenAiProviderConfig.from_env()
+
+    assert config.base_url is None
+
+
+def test_openai_provider_uses_default_base_url_when_env_base_url_is_blank(monkeypatch):
+    import openai
+
+    from backend.app.processing.openai_provider import (
+        OpenAiExtractionProvider,
+        OpenAiProviderConfig,
+    )
+
+    calls = {}
+
+    class DummyOpenAiClient:
+        def __init__(self, **kwargs):
+            calls["kwargs"] = kwargs
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "")
+    monkeypatch.setattr(openai, "OpenAI", DummyOpenAiClient)
+
+    OpenAiExtractionProvider(OpenAiProviderConfig(api_key="test-key", base_url=None))
+
+    assert calls["kwargs"]["base_url"] == "https://api.openai.com/v1"
+
+
 def test_worker_provider_factory_failure_does_not_claim_queued_job(client):
     from backend.app.processing.worker import run_once
 
