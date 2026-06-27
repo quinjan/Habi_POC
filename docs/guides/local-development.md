@@ -74,7 +74,21 @@ After backend API changes:
 docker compose run --rm frontend npm run generate:api
 ```
 
-## 6. Run Tests
+## 6. Run Processing Worker
+
+Process one queued job and exit:
+
+```powershell
+docker compose run --rm backend python -m backend.app.processing --once
+```
+
+Run the worker loop beside the API and frontend:
+
+```powershell
+docker compose run --rm backend python -m backend.app.processing --loop
+```
+
+## 7. Run Tests
 
 Backend:
 
@@ -89,7 +103,7 @@ docker compose run --rm frontend npm test
 docker compose run --rm frontend npm run build
 ```
 
-## 7. Stop Local Services
+## 8. Stop Local Services
 
 ```powershell
 docker compose down
