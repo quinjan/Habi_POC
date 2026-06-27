@@ -56,6 +56,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/project-workspaces/{project_workspace_id}/processing-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Processing Jobs */
+        get: operations["list_processing_jobs_api_project_workspaces__project_workspace_id__processing_jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/project-workspaces/{project_workspace_id}/processing-jobs/{processing_job_id}": {
         parameters: {
             query?: never;
@@ -314,6 +331,12 @@ export interface components {
             /** Original Text */
             original_text?: string | null;
         };
+        /** ManualSourceEntryQueuedSubmission */
+        ManualSourceEntryQueuedSubmission: {
+            source_submission: components["schemas"]["SourceSubmissionRead"];
+            manual_source_entry: components["schemas"]["ManualSourceEntryRead"];
+            processing_job: components["schemas"]["ProcessingJobRead"];
+        };
         /** ManualSourceEntryRead */
         ManualSourceEntryRead: {
             /** Id */
@@ -331,17 +354,20 @@ export interface components {
             /** Original Text */
             original_text: string | null;
         };
-        /** ManualSourceEntrySubmission */
-        ManualSourceEntrySubmission: {
-            source_submission: components["schemas"]["SourceSubmissionRead"];
-            manual_source_entry: components["schemas"]["ManualSourceEntryRead"];
-            processing_job: components["schemas"]["ProcessingJobRead"];
-            review_batch: components["schemas"]["ReviewBatchRead"] | null;
-            /** Candidates */
-            candidates: components["schemas"]["ExtractedCandidateRead"][];
-        };
         /** ProcessingJobDetail */
         ProcessingJobDetail: {
+            processing_job: components["schemas"]["ProcessingJobRead"];
+            source_submission: components["schemas"]["SourceSubmissionSummary"];
+            /** Review Batch Id */
+            review_batch_id: number | null;
+        };
+        /** ProcessingJobList */
+        ProcessingJobList: {
+            /** Items */
+            items: components["schemas"]["ProcessingJobListItem"][];
+        };
+        /** ProcessingJobListItem */
+        ProcessingJobListItem: {
             processing_job: components["schemas"]["ProcessingJobRead"];
             source_submission: components["schemas"]["SourceSubmissionSummary"];
             /** Review Batch Id */
@@ -372,6 +398,10 @@ export interface components {
             finished_at: string | null;
             /** Error Message */
             error_message: string | null;
+            /** Diagnostics */
+            diagnostics: {
+                [key: string]: unknown;
+            } | null;
             /** Candidate Count */
             candidate_count: number;
             /** Review Batch Id */
@@ -785,7 +815,38 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ManualSourceEntrySubmission"];
+                    "application/json": components["schemas"]["ManualSourceEntryQueuedSubmission"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_processing_jobs_api_project_workspaces__project_workspace_id__processing_jobs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessingJobList"];
                 };
             };
             /** @description Validation Error */

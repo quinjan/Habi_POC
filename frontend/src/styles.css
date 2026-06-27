@@ -258,7 +258,7 @@ h3 {
 }
 
 .manual-source-form,
-.processing-status,
+.processing-job-queue,
 .review-panel,
 .purchase-lines-table-wrap {
   padding: 18px;
@@ -267,9 +267,33 @@ h3 {
   background: #ffffff;
 }
 
-.processing-status {
+.processing-job-queue {
   display: grid;
-  gap: 4px;
+  gap: 12px;
+}
+
+.job-queue-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.job-queue-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #d5ddd7;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8faf7;
+}
+
+.job-queue-item h4,
+.job-queue-item p {
+  margin: 0;
 }
 
 .review-actions {
@@ -402,6 +426,10 @@ h3 {
   }
 
   .taxonomy-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .job-queue-item {
     grid-template-columns: 1fr;
   }
 }

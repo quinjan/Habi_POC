@@ -10,7 +10,10 @@ export type CandidateDecisionRequest = components["schemas"]["CandidateDecisionR
 export type ExtractedCandidateRead = components["schemas"]["ExtractedCandidateRead"];
 export type ImportReviewBatchResponse = components["schemas"]["ImportReviewBatchResponse"];
 export type ManualSourceEntryCreate = components["schemas"]["ManualSourceEntryCreate"];
-export type ManualSourceEntrySubmission = components["schemas"]["ManualSourceEntrySubmission"];
+export type ManualSourceEntryQueuedSubmission =
+  components["schemas"]["ManualSourceEntryQueuedSubmission"];
+export type ProcessingJobList = components["schemas"]["ProcessingJobList"];
+export type ProcessingJobListItem = components["schemas"]["ProcessingJobListItem"];
 export type ReviewBatchDetail = components["schemas"]["ReviewBatchDetail"];
 export type ReviewedPurchaseLinePayload = components["schemas"]["ReviewedPurchaseLinePayload"];
 export type TaxonomyDecisionCreate = components["schemas"]["TaxonomyDecisionCreate"];
@@ -42,13 +45,21 @@ export async function getProjectWorkspacePurchaseLines(
 export async function createManualSourceEntry(
   projectWorkspaceId: number,
   payload: ManualSourceEntryCreate
-): Promise<ManualSourceEntrySubmission> {
-  return request<ManualSourceEntrySubmission>(
+): Promise<ManualSourceEntryQueuedSubmission> {
+  return request<ManualSourceEntryQueuedSubmission>(
     `/api/project-workspaces/${projectWorkspaceId}/manual-source-entries`,
     {
       method: "POST",
       body: JSON.stringify(payload)
     }
+  );
+}
+
+export async function listProcessingJobs(
+  projectWorkspaceId: number
+): Promise<ProcessingJobList> {
+  return request<ProcessingJobList>(
+    `/api/project-workspaces/${projectWorkspaceId}/processing-jobs`
   );
 }
 

@@ -9,11 +9,12 @@ import {
   getReviewBatch,
   getProjectWorkspacePurchaseLines,
   importReviewBatch,
+  listProcessingJobs,
   listTaxonomyLeafPaths,
   listProjectWorkspaces,
   type ExtractedCandidateRead,
-  type ManualSourceEntrySubmission,
   type ManualSourceEntryCreate,
+  type ProcessingJobListItem,
   type ProjectWorkspaceCreate,
   type ProjectWorkspaceListItem,
   type ProjectWorkspacePurchaseLinesView,
@@ -85,8 +86,8 @@ function App() {
     useState<ManualSourceForm>(emptyManualSourceForm);
   const [manualEntryMode, setManualEntryMode] = useState<ManualEntryMode>("structured_row");
   const [freeFormText, setFreeFormText] = useState("");
-  const [pendingSubmission, setPendingSubmission] =
-    useState<ManualSourceEntrySubmission | null>(null);
+  const [processingJobs, setProcessingJobs] = useState<ProcessingJobListItem[]>([]);
+  const [activeReviewBatch, setActiveReviewBatch] = useState<ReviewBatchDetail | null>(null);
   const [reviewForm, setReviewForm] = useState<ReviewForm | null>(null);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -127,6 +128,37 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (selectedPurchaseLines === null) {
+      setProcessingJobs([]);
+      return;
+    }
+
+    let isMounted = true;
+    const projectId = selectedPurchaseLines.project_workspace.id;
+
+    async function refreshJobs() {
+      try {
+        const response = await listProcessingJobs(projectId);
+        if (isMounted) {
+          setProcessingJobs(response.items);
+        }
+      } catch {
+        if (isMounted) {
+          setErrorMessage("Processing Jobs could not be loaded.");
+        }
+      }
+    }
+
+    void refreshJobs();
+    const intervalId = window.setInterval(() => void refreshJobs(), 2000);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(intervalId);
+    };
+  }, [selectedPurchaseLines?.project_workspace.id]);
+
   const selectedProjectName = useMemo(
     () => selectedPurchaseLines?.project_workspace.project_name ?? null,
     [selectedPurchaseLines]
@@ -159,7 +191,7 @@ function App() {
       const response = await getProjectWorkspacePurchaseLines(project.id);
       setSelectedPurchaseLines(response);
       await refreshTaxonomyLeafPaths(project.id);
-      setPendingSubmission(null);
+      setActiveReviewBatch(null);
       setReviewForm(null);
       setFreeFormText("");
       setManualEntryMode("structured_row");
@@ -173,6 +205,11 @@ function App() {
   async function refreshTaxonomyLeafPaths(projectWorkspaceId: number) {
     const taxonomyNodes = await listTaxonomyLeafPaths(projectWorkspaceId);
     setTaxonomyLeafPaths(taxonomyNodes.items.map((item) => ({ id: item.id, path: item.path })));
+  }
+
+  async function refreshProcessingJobs(projectWorkspaceId: number) {
+    const response = await listProcessingJobs(projectWorkspaceId);
+    setProcessingJobs(response.items);
   }
 
   function updateForm(field: keyof ProjectWorkspaceForm, value: string) {
@@ -189,24 +226,13 @@ function App() {
     setErrorMessage(null);
 
     try {
-      const submission = await createManualSourceEntry(
+      await createManualSourceEntry(
         selectedPurchaseLines.project_workspace.id,
         buildManualSourcePayload(manualSourceForm, manualEntryMode, freeFormText)
       );
-      let reviewSubmission = submission;
-      if (submission.review_batch) {
-        const detail = await getReviewBatch(
-          selectedPurchaseLines.project_workspace.id,
-          submission.review_batch.id
-        );
-        reviewSubmission = {
-          ...submission,
-          review_batch: detail.review_batch,
-          candidates: detail.candidates
-        };
-      }
-      setPendingSubmission(reviewSubmission);
-      setReviewForm(buildReviewForm(reviewSubmission, manualSourceForm));
+      await refreshProcessingJobs(selectedPurchaseLines.project_workspace.id);
+      setActiveReviewBatch(null);
+      setReviewForm(null);
       setSelectedTaxonomyNodeId("");
       setIsCandidateApproved(false);
       if (manualEntryMode === "structured_row") {
@@ -221,12 +247,29 @@ function App() {
     }
   }
 
+  async function handleOpenReviewBatch(reviewBatchId: number) {
+    if (selectedPurchaseLines === null) {
+      return;
+    }
+
+    setErrorMessage(null);
+
+    try {
+      const detail = await getReviewBatch(selectedPurchaseLines.project_workspace.id, reviewBatchId);
+      setActiveReviewBatch(detail);
+      setReviewForm(buildReviewForm(detail, manualSourceForm));
+      setSelectedTaxonomyNodeId("");
+      setIsCandidateApproved(false);
+    } catch {
+      setErrorMessage("Review Batch could not be loaded.");
+    }
+  }
+
   async function handleApproveCandidate() {
-    const candidate = pendingSubmission?.candidates[0] ?? null;
+    const candidate = activeReviewBatch?.candidates[0] ?? null;
     if (
       selectedPurchaseLines === null ||
-      pendingSubmission === null ||
-      pendingSubmission.review_batch === null ||
+      activeReviewBatch === null ||
       candidate === null ||
       reviewForm === null
     ) {
@@ -239,16 +282,16 @@ function App() {
     try {
       const updatedCandidate = await decideCandidate(
         selectedPurchaseLines.project_workspace.id,
-        pendingSubmission.review_batch.id,
+        activeReviewBatch.review_batch.id,
         candidate.id,
         {
           decision: "approved",
           reviewed_payload: buildReviewedPayload(reviewForm)
         }
       );
-      setPendingSubmission({
-        ...pendingSubmission,
-        candidates: pendingSubmission.candidates.map((existingCandidate) =>
+      setActiveReviewBatch({
+        ...activeReviewBatch,
+        candidates: activeReviewBatch.candidates.map((existingCandidate) =>
           existingCandidate.id === updatedCandidate.id ? updatedCandidate : existingCandidate
         )
       });
@@ -261,11 +304,10 @@ function App() {
   }
 
   async function handleRejectCandidate() {
-    const candidate = pendingSubmission?.candidates[0] ?? null;
+    const candidate = activeReviewBatch?.candidates[0] ?? null;
     if (
       selectedPurchaseLines === null ||
-      pendingSubmission === null ||
-      pendingSubmission.review_batch === null ||
+      activeReviewBatch === null ||
       candidate === null
     ) {
       return;
@@ -277,15 +319,15 @@ function App() {
     try {
       const updatedCandidate = await decideCandidate(
         selectedPurchaseLines.project_workspace.id,
-        pendingSubmission.review_batch.id,
+        activeReviewBatch.review_batch.id,
         candidate.id,
         {
           decision: "rejected",
           reviewed_payload: null
         }
       );
-      setPendingSubmission({
-        ...pendingSubmission,
+      setActiveReviewBatch({
+        ...activeReviewBatch,
         candidates: [updatedCandidate]
       });
       setReviewForm(null);
@@ -298,12 +340,11 @@ function App() {
   }
 
   async function handleTaxonomyDecision(decision: "approved" | "mapped" | "rejected") {
-    const candidate = pendingSubmission?.candidates[0] ?? null;
+    const candidate = activeReviewBatch?.candidates[0] ?? null;
     const suggestion = taxonomySuggestion(candidate);
     if (
       selectedPurchaseLines === null ||
-      pendingSubmission === null ||
-      pendingSubmission.review_batch === null ||
+      activeReviewBatch === null ||
       candidate === null ||
       suggestion === null
     ) {
@@ -325,7 +366,7 @@ function App() {
     try {
       const detail = await createTaxonomyDecision(
         selectedPurchaseLines.project_workspace.id,
-        pendingSubmission.review_batch.id,
+        activeReviewBatch.review_batch.id,
         {
           decision,
           suggested_top_level_category: suggestion.topLevelCategory,
@@ -343,16 +384,8 @@ function App() {
   }
 
   function applyReviewBatchDetail(detail: ReviewBatchDetail) {
-    if (pendingSubmission === null) {
-      return;
-    }
-    const updatedSubmission = {
-      ...pendingSubmission,
-      review_batch: detail.review_batch,
-      candidates: detail.candidates
-    };
-    setPendingSubmission(updatedSubmission);
-    setReviewForm(buildReviewForm(updatedSubmission, manualSourceForm));
+    setActiveReviewBatch(detail);
+    setReviewForm(buildReviewForm(detail, manualSourceForm));
     setSelectedTaxonomyNodeId("");
     setIsCandidateApproved(false);
   }
@@ -360,8 +393,7 @@ function App() {
   async function handleImportBatch() {
     if (
       selectedPurchaseLines === null ||
-      pendingSubmission === null ||
-      pendingSubmission.review_batch === null
+      activeReviewBatch === null
     ) {
       return;
     }
@@ -372,13 +404,13 @@ function App() {
     try {
       await importReviewBatch(
         selectedPurchaseLines.project_workspace.id,
-        pendingSubmission.review_batch.id
+        activeReviewBatch.review_batch.id
       );
       const refreshedPurchaseLines = await getProjectWorkspacePurchaseLines(
         selectedPurchaseLines.project_workspace.id
       );
       setSelectedPurchaseLines(refreshedPurchaseLines);
-      setPendingSubmission(null);
+      setActiveReviewBatch(null);
       setReviewForm(null);
       setIsCandidateApproved(false);
     } catch {
@@ -649,21 +681,53 @@ function App() {
               </button>
             </form>
 
-            {pendingSubmission ? (
-              <section className="processing-status" aria-label="Processing Job outcome">
-                <p className="eyebrow">{pendingSubmission.processing_job.status}</p>
-                <h3>
-                  {pendingSubmission.processing_job.status === "no_candidates_found"
-                    ? "No candidates found"
-                    : "Processing Job"}
-                </h3>
-              </section>
-            ) : null}
+            <section className="processing-job-queue" aria-label="Processing Job queue">
+              <div className="view-heading">
+                <p className="eyebrow">Processing Jobs</p>
+                <h3>Job / Review Queue</h3>
+              </div>
+              {processingJobs.length === 0 ? (
+                <p className="status-message">No Processing Jobs yet</p>
+              ) : (
+                <ul className="job-queue-list">
+                  {processingJobs.map((item) => (
+                    <li className="job-queue-item" key={item.processing_job.id}>
+                      <div>
+                        <p className="eyebrow">{item.processing_job.status}</p>
+                        <h4>{formatSourceType(item.processing_job.source_type)}</h4>
+                        <p>
+                          Candidates: {item.processing_job.candidate_count} | Review Batch:{" "}
+                          {item.review_batch_id ?? "Not ready"}
+                        </p>
+                        {item.processing_job.error_message ? (
+                          <p className="status-message error">
+                            {item.processing_job.error_message}
+                          </p>
+                        ) : null}
+                      </div>
+                      {item.processing_job.status === "review_ready" && item.review_batch_id ? (
+                        <button
+                          className="secondary-action"
+                          onClick={() => {
+                            if (item.review_batch_id !== null) {
+                              void handleOpenReviewBatch(item.review_batch_id);
+                            }
+                          }}
+                          type="button"
+                        >
+                          Open Review Batch
+                        </button>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
 
-            {pendingSubmission?.review_batch && pendingSubmission.candidates[0] && reviewForm ? (
+            {activeReviewBatch && activeReviewBatch.candidates[0] && reviewForm ? (
               <section className="review-panel" aria-label="Review Candidate panel">
                 <div className="view-heading">
-                  <p className="eyebrow">{pendingSubmission.review_batch.status}</p>
+                  <p className="eyebrow">{activeReviewBatch.review_batch.status}</p>
                   <h3>Review Candidate</h3>
                 </div>
                 <div className="form-grid three-columns">
@@ -691,26 +755,26 @@ function App() {
                     />
                   </label>
                 </div>
-                {pendingSubmission.candidates[0].taxonomy_default ? (
+                {activeReviewBatch.candidates[0].taxonomy_default ? (
                   <p className="taxonomy-note">
-                    {pendingSubmission.candidates[0].taxonomy_default.provenance_text}
+                    {activeReviewBatch.candidates[0].taxonomy_default.provenance_text}
                   </p>
                 ) : null}
-                {pendingSubmission.candidates[0].taxonomy_gate ? (
+                {activeReviewBatch.candidates[0].taxonomy_gate ? (
                   <div className="taxonomy-gate" aria-label="Taxonomy Gate" role="group">
-                    <p className="eyebrow">{pendingSubmission.candidates[0].taxonomy_gate.status}</p>
+                    <p className="eyebrow">{activeReviewBatch.candidates[0].taxonomy_gate.status}</p>
                     <p>
-                      {pendingSubmission.candidates[0].taxonomy_gate.suggested_category_path}
+                      {activeReviewBatch.candidates[0].taxonomy_gate.suggested_category_path}
                     </p>
-                    {pendingSubmission.candidates[0].taxonomy_gate.prior_rejection ? (
+                    {activeReviewBatch.candidates[0].taxonomy_gate.prior_rejection ? (
                       <p className="taxonomy-warning">
                         Previously rejected for this Project Workspace.
                       </p>
                     ) : null}
-                    {pendingSubmission.candidates[0].taxonomy_gate.resolved_category_path ? (
+                    {activeReviewBatch.candidates[0].taxonomy_gate.resolved_category_path ? (
                       <p>
                         Resolved to{" "}
-                        {pendingSubmission.candidates[0].taxonomy_gate.resolved_category_path}
+                        {activeReviewBatch.candidates[0].taxonomy_gate.resolved_category_path}
                       </p>
                     ) : null}
                     <div className="taxonomy-actions">
@@ -894,11 +958,11 @@ function buildManualSourcePayload(
 }
 
 function buildReviewForm(
-  submission: ManualSourceEntrySubmission,
+  reviewBatchDetail: ReviewBatchDetail,
   fallbackForm: ManualSourceForm
 ): ReviewForm | null {
-  const proposedPayload = submission.candidates[0]?.proposed_payload;
-  const taxonomyDefault = submission.candidates[0]?.taxonomy_default;
+  const proposedPayload = reviewBatchDetail.candidates[0]?.proposed_payload;
+  const taxonomyDefault = reviewBatchDetail.candidates[0]?.taxonomy_default;
   if (!proposedPayload) {
     return null;
   }
@@ -920,6 +984,13 @@ function buildReviewForm(
     topLevelCategory: defaultPath?.topLevelCategory ?? "",
     subcategory: defaultPath?.subcategory ?? ""
   };
+}
+
+function formatSourceType(sourceType: string): string {
+  return sourceType
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function buildReviewedPayload(form: ReviewForm): ReviewedPurchaseLinePayload {

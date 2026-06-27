@@ -2,12 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_session
-from backend.app.processing.manual import parse_free_form_manual_entry
 from backend.app.processing.models import ProcessingJob
 from backend.app.projects.models import ProjectWorkspace
-from backend.app.review.models import ExtractedCandidate, ReviewBatch
-from backend.app.review.schemas import ManualSourceEntrySubmission
-from backend.app.sources.models import ManualSourceEntry, SourceSubmission, utc_now
+from backend.app.review.schemas import ManualSourceEntryQueuedSubmission
+from backend.app.sources.models import ManualSourceEntry, SourceSubmission
 from backend.app.sources.schemas import ManualSourceEntryCreate
 
 
@@ -16,14 +14,14 @@ router = APIRouter(tags=["manual-source-entries"])
 
 @router.post(
     "/{project_workspace_id}/manual-source-entries",
-    response_model=ManualSourceEntrySubmission,
+    response_model=ManualSourceEntryQueuedSubmission,
     status_code=status.HTTP_201_CREATED,
 )
 def create_manual_source_entry(
     project_workspace_id: int,
     payload: ManualSourceEntryCreate,
     session: Session = Depends(get_session),
-) -> ManualSourceEntrySubmission:
+) -> ManualSourceEntryQueuedSubmission:
     project_workspace = session.get(ProjectWorkspace, project_workspace_id)
     if project_workspace is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project workspace not found")
@@ -59,42 +57,14 @@ def create_manual_source_entry(
     session.add(manual_source_entry)
     session.flush()
 
-    proposed_payload = _proposed_payload_for_manual_entry(
-        payload=payload,
-        source_submission_id=source_submission.id,
-    )
-    review_batch = None
-    candidate = None
-    if proposed_payload is not None:
-        review_batch = ReviewBatch(
-            project_workspace_id=project_workspace.id,
-            source_submission_id=source_submission.id,
-            status="review_pending",
-        )
-        session.add(review_batch)
-        session.flush()
-
-        candidate = ExtractedCandidate(
-            project_workspace_id=project_workspace.id,
-            review_batch_id=review_batch.id,
-            source_submission_id=source_submission.id,
-            status="pending_review",
-            proposed_payload=proposed_payload,
-        )
-        session.add(candidate)
-        session.flush()
-
-    finished_at = utc_now()
     processing_job = ProcessingJob(
         project_workspace_id=project_workspace.id,
         source_submission_id=source_submission.id,
-        status="review_ready" if candidate is not None else "no_candidates_found",
+        status="queued",
         source_type="manual_source_entry",
         processor_name=_processor_name(payload.entry_type),
-        started_at=finished_at,
-        finished_at=finished_at,
-        candidate_count=1 if candidate is not None else 0,
-        review_batch_id=review_batch.id if review_batch is not None else None,
+        candidate_count=0,
+        review_batch_id=None,
     )
     session.add(processing_job)
     session.commit()
@@ -102,31 +72,10 @@ def create_manual_source_entry(
     session.refresh(source_submission)
     session.refresh(manual_source_entry)
     session.refresh(processing_job)
-    if review_batch is not None:
-        session.refresh(review_batch)
-    if candidate is not None:
-        session.refresh(candidate)
-    return ManualSourceEntrySubmission(
+    return ManualSourceEntryQueuedSubmission(
         source_submission=source_submission,
         manual_source_entry=manual_source_entry,
         processing_job=processing_job,
-        review_batch=review_batch,
-        candidates=[candidate] if candidate is not None else [],
-    )
-
-
-def _proposed_payload_for_manual_entry(
-    *,
-    payload: ManualSourceEntryCreate,
-    source_submission_id: int,
-) -> dict | None:
-    if payload.entry_type == "structured_row":
-        return payload.structured_payload.model_dump(mode="json") if payload.structured_payload else None
-    if payload.original_text is None:
-        return None
-    return parse_free_form_manual_entry(
-        original_text=payload.original_text,
-        source_submission_id=source_submission_id,
     )
 
 

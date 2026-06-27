@@ -7,7 +7,7 @@ def make_client(_tmp_path):
     return make_postgres_test_client()
 
 
-def test_manual_source_entry_creates_pending_candidate_outside_active_purchase_lines(tmp_path):
+def test_structured_manual_source_entry_returns_queued_job_without_review_work(tmp_path):
     with make_client(tmp_path) as client:
         project = client.post(
             "/api/project-workspaces",
@@ -46,14 +46,12 @@ def test_manual_source_entry_creates_pending_candidate_outside_active_purchase_l
     assert submission_body["source_submission"]["submission_type"] == "manual_source_entry"
     assert submission_body["manual_source_entry"]["source_submission_id"] == submission_body["source_submission"]["id"]
     assert submission_body["manual_source_entry"]["entry_type"] == "structured_row"
-    assert submission_body["processing_job"]["status"] == "review_ready"
+    assert submission_body["processing_job"]["status"] == "queued"
     assert submission_body["processing_job"]["source_submission_id"] == submission_body["source_submission"]["id"]
-    assert submission_body["processing_job"]["candidate_count"] == 1
-    assert submission_body["processing_job"]["review_batch_id"] == submission_body["review_batch"]["id"]
-    assert submission_body["review_batch"]["source_submission_id"] == submission_body["source_submission"]["id"]
-    assert len(submission_body["candidates"]) == 1
-    assert submission_body["candidates"][0]["status"] == "pending_review"
-    assert submission_body["candidates"][0]["source_submission_id"] == submission_body["source_submission"]["id"]
+    assert submission_body["processing_job"]["candidate_count"] == 0
+    assert submission_body["processing_job"]["review_batch_id"] is None
+    assert "review_batch" not in submission_body
+    assert "candidates" not in submission_body
     assert purchase_lines.status_code == 200
     assert purchase_lines.json()["items"] == []
 
@@ -69,9 +67,11 @@ def test_approved_manual_candidate_imports_active_purchase_line_with_evidence(tm
                 "completion_year": 2025,
             },
         ).json()
-        submission = client.post(
-            f"/api/project-workspaces/{project['id']}/manual-source-entries",
-            json=structured_manual_entry_payload(
+        submission = create_review_ready_manual_submission(
+            client,
+            project_workspace_id=project["id"],
+            entry_type="structured_row",
+            structured_payload=structured_manual_entry_payload(
                 line_type="material",
                 name="PVC pipe",
                 quantity="20",
@@ -80,8 +80,8 @@ def test_approved_manual_candidate_imports_active_purchase_line_with_evidence(tm
                 provider_name="ABC Trading",
                 purchase_date="2025-07-12",
                 remarks_or_terms="Delivery included",
-            ),
-        ).json()
+            )["structured_payload"],
+        )
 
         decision = client.post(
             f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/candidates/{submission['candidates'][0]['id']}/decision",
@@ -134,7 +134,7 @@ def test_approved_manual_candidate_imports_active_purchase_line_with_evidence(tm
     ]
 
 
-def test_useful_free_form_manual_source_entry_creates_reviewable_candidate(tmp_path):
+def test_free_form_manual_source_entry_returns_queued_job_without_review_work(tmp_path):
     with make_client(tmp_path) as client:
         project = client.post(
             "/api/project-workspaces",
@@ -155,7 +155,6 @@ def test_useful_free_form_manual_source_entry_creates_reviewable_candidate(tmp_p
         )
 
     submission_body = submission.json()
-    candidate_payload = submission_body["candidates"][0]["proposed_payload"]
     assert submission.status_code == 201
     assert submission_body["manual_source_entry"]["entry_type"] == "free_form_text"
     assert (
@@ -163,27 +162,11 @@ def test_useful_free_form_manual_source_entry_creates_reviewable_candidate(tmp_p
         == "PVC pipe, 20 pcs, from ABC Trading, PHP 1,500"
     )
     assert submission_body["manual_source_entry"]["structured_payload"] is None
-    assert submission_body["processing_job"]["status"] == "review_ready"
-    assert submission_body["processing_job"]["candidate_count"] == 1
-    assert submission_body["processing_job"]["review_batch_id"] == submission_body["review_batch"]["id"]
-    assert candidate_payload["raw_text"] == "PVC pipe, 20 pcs, from ABC Trading, PHP 1,500"
-    assert candidate_payload["line_type"] == "material"
-    assert candidate_payload["name"] == "PVC pipe"
-    assert candidate_payload["quantity"] == "20"
-    assert candidate_payload["unit"] == "pcs"
-    assert candidate_payload["price"] == "1500"
-    assert candidate_payload["currency"] == "PHP"
-    assert candidate_payload["provider_name"] == "ABC Trading"
-    assert candidate_payload["confidence"] > 0
-    assert candidate_payload["category_suggestion"] == {
-        "top_level_category": "Plumbing",
-        "subcategory": "Pipes",
-    }
-    assert candidate_payload["evidence"] == {
-        "source_submission_id": submission_body["source_submission"]["id"],
-        "snippet": "PVC pipe, 20 pcs, from ABC Trading, PHP 1,500",
-        "locator": "manual_source_entry.original_text",
-    }
+    assert submission_body["processing_job"]["status"] == "queued"
+    assert submission_body["processing_job"]["candidate_count"] == 0
+    assert submission_body["processing_job"]["review_batch_id"] is None
+    assert "review_batch" not in submission_body
+    assert "candidates" not in submission_body
 
 
 def test_approved_free_form_candidate_imports_purchase_line_with_original_text_evidence(tmp_path):
@@ -198,10 +181,34 @@ def test_approved_free_form_candidate_imports_purchase_line_with_original_text_e
                 "completion_year": 2025,
             },
         ).json()
-        submission = client.post(
-            f"/api/project-workspaces/{project['id']}/manual-source-entries",
-            json={"entry_type": "free_form_text", "original_text": original_text},
-        ).json()
+        submission = create_review_ready_manual_submission(
+            client,
+            project_workspace_id=project["id"],
+            entry_type="free_form_text",
+            original_text=original_text,
+            proposed_payload={
+                "line_type": "material",
+                "name": "PVC pipe",
+                "quantity": "20",
+                "unit": "pcs",
+                "price": "1500",
+                "currency": "PHP",
+                "provider_name": "ABC Trading",
+                "purchase_date": None,
+                "remarks_or_terms": None,
+                "raw_text": original_text,
+                "confidence": 0.72,
+                "category_suggestion": {
+                    "top_level_category": "Plumbing",
+                    "subcategory": "Pipes",
+                },
+                "evidence": {
+                    "source_submission_id": 1,
+                    "snippet": original_text,
+                    "locator": "manual_source_entry.original_text",
+                },
+            },
+        )
         candidate = submission["candidates"][0]
 
         decision = client.post(
@@ -241,7 +248,7 @@ def test_approved_free_form_candidate_imports_purchase_line_with_original_text_e
     assert evidence_contents == [{"original_text": original_text}]
 
 
-def test_unusable_free_form_manual_source_entry_creates_no_candidates(tmp_path):
+def test_free_form_manual_source_entry_notes_are_queued_for_processing(tmp_path):
     with make_client(tmp_path) as client:
         project = client.post(
             "/api/project-workspaces",
@@ -265,11 +272,11 @@ def test_unusable_free_form_manual_source_entry_creates_no_candidates(tmp_path):
     assert submission.status_code == 201
     assert submission_body["source_submission"]["submission_type"] == "manual_source_entry"
     assert submission_body["manual_source_entry"]["original_text"] == "Follow up with foreman after inspection."
-    assert submission_body["processing_job"]["status"] == "no_candidates_found"
+    assert submission_body["processing_job"]["status"] == "queued"
     assert submission_body["processing_job"]["candidate_count"] == 0
     assert submission_body["processing_job"]["review_batch_id"] is None
-    assert submission_body["review_batch"] is None
-    assert submission_body["candidates"] == []
+    assert "review_batch" not in submission_body
+    assert "candidates" not in submission_body
 
 
 def test_blank_free_form_manual_source_entry_is_rejected_before_source_submission(tmp_path):
@@ -297,6 +304,37 @@ def test_blank_free_form_manual_source_entry_is_rejected_before_source_submissio
         )
 
     assert rejected.status_code == 422
+    assert accepted.status_code == 201
+    assert accepted.json()["source_submission"]["id"] == 1
+
+
+def test_invalid_manual_source_entries_are_rejected_before_job_creation(tmp_path):
+    with make_client(tmp_path) as client:
+        project = client.post(
+            "/api/project-workspaces",
+            json={
+                "project_name": "Arnaiz Residence Renovation",
+                "project_type": "Residential renovation",
+                "location": "Makati City",
+                "completion_year": 2025,
+            },
+        ).json()
+
+        blank = client.post(
+            f"/api/project-workspaces/{project['id']}/manual-source-entries",
+            json={"entry_type": "free_form_text", "original_text": "   "},
+        )
+        malformed = client.post(
+            f"/api/project-workspaces/{project['id']}/manual-source-entries",
+            json={"entry_type": "structured_row", "structured_payload": None},
+        )
+        accepted = client.post(
+            f"/api/project-workspaces/{project['id']}/manual-source-entries",
+            json={"entry_type": "free_form_text", "original_text": "PVC pipe"},
+        )
+
+    assert blank.status_code == 422
+    assert malformed.status_code == 422
     assert accepted.status_code == 201
     assert accepted.json()["source_submission"]["id"] == 1
 
@@ -367,13 +405,13 @@ def test_processing_job_status_endpoint_returns_project_scoped_job_detail(tmp_pa
 
     assert job_detail.status_code == 200
     assert job_detail.json()["processing_job"]["id"] == submission["processing_job"]["id"]
-    assert job_detail.json()["processing_job"]["status"] == "review_ready"
+    assert job_detail.json()["processing_job"]["status"] == "queued"
     assert job_detail.json()["source_submission"] == {
         "id": submission["source_submission"]["id"],
         "submission_type": "manual_source_entry",
         "submitted_at": submission["source_submission"]["submitted_at"],
     }
-    assert job_detail.json()["review_batch_id"] == submission["review_batch"]["id"]
+    assert job_detail.json()["review_batch_id"] is None
     assert cross_project_detail.status_code == 404
 
 
@@ -388,9 +426,11 @@ def test_review_batch_status_reaches_ready_only_after_complete_importable_review
                 "completion_year": 2025,
             },
         ).json()
-        submission = client.post(
-            f"/api/project-workspaces/{project['id']}/manual-source-entries",
-            json=structured_manual_entry_payload(
+        submission = create_review_ready_manual_submission(
+            client,
+            project_workspace_id=project["id"],
+            entry_type="structured_row",
+            structured_payload=structured_manual_entry_payload(
                 line_type="material",
                 name="PVC pipe",
                 quantity="20",
@@ -399,8 +439,8 @@ def test_review_batch_status_reaches_ready_only_after_complete_importable_review
                 provider_name="ABC Trading",
                 purchase_date="2025-07-12",
                 remarks_or_terms="Delivery included",
-            ),
-        ).json()
+            )["structured_payload"],
+        )
         extra_candidate_id = add_candidate_to_batch(
             client,
             project_workspace_id=project["id"],
@@ -494,9 +534,11 @@ def test_manual_import_preserves_unknown_states_and_project_scope(tmp_path):
                 "completion_year": 2024,
             },
         ).json()
-        submission = client.post(
-            f"/api/project-workspaces/{project['id']}/manual-source-entries",
-            json=structured_manual_entry_payload(
+        submission = create_review_ready_manual_submission(
+            client,
+            project_workspace_id=project["id"],
+            entry_type="structured_row",
+            structured_payload=structured_manual_entry_payload(
                 line_type="service",
                 name="Concrete coring",
                 quantity="1",
@@ -504,8 +546,8 @@ def test_manual_import_preserves_unknown_states_and_project_scope(tmp_path):
                 price="",
                 provider_name="",
                 remarks_or_terms="Night work",
-            ),
-        ).json()
+            )["structured_payload"],
+        )
 
         client.post(
             f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/candidates/{submission['candidates'][0]['id']}/decision",
@@ -581,6 +623,84 @@ def add_candidate_to_batch(
         session.add(candidate)
         session.commit()
         return candidate.id
+
+
+def create_review_ready_manual_submission(
+    client: TestClient,
+    *,
+    project_workspace_id: int,
+    entry_type: str,
+    structured_payload: dict | None = None,
+    original_text: str | None = None,
+    proposed_payload: dict | None = None,
+) -> dict:
+    from backend.app.processing.models import ProcessingJob
+    from backend.app.review.models import ExtractedCandidate, ReviewBatch
+    from backend.app.sources.models import ManualSourceEntry, SourceSubmission
+
+    with client.app.state.session_factory() as session:
+        source_submission = SourceSubmission(
+            project_workspace_id=project_workspace_id,
+            submission_type="manual_source_entry",
+            entered_by=None,
+        )
+        session.add(source_submission)
+        session.flush()
+
+        manual_source_entry = ManualSourceEntry(
+            project_workspace_id=project_workspace_id,
+            source_submission_id=source_submission.id,
+            entry_type=entry_type,
+            structured_payload=structured_payload,
+            original_text=original_text,
+        )
+        session.add(manual_source_entry)
+
+        review_batch = ReviewBatch(
+            project_workspace_id=project_workspace_id,
+            source_submission_id=source_submission.id,
+            status="review_pending",
+        )
+        session.add(review_batch)
+        session.flush()
+
+        candidate_payload = proposed_payload or structured_payload or {}
+        evidence = candidate_payload.get("evidence")
+        if isinstance(evidence, dict):
+            evidence["source_submission_id"] = source_submission.id
+        candidate = ExtractedCandidate(
+            project_workspace_id=project_workspace_id,
+            review_batch_id=review_batch.id,
+            source_submission_id=source_submission.id,
+            status="pending_review",
+            proposed_payload=candidate_payload,
+        )
+        session.add(candidate)
+        session.flush()
+
+        processing_job = ProcessingJob(
+            project_workspace_id=project_workspace_id,
+            source_submission_id=source_submission.id,
+            status="review_ready",
+            source_type="manual_source_entry",
+            processor_name=(
+                "structured_manual_row_v1"
+                if entry_type == "structured_row"
+                else "manual_free_form_stub_v1"
+            ),
+            candidate_count=1,
+            review_batch_id=review_batch.id,
+        )
+        session.add(processing_job)
+        session.commit()
+
+        return {
+            "source_submission": {"id": source_submission.id},
+            "manual_source_entry": {"id": manual_source_entry.id},
+            "processing_job": {"id": processing_job.id},
+            "review_batch": {"id": review_batch.id},
+            "candidates": [{"id": candidate.id}],
+        }
 
 
 def structured_manual_entry_payload(**structured_payload: object) -> dict:
