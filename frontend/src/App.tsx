@@ -1058,9 +1058,12 @@ function App() {
               >
                 <section className="modal-panel">
                   {(() => {
+                    const draft = candidateDrafts[detailCandidate.id] ?? {
+                      included: true,
+                      reviewedPayload: reviewedPayloadForCandidate(detailCandidate)
+                    };
                     const reviewedPayload =
-                      candidateDrafts[detailCandidate.id]?.reviewedPayload ??
-                      reviewedPayloadForCandidate(detailCandidate);
+                      draft.reviewedPayload ?? reviewedPayloadForCandidate(detailCandidate);
                     const candidateName =
                       reviewedPayload.name ??
                       displayText(detailCandidate.proposed_payload.name, "candidate");
@@ -1073,6 +1076,15 @@ function App() {
                         detailCandidate.proposed_payload.provider_name,
                         "Unknown provider"
                       );
+                    const suggestion = taxonomySuggestion(detailCandidate);
+                    const proposedCategory =
+                      suggestion?.topLevelCategory && suggestion.subcategory
+                        ? `${suggestion.topLevelCategory} / ${suggestion.subcategory}`
+                        : "No complete taxonomy suggestion";
+                    const reviewedCategory =
+                      reviewedPayload.top_level_category && reviewedPayload.subcategory
+                        ? `${reviewedPayload.top_level_category} / ${reviewedPayload.subcategory}`
+                        : "Needs taxonomy";
                     return (
                       <>
                         <div className="view-heading">
@@ -1080,6 +1092,22 @@ function App() {
                           <h3>Candidate Detail</h3>
                         </div>
                         <dl className="candidate-detail-list">
+                          <div>
+                            <dt>Inclusion</dt>
+                            <dd>{draft.included ? "Included draft" : "Excluded draft"}</dd>
+                          </div>
+                          <div>
+                            <dt>Source Evidence</dt>
+                            <dd>Source Submission #{detailCandidate.source_submission_id}</dd>
+                          </div>
+                          <div>
+                            <dt>Taxonomy Status</dt>
+                            <dd>
+                              {reviewedPayload.top_level_category && reviewedPayload.subcategory
+                                ? "AI suggested default"
+                                : "Needs taxonomy"}
+                            </dd>
+                          </div>
                           <div>
                             <dt>Name</dt>
                             <dd>{candidateName}</dd>
@@ -1090,18 +1118,25 @@ function App() {
                           </div>
                           <div>
                             <dt>Category</dt>
-                            <dd>
-                              {reviewedPayload.top_level_category &&
-                              reviewedPayload.subcategory
-                                ? `${reviewedPayload.top_level_category} / ${reviewedPayload.subcategory}`
-                                : "Needs taxonomy"}
-                            </dd>
+                            <dd>{reviewedCategory}</dd>
                           </div>
                           <div>
                             <dt>Provider</dt>
                             <dd>{providerName}</dd>
                           </div>
                         </dl>
+                        <div className="candidate-detail-sections">
+                          <section>
+                            <h4>Proposed Fields</h4>
+                            <p>{displayText(detailCandidate.proposed_payload.name, "candidate")}</p>
+                            <p>{proposedCategory}</p>
+                          </section>
+                          <section>
+                            <h4>Reviewed Fields</h4>
+                            <p>{candidateName}</p>
+                            <p>{reviewedCategory}</p>
+                          </section>
+                        </div>
                         <div className="review-actions">
                           <button
                             className="secondary-action"

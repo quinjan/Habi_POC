@@ -672,6 +672,39 @@ describe("Project Workspace app shell", () => {
     });
   });
 
+  test("reviewer opens Candidate Detail and sees review context", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+    await user.click(screen.getByRole("tab", { name: "Upload / Review" }));
+    await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
+    await user.type(
+      screen.getByLabelText("Free-form source text"),
+      "PVC pipe and PVC elbow, 20 pcs, from ABC Trading, PHP 1,500"
+    );
+    await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
+    await user.click(await screen.findByRole("button", { name: "Open Review Batch" }));
+
+    await user.click(screen.getByRole("checkbox", { name: "Include PVC elbow" }));
+    await user.click(screen.getAllByRole("button", { name: "Details" })[1]);
+
+    const detail = await screen.findByRole("dialog", { name: "Candidate Detail" });
+    expect(within(detail).getByText("Excluded draft")).toBeInTheDocument();
+    expect(within(detail).getByText("Source Submission #30")).toBeInTheDocument();
+    expect(within(detail).getByText("Taxonomy Status")).toBeInTheDocument();
+    expect(within(detail).getByText("AI suggested default")).toBeInTheDocument();
+    expect(within(detail).getByText("Proposed Fields")).toBeInTheDocument();
+    expect(within(detail).getByText("Reviewed Fields")).toBeInTheDocument();
+    expect(within(detail).getAllByText("PVC elbow").length).toBeGreaterThan(1);
+  });
+
   test("reviewer submits a manual source entry, approves it, and sees the imported purchase line", async () => {
     const user = userEvent.setup();
 
