@@ -155,7 +155,8 @@ h3 {
 .manual-source-form textarea,
 .review-panel input,
 .review-panel select,
-.modal-panel input {
+.modal-panel input,
+.modal-panel select {
   width: 100%;
   min-width: 0;
   border: 1px solid #c7cec8;
@@ -363,6 +364,10 @@ h3 {
   padding: 18px;
   background: #ffffff;
   box-shadow: 0 20px 48px rgb(27 31 38 / 20%);
+}
+
+.modal-panel.compact-modal {
+  width: min(100%, 440px);
 }
 
 .candidate-detail-list {

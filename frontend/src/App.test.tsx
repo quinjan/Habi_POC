@@ -16,7 +16,15 @@ describe("Project Workspace app shell", () => {
     const taxonomyLeafPathsByProject = new Map<
       number,
       { id: number; name: string; parent_id: number; path: string }[]
-    >([[1, []]]);
+    >([
+      [
+        1,
+        [
+          { id: 50, name: "Pipes", parent_id: 49, path: "Plumbing / Pipes" },
+          { id: 52, name: "Wiring", parent_id: 51, path: "Electrical / Wiring" }
+        ]
+      ]
+    ]);
 
     vi.stubGlobal(
       "fetch",
@@ -219,6 +227,7 @@ describe("Project Workspace app shell", () => {
           url === "/api/project-workspaces/1/review-batches/10/taxonomy-mappings" &&
           method === "POST"
         ) {
+          const body = JSON.parse(String(init?.body));
           return jsonResponse({
             review_batch: {
               id: 10,
@@ -232,8 +241,8 @@ describe("Project Workspace app shell", () => {
                 reviewed_payload: {
                   line_type: "material",
                   name: "PVC pipe",
-                  top_level_category: "Plumbing",
-                  subcategory: "Pipes",
+                  top_level_category: body.top_level_category,
+                  subcategory: body.subcategory,
                   quantity: "20",
                   unit: "pcs",
                   price: "1500",
@@ -246,8 +255,8 @@ describe("Project Workspace app shell", () => {
                 reviewed_payload: {
                   line_type: "material",
                   name: "PVC elbow",
-                  top_level_category: "Plumbing",
-                  subcategory: "Pipes",
+                  top_level_category: body.top_level_category,
+                  subcategory: body.subcategory,
                   quantity: "20",
                   unit: "pcs",
                   price: "1500",
@@ -650,24 +659,34 @@ describe("Project Workspace app shell", () => {
     await user.click(within(detail).getByRole("button", { name: "Change Taxonomy" }));
 
     const taxonomy = await screen.findByRole("dialog", { name: "Resolve Taxonomy" });
-    await user.clear(within(taxonomy).getByLabelText("Top-Level Category"));
-    await user.type(within(taxonomy).getByLabelText("Top-Level Category"), "Plumbing");
-    await user.clear(within(taxonomy).getByLabelText("Subcategory"));
-    await user.type(within(taxonomy).getByLabelText("Subcategory"), "Pipes");
+    await user.selectOptions(
+      within(taxonomy).getByRole("combobox", { name: "Existing Taxonomy Path" }),
+      "Electrical / Wiring"
+    );
+    expect(within(taxonomy).getByLabelText("Top-Level Category")).toHaveValue("Electrical");
+    expect(within(taxonomy).getByLabelText("Subcategory")).toHaveValue("Wiring");
     await user.click(
       within(taxonomy).getByLabelText("Apply to similar taxonomy in this Review Batch")
     );
     await user.click(within(taxonomy).getByRole("button", { name: "Save Mapping" }));
 
-    expect((await screen.findAllByText("Plumbing / Pipes")).length).toBeGreaterThan(1);
+    expect(
+      screen.getByRole("dialog", { name: "Confirm Similar Taxonomy Mapping" })
+    ).toHaveTextContent("This mapping will affect 2 candidates in this Review Batch.");
+    expect(
+      fetchSpy.mock.calls.find(([input]) => input.toString().includes("/taxonomy-mappings"))
+    ).toBeUndefined();
+    await user.click(screen.getByRole("button", { name: "Confirm Mapping" }));
+
+    expect((await screen.findAllByText("Electrical / Wiring")).length).toBeGreaterThan(1);
     expect(screen.getByRole("checkbox", { name: "Include PVC elbow" })).not.toBeChecked();
     const mappingCall = fetchSpy.mock.calls.find(([input]) =>
       input.toString().includes("/taxonomy-mappings")
     );
     expect(JSON.parse(String(mappingCall?.[1]?.body))).toEqual({
       candidate_id: 20,
-      top_level_category: "Plumbing",
-      subcategory: "Pipes",
+      top_level_category: "Electrical",
+      subcategory: "Wiring",
       apply_to_similar: true
     });
   });

@@ -118,6 +118,9 @@ function App() {
     subcategory: "",
     applyToSimilar: false
   });
+  const [similarMappingConfirmation, setSimilarMappingConfirmation] = useState<{
+    affectedCount: number;
+  } | null>(null);
   const [reviewForm, setReviewForm] = useState<ReviewForm | null>(null);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -198,6 +201,9 @@ function App() {
   const taxonomyCandidate =
     activeReviewBatch?.candidates.find((candidate) => candidate.id === taxonomyCandidateId) ??
     null;
+  const selectedExistingTaxonomyPath = taxonomyLeafPaths.find(
+    (path) => path.path === `${taxonomyForm.topLevelCategory} / ${taxonomyForm.subcategory}`
+  )?.path ?? "";
 
   async function handleCreateProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -230,6 +236,7 @@ function App() {
       setCandidateDrafts({});
       setDetailCandidateId(null);
       setTaxonomyCandidateId(null);
+      setSimilarMappingConfirmation(null);
       setReviewForm(null);
       setFreeFormText("");
       setManualEntryMode("structured_row");
@@ -284,6 +291,7 @@ function App() {
       setCandidateDrafts({});
       setDetailCandidateId(null);
       setTaxonomyCandidateId(null);
+      setSimilarMappingConfirmation(null);
       setReviewForm(null);
       setSelectedTaxonomyNodeId("");
       setIsCandidateApproved(false);
@@ -312,6 +320,7 @@ function App() {
       setCandidateDrafts(initialDraftsForCandidates(detail.candidates));
       setDetailCandidateId(null);
       setTaxonomyCandidateId(null);
+      setSimilarMappingConfirmation(null);
       setReviewForm(buildReviewForm(detail, manualSourceForm));
       setSelectedTaxonomyNodeId("");
       setIsCandidateApproved(false);
@@ -371,15 +380,46 @@ function App() {
       subcategory: reviewedPayload.subcategory ?? "",
       applyToSimilar: false
     });
+    setSimilarMappingConfirmation(null);
     setTaxonomyCandidateId(candidate.id);
   }
 
   function updateTaxonomyForm(field: keyof TaxonomyForm, value: string | boolean) {
     setTaxonomyForm((currentForm) => ({ ...currentForm, [field]: value }));
+    setSimilarMappingConfirmation(null);
+  }
+
+  function handleExistingTaxonomyPathChange(path: string) {
+    const categoryPath = splitCategoryPath(path);
+    if (categoryPath === null) {
+      return;
+    }
+    setTaxonomyForm((currentForm) => ({
+      ...currentForm,
+      topLevelCategory: categoryPath.topLevelCategory,
+      subcategory: categoryPath.subcategory
+    }));
+    setSimilarMappingConfirmation(null);
   }
 
   async function handleSaveTaxonomyMapping(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (
+      activeReviewBatch !== null &&
+      taxonomyCandidate !== null &&
+      taxonomyForm.applyToSimilar &&
+      similarMappingConfirmation === null
+    ) {
+      setSimilarMappingConfirmation({
+        affectedCount: countSimilarTaxonomyCandidates(activeReviewBatch, taxonomyCandidate)
+      });
+      return;
+    }
+
+    await saveTaxonomyMapping();
+  }
+
+  async function saveTaxonomyMapping() {
     if (
       selectedPurchaseLines === null ||
       activeReviewBatch === null ||
@@ -422,6 +462,7 @@ function App() {
       );
       setDetailCandidateId(null);
       setTaxonomyCandidateId(null);
+      setSimilarMappingConfirmation(null);
       setToastMessage("Taxonomy mapping saved.");
     } catch {
       setErrorMessage("Taxonomy mapping could not be saved.");
@@ -1178,6 +1219,20 @@ function App() {
                     <h3>Resolve Taxonomy</h3>
                   </div>
                   <label>
+                    Existing Taxonomy Path
+                    <select
+                      value={selectedExistingTaxonomyPath}
+                      onChange={(event) => handleExistingTaxonomyPathChange(event.target.value)}
+                    >
+                      <option value="">Choose an existing path</option>
+                      {taxonomyLeafPaths.map((path) => (
+                        <option key={path.id} value={path.path}>
+                          {path.path}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
                     Top-Level Category
                     <input
                       required
@@ -1217,13 +1272,53 @@ function App() {
                     </button>
                     <button
                       className="secondary-action"
-                      onClick={() => setTaxonomyCandidateId(null)}
+                      onClick={() => {
+                        setTaxonomyCandidateId(null);
+                        setSimilarMappingConfirmation(null);
+                      }}
                       type="button"
                     >
                       Cancel
                     </button>
                   </div>
                 </form>
+              </div>
+            ) : null}
+
+            {workspaceRoute.name === "review_batch" && similarMappingConfirmation ? (
+              <div
+                aria-label="Confirm Similar Taxonomy Mapping"
+                aria-modal="true"
+                className="modal-backdrop"
+                role="dialog"
+              >
+                <section className="modal-panel compact-modal">
+                  <div className="view-heading">
+                    <p className="eyebrow">Apply to similar</p>
+                    <h3>Confirm Similar Taxonomy Mapping</h3>
+                  </div>
+                  <p>
+                    This mapping will affect {similarMappingConfirmation.affectedCount} candidates
+                    in this Review Batch.
+                  </p>
+                  <div className="review-actions">
+                    <button
+                      className="primary-action compact-action"
+                      disabled={isApprovingCandidate}
+                      onClick={() => void saveTaxonomyMapping()}
+                      type="button"
+                    >
+                      Confirm Mapping
+                    </button>
+                    <button
+                      className="secondary-action"
+                      onClick={() => setSimilarMappingConfirmation(null)}
+                      type="button"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </section>
               </div>
             ) : null}
 
@@ -1452,6 +1547,33 @@ function taxonomySuggestion(candidate: ExtractedCandidateRead | null):
     topLevelCategory,
     subcategory: typeof subcategory === "string" ? subcategory : null
   };
+}
+
+function countSimilarTaxonomyCandidates(
+  reviewBatchDetail: ReviewBatchDetail,
+  selectedCandidate: ExtractedCandidateRead
+): number {
+  const selectedKey = normalizedTaxonomySuggestionKey(selectedCandidate);
+  if (selectedKey === null) {
+    return 1;
+  }
+  return reviewBatchDetail.candidates.filter(
+    (candidate) => normalizedTaxonomySuggestionKey(candidate) === selectedKey
+  ).length;
+}
+
+function normalizedTaxonomySuggestionKey(candidate: ExtractedCandidateRead): string | null {
+  const suggestion = taxonomySuggestion(candidate);
+  if (suggestion?.topLevelCategory && suggestion.subcategory) {
+    return `${normalizeTaxonomyPart(suggestion.topLevelCategory)} / ${normalizeTaxonomyPart(
+      suggestion.subcategory
+    )}`;
+  }
+  return null;
+}
+
+function normalizeTaxonomyPart(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function splitCategoryPath(
