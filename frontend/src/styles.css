@@ -248,6 +248,28 @@ h3 {
   background: #2f6f73;
 }
 
+.workspace-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px solid #d5ddd7;
+}
+
+.workspace-tabs button {
+  min-height: 40px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  padding: 8px 12px;
+  color: #31413f;
+  background: transparent;
+  font-weight: 800;
+}
+
+.workspace-tabs button[aria-selected="true"] {
+  border-bottom-color: #2f6f73;
+  color: #234e52;
+}
+
 .workspace-view {
   display: grid;
   align-content: start;
@@ -260,6 +282,7 @@ h3 {
 .manual-source-form,
 .processing-job-queue,
 .review-panel,
+.review-batch-page,
 .purchase-lines-table-wrap {
   padding: 18px;
   border: 1px solid #d5ddd7;
@@ -268,6 +291,11 @@ h3 {
 }
 
 .processing-job-queue {
+  display: grid;
+  gap: 12px;
+}
+
+.review-batch-page {
   display: grid;
   gap: 12px;
 }

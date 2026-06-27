@@ -455,6 +455,41 @@ describe("Project Workspace app shell", () => {
     expect(screen.queryByRole("heading", { name: "Review Candidate" })).not.toBeInTheDocument();
   });
 
+  test("reviewer opens Upload Review tab and navigates to a dedicated Review Batch page", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+
+    expect(await screen.findByRole("tab", { name: "Purchase Lines" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+    await user.click(screen.getByRole("tab", { name: "Upload / Review" }));
+    expect(window.location.pathname).toBe("/projects/1/upload-review");
+    expect(screen.getByRole("heading", { name: "Create Manual Source Entry" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Processing Job queue" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
+    await user.type(
+      screen.getByLabelText("Free-form source text"),
+      "PVC pipe, 20 pcs, from ABC Trading, PHP 1,500"
+    );
+    await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
+    await user.click(await screen.findByRole("button", { name: "Open Review Batch" }));
+
+    expect(window.location.pathname).toBe("/projects/1/review-batches/10");
+    expect(await screen.findByRole("heading", { name: "Review Batch #10" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back to Upload / Review" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Purchase Lines" })).not.toBeInTheDocument();
+  });
+
   test("reviewer submits a manual source entry, approves it, and sees the imported purchase line", async () => {
     const user = userEvent.setup();
 

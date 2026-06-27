@@ -77,6 +77,11 @@ type ReviewForm = ManualSourceForm & {
   subcategory: string;
 };
 
+type WorkspaceRoute =
+  | { name: "purchase_lines" }
+  | { name: "upload_review" }
+  | { name: "review_batch"; reviewBatchId: number };
+
 function App() {
   const [projects, setProjects] = useState<ProjectWorkspaceListItem[]>([]);
   const [selectedPurchaseLines, setSelectedPurchaseLines] =
@@ -88,6 +93,9 @@ function App() {
   const [freeFormText, setFreeFormText] = useState("");
   const [processingJobs, setProcessingJobs] = useState<ProcessingJobListItem[]>([]);
   const [activeReviewBatch, setActiveReviewBatch] = useState<ReviewBatchDetail | null>(null);
+  const [workspaceRoute, setWorkspaceRoute] = useState<WorkspaceRoute>({
+    name: "purchase_lines"
+  });
   const [reviewForm, setReviewForm] = useState<ReviewForm | null>(null);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -196,10 +204,21 @@ function App() {
       setFreeFormText("");
       setManualEntryMode("structured_row");
       setIsCandidateApproved(false);
-      window.history.pushState({}, "", `/projects/${project.id}/purchase-lines`);
+      navigateWorkspace(project.id, { name: "purchase_lines" });
     } catch {
       setErrorMessage("Purchase Lines could not be loaded.");
     }
+  }
+
+  function navigateWorkspace(projectId: number, route: WorkspaceRoute) {
+    setWorkspaceRoute(route);
+    const path =
+      route.name === "purchase_lines"
+        ? `/projects/${projectId}/purchase-lines`
+        : route.name === "upload_review"
+          ? `/projects/${projectId}/upload-review`
+          : `/projects/${projectId}/review-batches/${route.reviewBatchId}`;
+    window.history.pushState({}, "", path);
   }
 
   async function refreshTaxonomyLeafPaths(projectWorkspaceId: number) {
@@ -260,6 +279,10 @@ function App() {
       setReviewForm(buildReviewForm(detail, manualSourceForm));
       setSelectedTaxonomyNodeId("");
       setIsCandidateApproved(false);
+      navigateWorkspace(selectedPurchaseLines.project_workspace.id, {
+        name: "review_batch",
+        reviewBatchId
+      });
     } catch {
       setErrorMessage("Review Batch could not be loaded.");
     }
@@ -553,12 +576,42 @@ function App() {
           <>
             <div className="view-heading">
               <p className="eyebrow">{selectedPurchaseLines.project_workspace.project_name}</p>
-              <h2>Purchase Lines</h2>
+              {workspaceRoute.name === "purchase_lines" ? <h2>Purchase Lines</h2> : null}
+              {workspaceRoute.name === "upload_review" ? <h2>Upload / Review</h2> : null}
             </div>
-            <form
-              className="manual-source-form"
-              onSubmit={(event) => void handleCreateManualSourceEntry(event)}
-            >
+            <div className="workspace-tabs" role="tablist" aria-label="Project Workspace sections">
+              <button
+                role="tab"
+                aria-selected={workspaceRoute.name === "purchase_lines"}
+                onClick={() =>
+                  navigateWorkspace(selectedPurchaseLines.project_workspace.id, {
+                    name: "purchase_lines"
+                  })
+                }
+                type="button"
+              >
+                Purchase Lines
+              </button>
+              <button
+                role="tab"
+                aria-selected={workspaceRoute.name === "upload_review"}
+                onClick={() =>
+                  navigateWorkspace(selectedPurchaseLines.project_workspace.id, {
+                    name: "upload_review"
+                  })
+                }
+                type="button"
+              >
+                Upload / Review
+              </button>
+            </div>
+
+            {workspaceRoute.name === "upload_review" ? (
+              <>
+                <form
+                  className="manual-source-form"
+                  onSubmit={(event) => void handleCreateManualSourceEntry(event)}
+                >
               <h3>Create Manual Source Entry</h3>
               <div className="segmented-control" aria-label="Manual Source Entry mode">
                 <button
@@ -721,10 +774,35 @@ function App() {
                     </li>
                   ))}
                 </ul>
-              )}
-            </section>
+                )}
+              </section>
+              </>
+            ) : null}
 
-            {activeReviewBatch && activeReviewBatch.candidates[0] && reviewForm ? (
+            {workspaceRoute.name === "review_batch" && activeReviewBatch ? (
+              <section className="review-batch-page" aria-label="Review Batch">
+                <button
+                  className="secondary-action"
+                  onClick={() =>
+                    navigateWorkspace(selectedPurchaseLines.project_workspace.id, {
+                      name: "upload_review"
+                    })
+                  }
+                  type="button"
+                >
+                  Back to Upload / Review
+                </button>
+                <div className="view-heading">
+                  <p className="eyebrow">{activeReviewBatch.review_batch.status}</p>
+                  <h3>Review Batch #{activeReviewBatch.review_batch.id}</h3>
+                </div>
+              </section>
+            ) : null}
+
+            {workspaceRoute.name === "review_batch" &&
+            activeReviewBatch &&
+            activeReviewBatch.candidates[0] &&
+            reviewForm ? (
               <section className="review-panel" aria-label="Review Candidate panel">
                 <div className="view-heading">
                   <p className="eyebrow">{activeReviewBatch.review_batch.status}</p>
@@ -853,49 +931,53 @@ function App() {
               </section>
             ) : null}
 
-            {selectedPurchaseLines.items.length === 0 ? (
-              <div className="empty-state">
-                <h3>No Purchase Lines yet</h3>
-              </div>
-            ) : (
-              <div className="purchase-lines-table-wrap">
-                <table className="purchase-lines-table">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Type</th>
-                      <th>Provider</th>
-                      <th>Quantity</th>
-                      <th>Price</th>
-                      <th>Date</th>
-                      <th>Category</th>
-                      <th>Evidence</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedPurchaseLines.items.map((purchaseLine) => (
-                      <tr key={purchaseLine.id}>
-                        <td>{purchaseLine.item_or_service_name}</td>
-                        <td>{purchaseLine.line_type}</td>
-                        <td>{purchaseLine.provider_name ?? "Unknown provider"}</td>
-                        <td>
-                          {purchaseLine.quantity ?? "Unknown"} {purchaseLine.unit ?? ""}
-                          {purchaseLine.unit_state === "unknown" ? " Unknown unit" : ""}
-                        </td>
-                        <td>
-                          {purchaseLine.price
-                            ? `${purchaseLine.currency ?? ""} ${purchaseLine.price}`.trim()
-                            : "Unknown price"}
-                        </td>
-                        <td>{purchaseLine.purchase_date ?? "Unknown date"}</td>
-                        <td>{purchaseLine.category_path}</td>
-                        <td>{purchaseLine.has_evidence ? purchaseLine.source_label : "No evidence"}</td>
+            {workspaceRoute.name === "purchase_lines" ? (
+              selectedPurchaseLines.items.length === 0 ? (
+                <div className="empty-state">
+                  <h3>No Purchase Lines yet</h3>
+                </div>
+              ) : (
+                <div className="purchase-lines-table-wrap">
+                  <table className="purchase-lines-table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Type</th>
+                        <th>Provider</th>
+                        <th>Quantity</th>
+                        <th>Price</th>
+                        <th>Date</th>
+                        <th>Category</th>
+                        <th>Evidence</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                    </thead>
+                    <tbody>
+                      {selectedPurchaseLines.items.map((purchaseLine) => (
+                        <tr key={purchaseLine.id}>
+                          <td>{purchaseLine.item_or_service_name}</td>
+                          <td>{purchaseLine.line_type}</td>
+                          <td>{purchaseLine.provider_name ?? "Unknown provider"}</td>
+                          <td>
+                            {purchaseLine.quantity ?? "Unknown"} {purchaseLine.unit ?? ""}
+                            {purchaseLine.unit_state === "unknown" ? " Unknown unit" : ""}
+                          </td>
+                          <td>
+                            {purchaseLine.price
+                              ? `${purchaseLine.currency ?? ""} ${purchaseLine.price}`.trim()
+                              : "Unknown price"}
+                          </td>
+                          <td>{purchaseLine.purchase_date ?? "Unknown date"}</td>
+                          <td>{purchaseLine.category_path}</td>
+                          <td>
+                            {purchaseLine.has_evidence ? purchaseLine.source_label : "No evidence"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            ) : null}
           </>
         ) : (
           <div className="empty-state">
