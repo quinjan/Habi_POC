@@ -141,7 +141,49 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ManualSourceEntrySubmission"
+                  "$ref": "#/components/schemas/ManualSourceEntryQueuedSubmission"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project-workspaces/{project_workspace_id}/processing-jobs": {
+      "get": {
+        "tags": [
+          "processing-jobs"
+        ],
+        "summary": "List Processing Jobs",
+        "operationId": "list_processing_jobs_api_project_workspaces__project_workspace_id__processing_jobs_get",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessingJobList"
                 }
               }
             }
@@ -1032,6 +1074,26 @@
         ],
         "title": "ManualSourceEntryCreate"
       },
+      "ManualSourceEntryQueuedSubmission": {
+        "properties": {
+          "source_submission": {
+            "$ref": "#/components/schemas/SourceSubmissionRead"
+          },
+          "manual_source_entry": {
+            "$ref": "#/components/schemas/ManualSourceEntryRead"
+          },
+          "processing_job": {
+            "$ref": "#/components/schemas/ProcessingJobRead"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_submission",
+          "manual_source_entry",
+          "processing_job"
+        ],
+        "title": "ManualSourceEntryQueuedSubmission"
+      },
       "ManualSourceEntryRead": {
         "properties": {
           "id": {
@@ -1085,45 +1147,6 @@
         ],
         "title": "ManualSourceEntryRead"
       },
-      "ManualSourceEntrySubmission": {
-        "properties": {
-          "source_submission": {
-            "$ref": "#/components/schemas/SourceSubmissionRead"
-          },
-          "manual_source_entry": {
-            "$ref": "#/components/schemas/ManualSourceEntryRead"
-          },
-          "processing_job": {
-            "$ref": "#/components/schemas/ProcessingJobRead"
-          },
-          "review_batch": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ReviewBatchRead"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "candidates": {
-            "items": {
-              "$ref": "#/components/schemas/ExtractedCandidateRead"
-            },
-            "type": "array",
-            "title": "Candidates"
-          }
-        },
-        "type": "object",
-        "required": [
-          "source_submission",
-          "manual_source_entry",
-          "processing_job",
-          "review_batch",
-          "candidates"
-        ],
-        "title": "ManualSourceEntrySubmission"
-      },
       "ProcessingJobDetail": {
         "properties": {
           "processing_job": {
@@ -1151,6 +1174,50 @@
           "review_batch_id"
         ],
         "title": "ProcessingJobDetail"
+      },
+      "ProcessingJobList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProcessingJobListItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "ProcessingJobList"
+      },
+      "ProcessingJobListItem": {
+        "properties": {
+          "processing_job": {
+            "$ref": "#/components/schemas/ProcessingJobRead"
+          },
+          "source_submission": {
+            "$ref": "#/components/schemas/SourceSubmissionSummary"
+          },
+          "review_batch_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Batch Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "processing_job",
+          "source_submission",
+          "review_batch_id"
+        ],
+        "title": "ProcessingJobListItem"
       },
       "ProcessingJobRead": {
         "properties": {
@@ -1218,6 +1285,18 @@
             ],
             "title": "Error Message"
           },
+          "diagnostics": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnostics"
+          },
           "candidate_count": {
             "type": "integer",
             "title": "Candidate Count"
@@ -1246,6 +1325,7 @@
           "started_at",
           "finished_at",
           "error_message",
+          "diagnostics",
           "candidate_count",
           "review_batch_id"
         ],

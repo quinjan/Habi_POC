@@ -40,6 +40,12 @@ class ManualSourceEntrySubmission(BaseModel):
     candidates: list[ExtractedCandidateRead]
 
 
+class ManualSourceEntryQueuedSubmission(BaseModel):
+    source_submission: SourceSubmissionRead
+    manual_source_entry: ManualSourceEntryRead
+    processing_job: ProcessingJobRead
+
+
 class ReviewedPurchaseLinePayload(BaseModel):
     line_type: Literal["material", "service"] | None = None
     name: str | None = Field(default=None, max_length=255)

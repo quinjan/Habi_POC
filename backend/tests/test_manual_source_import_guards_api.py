@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from backend.tests.db import make_postgres_test_client
+from backend.tests.manual_submission_helpers import create_review_ready_manual_submission
 
 
 def make_client(_tmp_path):
@@ -223,22 +224,20 @@ def create_manual_submission(client: TestClient):
             "completion_year": 2025,
         },
     ).json()
-    submission = client.post(
-        f"/api/project-workspaces/{project['id']}/manual-source-entries",
-        json={
-            "entry_type": "structured_row",
-            "structured_payload": {
-                "line_type": "material",
-                "name": "PVC pipe",
-                "quantity": "20",
-                "unit": "pcs",
-                "price": "1500",
-                "provider_name": "ABC Trading",
-                "purchase_date": "2025-07-12",
-                "remarks_or_terms": "Delivery included",
-            },
+    submission = create_review_ready_manual_submission(
+        client,
+        project_workspace_id=project["id"],
+        structured_payload={
+            "line_type": "material",
+            "name": "PVC pipe",
+            "quantity": "20",
+            "unit": "pcs",
+            "price": "1500",
+            "provider_name": "ABC Trading",
+            "purchase_date": "2025-07-12",
+            "remarks_or_terms": "Delivery included",
         },
-    ).json()
+    )
     return project, submission
 
 

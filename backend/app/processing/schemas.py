@@ -16,6 +16,7 @@ class ProcessingJobRead(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
     error_message: str | None
+    diagnostics: dict | None
     candidate_count: int
     review_batch_id: int | None
 
@@ -30,3 +31,13 @@ class ProcessingJobDetail(BaseModel):
     processing_job: ProcessingJobRead
     source_submission: SourceSubmissionSummary
     review_batch_id: int | None
+
+
+class ProcessingJobListItem(BaseModel):
+    processing_job: ProcessingJobRead
+    source_submission: SourceSubmissionSummary
+    review_batch_id: int | None
+
+
+class ProcessingJobList(BaseModel):
+    items: list[ProcessingJobListItem]

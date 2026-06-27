@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
 from backend.tests.db import make_postgres_test_client
+from backend.tests.manual_submission_helpers import create_review_ready_manual_submission
 
 
 def make_client(_tmp_path):
@@ -996,38 +997,34 @@ def create_manual_submission(client: TestClient, project_name: str):
             "completion_year": 2025,
         },
     ).json()
-    submission = client.post(
-        f"/api/project-workspaces/{project['id']}/manual-source-entries",
-        json={
-            "entry_type": "structured_row",
-            "structured_payload": {
-                "line_type": "material",
-                "name": "PVC pipe",
-                "quantity": "20",
-                "unit": "pcs",
-                "price": "1500",
-                "provider_name": "ABC Trading",
-            },
+    submission = create_review_ready_manual_submission(
+        client,
+        project_workspace_id=project["id"],
+        structured_payload={
+            "line_type": "material",
+            "name": "PVC pipe",
+            "quantity": "20",
+            "unit": "pcs",
+            "price": "1500",
+            "provider_name": "ABC Trading",
         },
-    ).json()
+    )
     return project, submission
 
 
 def add_manual_submission_to_project(client: TestClient, project_workspace_id: int):
-    return client.post(
-        f"/api/project-workspaces/{project_workspace_id}/manual-source-entries",
-        json={
-            "entry_type": "structured_row",
-            "structured_payload": {
-                "line_type": "material",
-                "name": "PVC pipe fittings",
-                "quantity": "10",
-                "unit": "pcs",
-                "price": "450",
-                "provider_name": "ABC Trading",
-            },
+    return create_review_ready_manual_submission(
+        client,
+        project_workspace_id=project_workspace_id,
+        structured_payload={
+            "line_type": "material",
+            "name": "PVC pipe fittings",
+            "quantity": "10",
+            "unit": "pcs",
+            "price": "450",
+            "provider_name": "ABC Trading",
         },
-    ).json()
+    )
 
 
 def create_taxonomy_path(
