@@ -53,6 +53,8 @@ def process_ai_manual_free_form(
     job: ProcessingJob,
     ai_provider: AiExtractionProvider,
 ) -> tuple[ReviewBatch | None, list[ExtractedCandidate], dict, str, str | None]:
+    provider_name = getattr(ai_provider, "provider_name", "fake")
+    provider_model = getattr(ai_provider, "model", "fake-ai-provider")
     manual_entry = session.scalar(
         select(ManualSourceEntry).where(
             ManualSourceEntry.source_submission_id == job.source_submission_id,
@@ -65,6 +67,8 @@ def process_ai_manual_free_form(
             [],
             {
                 "processor": "ai_manual_free_form_v1",
+                "provider": provider_name,
+                "model": provider_model,
                 "failure_summary": "Free-form AI job requires preserved original text",
             },
             "failed",
@@ -82,13 +86,28 @@ def process_ai_manual_free_form(
             [],
             {
                 "processor": "ai_manual_free_form_v1",
-                "provider": "fake",
-                "model": "fake-ai-provider",
+                "provider": provider_name,
+                "model": provider_model,
+                "failure": "provider_runtime_error",
                 "failure_summary": str(error),
             },
             "failed",
             str(error),
         )
+    if not isinstance(raw_result, dict):
+        return (
+            None,
+            [],
+            {
+                "processor": "ai_manual_free_form_v1",
+                "provider": provider_name,
+                "model": provider_model,
+                "failure_summary": "AI provider returned malformed result",
+            },
+            "failed",
+            "AI provider returned malformed result",
+        )
+
     raw_candidates = raw_result.get("candidates", [])
     if not isinstance(raw_candidates, list):
         return (
@@ -96,6 +115,8 @@ def process_ai_manual_free_form(
             [],
             {
                 "processor": "ai_manual_free_form_v1",
+                "provider": provider_name,
+                "model": provider_model,
                 "failure_summary": "AI provider returned malformed candidates",
             },
             "failed",
@@ -108,8 +129,8 @@ def process_ai_manual_free_form(
     )
     diagnostics = {
         "processor": "ai_manual_free_form_v1",
-        "provider": "fake",
-        "model": "fake-ai-provider",
+        "provider": provider_name,
+        "model": provider_model,
         "raw_candidate_count": len(raw_candidates),
         "valid_candidate_count": len(valid_payloads),
         "dropped_candidate_count": dropped_count,

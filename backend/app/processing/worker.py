@@ -3,19 +3,27 @@ import time
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
+from backend.app.evidence import models as evidence_models  # noqa: F401
+from backend.app.memory import models as memory_models  # noqa: F401
 from backend.app.processing.models import ProcessingJob
 from backend.app.processing.processors import (
     process_ai_manual_free_form,
     process_structured_manual_row,
 )
+from backend.app.projects import models as projects_models  # noqa: F401
+from backend.app.review import models as review_models  # noqa: F401
 from backend.app.sources.models import utc_now
+from backend.app.taxonomy import models as taxonomy_models  # noqa: F401
 
 
 STRUCTURED_PROCESSOR_NAME = "structured_manual_row_v1"
 AI_FREE_FORM_PROCESSOR_NAME = "ai_manual_free_form_v1"
 
 
-def run_once(session_factory: sessionmaker, *, ai_provider=None) -> int:
+def run_once(session_factory: sessionmaker, *, ai_provider=None, ai_provider_factory=None) -> int:
+    if ai_provider is None and ai_provider_factory is not None:
+        ai_provider = ai_provider_factory()
+
     supported_processor_names = [STRUCTURED_PROCESSOR_NAME]
     if ai_provider is not None:
         supported_processor_names.append(AI_FREE_FORM_PROCESSOR_NAME)
@@ -72,8 +80,13 @@ def run_loop(
     *,
     poll_interval_seconds: float = 2.0,
     ai_provider=None,
+    ai_provider_factory=None,
 ) -> None:
     while True:
-        processed = run_once(session_factory, ai_provider=ai_provider)
+        processed = run_once(
+            session_factory,
+            ai_provider=ai_provider,
+            ai_provider_factory=ai_provider_factory,
+        )
         if processed == 0:
             time.sleep(poll_interval_seconds)

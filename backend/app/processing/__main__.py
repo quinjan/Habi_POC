@@ -3,7 +3,15 @@ import argparse
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.database import create_sqlalchemy_engine, database_url_from_env
+from backend.app.processing.openai_provider import (
+    OpenAiExtractionProvider,
+    OpenAiProviderConfig,
+)
 from backend.app.processing.worker import run_loop, run_once
+
+
+def create_openai_provider_from_env() -> OpenAiExtractionProvider:
+    return OpenAiExtractionProvider(OpenAiProviderConfig.from_env())
 
 
 def main() -> int:
@@ -15,9 +23,9 @@ def main() -> int:
     engine = create_sqlalchemy_engine(database_url_from_env())
     session_factory = sessionmaker(bind=engine, expire_on_commit=False)
     if args.loop:
-        run_loop(session_factory)
+        run_loop(session_factory, ai_provider_factory=create_openai_provider_from_env)
         return 0
-    run_once(session_factory)
+    run_once(session_factory, ai_provider_factory=create_openai_provider_from_env)
     return 0
 
 
