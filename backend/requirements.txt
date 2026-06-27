@@ -3,4 +3,5 @@ sqlalchemy==2.0.45
 alembic==1.17.2
 uvicorn[standard]==0.38.0
 psycopg[binary]==3.3.2
+openai==2.44.0
 

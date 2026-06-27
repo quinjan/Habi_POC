@@ -15,7 +15,10 @@ STRUCTURED_PROCESSOR_NAME = "structured_manual_row_v1"
 AI_FREE_FORM_PROCESSOR_NAME = "ai_manual_free_form_v1"
 
 
-def run_once(session_factory: sessionmaker, *, ai_provider=None) -> int:
+def run_once(session_factory: sessionmaker, *, ai_provider=None, ai_provider_factory=None) -> int:
+    if ai_provider is None and ai_provider_factory is not None:
+        ai_provider = ai_provider_factory()
+
     supported_processor_names = [STRUCTURED_PROCESSOR_NAME]
     if ai_provider is not None:
         supported_processor_names.append(AI_FREE_FORM_PROCESSOR_NAME)
@@ -72,8 +75,13 @@ def run_loop(
     *,
     poll_interval_seconds: float = 2.0,
     ai_provider=None,
+    ai_provider_factory=None,
 ) -> None:
     while True:
-        processed = run_once(session_factory, ai_provider=ai_provider)
+        processed = run_once(
+            session_factory,
+            ai_provider=ai_provider,
+            ai_provider_factory=ai_provider_factory,
+        )
         if processed == 0:
             time.sleep(poll_interval_seconds)
