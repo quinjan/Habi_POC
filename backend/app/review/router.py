@@ -45,6 +45,7 @@ from backend.app.review.schemas import (
     ReviewBatchDraftSaveRequest,
     ReviewBatchDetail,
     ReviewBatchRead,
+    ReviewBatchTaxonomyMappingRequest,
     ReviewedPurchaseLinePayload,
     TaxonomyDecisionCreate,
     TaxonomyDefaultRead,
@@ -345,6 +346,86 @@ def create_taxonomy_decision(
 
 
 @router.post(
+    "/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-mappings",
+    response_model=ReviewBatchDetail,
+)
+def save_review_batch_taxonomy_mapping(
+    project_workspace_id: int,
+    review_batch_id: int,
+    payload: ReviewBatchTaxonomyMappingRequest,
+    session: Session = Depends(get_session),
+) -> ReviewBatchDetail:
+    review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
+    _ensure_review_batch_editable_or_conflict(review_batch)
+    target_candidate = session.scalar(
+        select(ExtractedCandidate).where(
+            ExtractedCandidate.id == payload.candidate_id,
+            ExtractedCandidate.review_batch_id == review_batch.id,
+            ExtractedCandidate.project_workspace_id == project_workspace_id,
+        )
+    )
+    if target_candidate is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found")
+
+    suggestion = _candidate_taxonomy_suggestion(target_candidate)
+    if suggestion is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Candidate has no complete AI taxonomy suggestion",
+        )
+
+    resolved_leaf = _approve_taxonomy_path(
+        session=session,
+        project_workspace_id=project_workspace_id,
+        top_level_category=payload.top_level_category,
+        subcategory=payload.subcategory,
+    )
+    taxonomy_decision = TaxonomyDecision(
+        project_workspace_id=project_workspace_id,
+        review_batch_id=review_batch.id,
+        suggested_top_level_category=suggestion["top_level_category"],
+        suggested_subcategory=suggestion["subcategory"],
+        normalized_suggested_path_key=normalized_taxonomy_path_key(
+            suggestion["top_level_category"],
+            suggestion["subcategory"],
+        ),
+        decision="mapped",
+        resolved_taxonomy_node_id=resolved_leaf.id,
+    )
+    session.add(taxonomy_decision)
+
+    target_path_key = normalized_taxonomy_path_key(
+        suggestion["top_level_category"],
+        suggestion["subcategory"],
+    )
+    candidates_to_update = []
+    for candidate in _get_batch_candidates(session, review_batch.id):
+        candidate_suggestion = _candidate_taxonomy_suggestion(candidate)
+        if candidate_suggestion is None:
+            continue
+        if not payload.apply_to_similar and candidate.id != target_candidate.id:
+            continue
+        if payload.apply_to_similar and normalized_taxonomy_path_key(
+            candidate_suggestion["top_level_category"],
+            candidate_suggestion["subcategory"],
+        ) != target_path_key:
+            continue
+        candidates_to_update.append(candidate)
+
+    for candidate in candidates_to_update:
+        candidate.reviewed_payload = _reviewed_payload_with_category(
+            candidate=candidate,
+            top_level_category=payload.top_level_category,
+            subcategory=payload.subcategory,
+        )
+
+    recalculate_review_batch_status(session=session, review_batch=review_batch)
+    session.commit()
+    session.refresh(review_batch)
+    return _review_batch_detail(session, review_batch)
+
+
+@router.post(
     "/{project_workspace_id}/review-batches/{review_batch_id}/duplicate-groups",
     response_model=DuplicateCandidateGroupRead,
     status_code=status.HTTP_201_CREATED,
@@ -619,6 +700,41 @@ def _batch_has_taxonomy_suggestion(
         if candidate_path_key == normalized_suggested_path_key:
             return True
     return False
+
+
+def _candidate_taxonomy_suggestion(candidate: ExtractedCandidate) -> dict[str, str] | None:
+    suggestion = candidate.proposed_payload.get("category_suggestion")
+    if not isinstance(suggestion, dict):
+        return None
+    top_level_category = suggestion.get("top_level_category")
+    subcategory = suggestion.get("subcategory")
+    if not isinstance(top_level_category, str) or not _present(top_level_category):
+        return None
+    if not isinstance(subcategory, str) or not _present(subcategory):
+        return None
+    return {
+        "top_level_category": top_level_category.strip(),
+        "subcategory": subcategory.strip(),
+    }
+
+
+def _reviewed_payload_with_category(
+    *,
+    candidate: ExtractedCandidate,
+    top_level_category: str,
+    subcategory: str,
+) -> dict:
+    payload = {
+        **candidate.proposed_payload,
+        **(candidate.reviewed_payload or {}),
+        "top_level_category": top_level_category.strip(),
+        "subcategory": subcategory.strip(),
+    }
+    payload.pop("category_suggestion", None)
+    payload.pop("confidence", None)
+    payload.pop("currency_state", None)
+    payload.pop("evidence", None)
+    return ReviewedPurchaseLinePayload.model_validate(payload).model_dump(mode="json")
 
 
 def _candidate_read(session: Session, candidate: ExtractedCandidate) -> ExtractedCandidateRead:

@@ -83,6 +83,13 @@ class TaxonomyDecisionCreate(BaseModel):
     resolved_taxonomy_node_id: int | None = None
 
 
+class ReviewBatchTaxonomyMappingRequest(BaseModel):
+    candidate_id: int
+    top_level_category: str = Field(min_length=1, max_length=255)
+    subcategory: str = Field(min_length=1, max_length=255)
+    apply_to_similar: bool = False
+
+
 class TaxonomyDecisionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
