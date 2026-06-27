@@ -99,10 +99,15 @@ describe("Project Workspace app shell", () => {
           const isNoCandidates =
             body.entry_type === "free_form_text" &&
             body.original_text === "Follow up with foreman";
+          const isFailed =
+            body.entry_type === "free_form_text" &&
+            body.original_text === "provider unavailable";
           const listJobStatus = isReviewReady
             ? "review_ready"
             : isNoCandidates
               ? "no_candidates_found"
+              : isFailed
+                ? "failed"
               : "queued";
           const processingJob = {
             id: 49 + nextIndex,
@@ -111,7 +116,7 @@ describe("Project Workspace app shell", () => {
             source_type: "manual_source_entry",
             processor_name:
               body.entry_type === "free_form_text"
-                ? "manual_free_form_stub_v1"
+                ? "ai_manual_free_form_v1"
                 : "structured_manual_row_v1",
             created_at: "2026-06-27T00:00:00Z",
             started_at: null,
@@ -140,7 +145,8 @@ describe("Project Workspace app shell", () => {
                 ...processingJob,
                 status: listJobStatus,
                 candidate_count: isReviewReady ? 1 : 0,
-                review_batch_id: isReviewReady ? 10 : null
+                review_batch_id: isReviewReady ? 10 : null,
+                error_message: isFailed ? "provider unavailable" : null
               },
               source_submission: {
                 id: sourceSubmission.id,
@@ -668,6 +674,39 @@ describe("Project Workspace app shell", () => {
 
     expect(await screen.findByText("no_candidates_found")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Review Candidate" })).not.toBeInTheDocument();
+  });
+
+  test("reviewer sees free-form job terminal states in the queue", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+
+    await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
+    await user.type(
+      screen.getByLabelText("Free-form source text"),
+      "PVC pipe, 20 pcs, from ABC Trading, PHP 1,500"
+    );
+    await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
+
+    await user.type(screen.getByLabelText("Free-form source text"), "Follow up with foreman");
+    await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
+
+    await user.type(screen.getByLabelText("Free-form source text"), "provider unavailable");
+    await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
+
+    const queue = await screen.findByRole("region", { name: "Processing Job queue" });
+    expect(within(queue).getByText("review_ready")).toBeInTheDocument();
+    expect(within(queue).getByText("no_candidates_found")).toBeInTheDocument();
+    expect(within(queue).getByText("failed")).toBeInTheDocument();
+    expect(within(queue).getByText("provider unavailable")).toBeInTheDocument();
+    expect(within(queue).queryByText("Unclear thing")).not.toBeInTheDocument();
   });
 });
 

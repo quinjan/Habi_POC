@@ -103,7 +103,7 @@ def test_worker_run_once_processes_only_one_queued_job(client):
     assert statuses.count("queued") == 1
 
 
-def test_worker_run_once_skips_deferred_free_form_jobs(client):
+def test_worker_run_once_skips_ai_free_form_jobs_without_provider(client):
     from backend.app.processing.worker import run_once
 
     project = client.post(
