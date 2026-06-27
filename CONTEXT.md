@@ -32,6 +32,10 @@ _Avoid_: Lower-trust note, unsupported memory
 A durable record of Habi processing a source input, including its classification, progress, outcome, and review readiness.
 _Avoid_: Background task, transient worker run
 
+**AI Extraction**:
+The AI-assisted conversion of preserved source content into validated extracted candidate proposals for reviewer approval.
+_Avoid_: LLM process, direct memory writing
+
 **Upload**:
 The act of adding one source file to the project workspace so Habi can parse it and propose extracted candidates.
 _Avoid_: Import
@@ -99,6 +103,10 @@ _Avoid_: Bid estimate line, unselected canvass quote
 **Unknown Field State**:
 A reviewed data gap on a purchase line where a value such as unit, price, date, or provider is intentionally marked unknown instead of being invented or silently omitted.
 _Avoid_: Null display fallback, missing bug
+
+**Defaulted Field State**:
+A review-visible value that Habi supplied from a project or POC default rather than directly extracting it from source evidence.
+_Avoid_: Source-stated value, hidden assumption
 
 **Provider**:
 An external company or person that supplied materials, provided services, or handled bundled supply-and-install work for the completed project.
