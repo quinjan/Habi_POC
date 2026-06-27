@@ -13,6 +13,7 @@ import {
   listTaxonomyLeafPaths,
   listProjectWorkspaces,
   saveReviewBatchDraft,
+  saveReviewBatchTaxonomyMapping,
   type ExtractedCandidateRead,
   type ManualSourceEntryCreate,
   type ProcessingJobListItem,
@@ -88,6 +89,12 @@ type CandidateDraft = {
   reviewedPayload: ReviewedPurchaseLinePayload | null;
 };
 
+type TaxonomyForm = {
+  topLevelCategory: string;
+  subcategory: string;
+  applyToSimilar: boolean;
+};
+
 function App() {
   const [projects, setProjects] = useState<ProjectWorkspaceListItem[]>([]);
   const [selectedPurchaseLines, setSelectedPurchaseLines] =
@@ -104,6 +111,13 @@ function App() {
   });
   const [candidateDrafts, setCandidateDrafts] = useState<Record<number, CandidateDraft>>({});
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [detailCandidateId, setDetailCandidateId] = useState<number | null>(null);
+  const [taxonomyCandidateId, setTaxonomyCandidateId] = useState<number | null>(null);
+  const [taxonomyForm, setTaxonomyForm] = useState<TaxonomyForm>({
+    topLevelCategory: "",
+    subcategory: "",
+    applyToSimilar: false
+  });
   const [reviewForm, setReviewForm] = useState<ReviewForm | null>(null);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -179,6 +193,11 @@ function App() {
     () => selectedPurchaseLines?.project_workspace.project_name ?? null,
     [selectedPurchaseLines]
   );
+  const detailCandidate =
+    activeReviewBatch?.candidates.find((candidate) => candidate.id === detailCandidateId) ?? null;
+  const taxonomyCandidate =
+    activeReviewBatch?.candidates.find((candidate) => candidate.id === taxonomyCandidateId) ??
+    null;
 
   async function handleCreateProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -208,6 +227,9 @@ function App() {
       setSelectedPurchaseLines(response);
       await refreshTaxonomyLeafPaths(project.id);
       setActiveReviewBatch(null);
+      setCandidateDrafts({});
+      setDetailCandidateId(null);
+      setTaxonomyCandidateId(null);
       setReviewForm(null);
       setFreeFormText("");
       setManualEntryMode("structured_row");
@@ -259,6 +281,9 @@ function App() {
       );
       await refreshProcessingJobs(selectedPurchaseLines.project_workspace.id);
       setActiveReviewBatch(null);
+      setCandidateDrafts({});
+      setDetailCandidateId(null);
+      setTaxonomyCandidateId(null);
       setReviewForm(null);
       setSelectedTaxonomyNodeId("");
       setIsCandidateApproved(false);
@@ -285,6 +310,8 @@ function App() {
       const detail = await getReviewBatch(selectedPurchaseLines.project_workspace.id, reviewBatchId);
       setActiveReviewBatch(detail);
       setCandidateDrafts(initialDraftsForCandidates(detail.candidates));
+      setDetailCandidateId(null);
+      setTaxonomyCandidateId(null);
       setReviewForm(buildReviewForm(detail, manualSourceForm));
       setSelectedTaxonomyNodeId("");
       setIsCandidateApproved(false);
@@ -334,6 +361,73 @@ function App() {
     setCandidateDrafts(initialDraftsForCandidates(detail.candidates));
     setToastMessage("Review draft saved.");
     return detail;
+  }
+
+  function openTaxonomyDialog(candidate: ExtractedCandidateRead) {
+    const reviewedPayload =
+      candidateDrafts[candidate.id]?.reviewedPayload ?? reviewedPayloadForCandidate(candidate);
+    setTaxonomyForm({
+      topLevelCategory: reviewedPayload.top_level_category ?? "",
+      subcategory: reviewedPayload.subcategory ?? "",
+      applyToSimilar: false
+    });
+    setTaxonomyCandidateId(candidate.id);
+  }
+
+  function updateTaxonomyForm(field: keyof TaxonomyForm, value: string | boolean) {
+    setTaxonomyForm((currentForm) => ({ ...currentForm, [field]: value }));
+  }
+
+  async function handleSaveTaxonomyMapping(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (
+      selectedPurchaseLines === null ||
+      activeReviewBatch === null ||
+      taxonomyCandidate === null
+    ) {
+      return;
+    }
+
+    setIsApprovingCandidate(true);
+    setErrorMessage(null);
+
+    try {
+      const previousDrafts = candidateDrafts;
+      const detail = await saveReviewBatchTaxonomyMapping(
+        selectedPurchaseLines.project_workspace.id,
+        activeReviewBatch.review_batch.id,
+        {
+          candidate_id: taxonomyCandidate.id,
+          top_level_category: taxonomyForm.topLevelCategory,
+          subcategory: taxonomyForm.subcategory,
+          apply_to_similar: taxonomyForm.applyToSimilar
+        }
+      );
+      const refreshedDrafts = initialDraftsForCandidates(detail.candidates);
+      setActiveReviewBatch(detail);
+      setCandidateDrafts(
+        Object.fromEntries(
+          detail.candidates.map((candidate) => {
+            const previousDraft = previousDrafts[candidate.id];
+            const refreshedDraft = refreshedDrafts[candidate.id];
+            return [
+              candidate.id,
+              {
+                ...refreshedDraft,
+                included: previousDraft?.included ?? refreshedDraft.included
+              }
+            ];
+          })
+        )
+      );
+      setDetailCandidateId(null);
+      setTaxonomyCandidateId(null);
+      setToastMessage("Taxonomy mapping saved.");
+    } catch {
+      setErrorMessage("Taxonomy mapping could not be saved.");
+    } finally {
+      setIsApprovingCandidate(false);
+    }
   }
 
   async function handleApproveCandidate() {
@@ -912,13 +1006,17 @@ function App() {
                       };
                       const reviewedPayload =
                         draft.reviewedPayload ?? reviewedPayloadForCandidate(candidate);
+                      const candidateName =
+                        reviewedPayload.name ??
+                        displayText(candidate.proposed_payload.name, "candidate");
+                      const candidateType =
+                        reviewedPayload.line_type ??
+                        displayText(candidate.proposed_payload.line_type, "");
                       return (
                         <tr key={candidate.id}>
                           <td>
                             <input
-                              aria-label={`Include ${
-                                reviewedPayload.name ?? candidate.proposed_payload.name ?? "candidate"
-                              }`}
+                              aria-label={`Include ${candidateName}`}
                               checked={draft.included}
                               onChange={(event) =>
                                 updateCandidateIncluded(candidate, event.target.checked)
@@ -926,8 +1024,8 @@ function App() {
                               type="checkbox"
                             />
                           </td>
-                          <td>{reviewedPayload.name ?? candidate.proposed_payload.name}</td>
-                          <td>{reviewedPayload.line_type ?? candidate.proposed_payload.line_type}</td>
+                          <td>{candidateName}</td>
+                          <td>{candidateType}</td>
                           <td>
                             {reviewedPayload.top_level_category && reviewedPayload.subcategory
                               ? `${reviewedPayload.top_level_category} / ${reviewedPayload.subcategory}`
@@ -935,7 +1033,11 @@ function App() {
                           </td>
                           <td>{draft.included ? "Included draft" : "Excluded draft"}</td>
                           <td>
-                            <button className="secondary-action" type="button">
+                            <button
+                              className="secondary-action"
+                              onClick={() => setDetailCandidateId(candidate.id)}
+                              type="button"
+                            >
                               Details
                             </button>
                           </td>
@@ -947,136 +1049,147 @@ function App() {
               </section>
             ) : null}
 
-            {workspaceRoute.name === "review_batch" &&
-            activeReviewBatch &&
-            activeReviewBatch.candidates[0] &&
-            reviewForm ? (
-              <section className="review-panel" aria-label="Review Candidate panel">
-                <div className="view-heading">
-                  <p className="eyebrow">{activeReviewBatch.review_batch.status}</p>
-                  <h3>Review Candidate</h3>
-                </div>
-                <div className="form-grid three-columns">
+            {workspaceRoute.name === "review_batch" && detailCandidate ? (
+              <div
+                aria-label="Candidate Detail"
+                aria-modal="true"
+                className="modal-backdrop"
+                role="dialog"
+              >
+                <section className="modal-panel">
+                  {(() => {
+                    const reviewedPayload =
+                      candidateDrafts[detailCandidate.id]?.reviewedPayload ??
+                      reviewedPayloadForCandidate(detailCandidate);
+                    const candidateName =
+                      reviewedPayload.name ??
+                      displayText(detailCandidate.proposed_payload.name, "candidate");
+                    const candidateType =
+                      reviewedPayload.line_type ??
+                      displayText(detailCandidate.proposed_payload.line_type, "");
+                    const providerName =
+                      reviewedPayload.provider_name ??
+                      displayText(
+                        detailCandidate.proposed_payload.provider_name,
+                        "Unknown provider"
+                      );
+                    return (
+                      <>
+                        <div className="view-heading">
+                          <p className="eyebrow">{detailCandidate.status}</p>
+                          <h3>Candidate Detail</h3>
+                        </div>
+                        <dl className="candidate-detail-list">
+                          <div>
+                            <dt>Name</dt>
+                            <dd>{candidateName}</dd>
+                          </div>
+                          <div>
+                            <dt>Type</dt>
+                            <dd>{candidateType}</dd>
+                          </div>
+                          <div>
+                            <dt>Category</dt>
+                            <dd>
+                              {reviewedPayload.top_level_category &&
+                              reviewedPayload.subcategory
+                                ? `${reviewedPayload.top_level_category} / ${reviewedPayload.subcategory}`
+                                : "Needs taxonomy"}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Provider</dt>
+                            <dd>{providerName}</dd>
+                          </div>
+                        </dl>
+                        <div className="review-actions">
+                          <button
+                            className="secondary-action"
+                            onClick={() => openTaxonomyDialog(detailCandidate)}
+                            type="button"
+                          >
+                            Change Taxonomy
+                          </button>
+                          <button
+                            className="secondary-action"
+                            onClick={() => setDetailCandidateId(null)}
+                            type="button"
+                          >
+                            Close
+                          </button>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </section>
+              </div>
+            ) : null}
+
+            {workspaceRoute.name === "review_batch" && taxonomyCandidate ? (
+              <div
+                aria-label="Resolve Taxonomy"
+                aria-modal="true"
+                className="modal-backdrop"
+                role="dialog"
+              >
+                <form
+                  className="modal-panel"
+                  onSubmit={(event) => void handleSaveTaxonomyMapping(event)}
+                >
+                  <div className="view-heading">
+                    <p className="eyebrow">
+                      {displayText(taxonomyCandidate.proposed_payload.name, "candidate")}
+                    </p>
+                    <h3>Resolve Taxonomy</h3>
+                  </div>
                   <label>
-                    Item or service name
+                    Top-Level Category
                     <input
-                      value={reviewForm.name}
-                      onChange={(event) => updateReviewForm("name", event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    Top-level category
-                    <input
-                      value={reviewForm.topLevelCategory}
+                      required
+                      value={taxonomyForm.topLevelCategory}
                       onChange={(event) =>
-                        updateReviewForm("topLevelCategory", event.target.value)
+                        updateTaxonomyForm("topLevelCategory", event.target.value)
                       }
                     />
                   </label>
                   <label>
                     Subcategory
                     <input
-                      value={reviewForm.subcategory}
-                      onChange={(event) => updateReviewForm("subcategory", event.target.value)}
+                      required
+                      value={taxonomyForm.subcategory}
+                      onChange={(event) =>
+                        updateTaxonomyForm("subcategory", event.target.value)
+                      }
                     />
                   </label>
-                </div>
-                {activeReviewBatch.candidates[0].taxonomy_default ? (
-                  <p className="taxonomy-note">
-                    {activeReviewBatch.candidates[0].taxonomy_default.provenance_text}
-                  </p>
-                ) : null}
-                {activeReviewBatch.candidates[0].taxonomy_gate ? (
-                  <div className="taxonomy-gate" aria-label="Taxonomy Gate" role="group">
-                    <p className="eyebrow">{activeReviewBatch.candidates[0].taxonomy_gate.status}</p>
-                    <p>
-                      {activeReviewBatch.candidates[0].taxonomy_gate.suggested_category_path}
-                    </p>
-                    {activeReviewBatch.candidates[0].taxonomy_gate.prior_rejection ? (
-                      <p className="taxonomy-warning">
-                        Previously rejected for this Project Workspace.
-                      </p>
-                    ) : null}
-                    {activeReviewBatch.candidates[0].taxonomy_gate.resolved_category_path ? (
-                      <p>
-                        Resolved to{" "}
-                        {activeReviewBatch.candidates[0].taxonomy_gate.resolved_category_path}
-                      </p>
-                    ) : null}
-                    <div className="taxonomy-actions">
-                      <button
-                        className="secondary-action"
-                        disabled={isApprovingCandidate}
-                        onClick={() => void handleTaxonomyDecision("approved")}
-                        type="button"
-                      >
-                        <Check aria-hidden="true" size={18} />
-                        Approve Taxonomy
-                      </button>
-                      <label>
-                        Map to existing path
-                        <select
-                          value={selectedTaxonomyNodeId}
-                          onChange={(event) => setSelectedTaxonomyNodeId(event.target.value)}
-                        >
-                          <option value="">Choose path</option>
-                          {taxonomyLeafPaths.map((path) => (
-                            <option key={path.id} value={path.id}>
-                              {path.path}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <button
-                        className="secondary-action"
-                        disabled={isApprovingCandidate}
-                        onClick={() => void handleTaxonomyDecision("mapped")}
-                        type="button"
-                      >
-                        <GitBranch aria-hidden="true" size={18} />
-                        Map Taxonomy
-                      </button>
-                      <button
-                        className="secondary-action"
-                        disabled={isApprovingCandidate}
-                        onClick={() => void handleTaxonomyDecision("rejected")}
-                        type="button"
-                      >
-                        <X aria-hidden="true" size={18} />
-                        Reject Taxonomy
-                      </button>
-                    </div>
+                  <label className="checkbox-label">
+                    <input
+                      checked={taxonomyForm.applyToSimilar}
+                      onChange={(event) =>
+                        updateTaxonomyForm("applyToSimilar", event.target.checked)
+                      }
+                      type="checkbox"
+                    />
+                    Apply to similar taxonomy in this Review Batch
+                  </label>
+                  <div className="review-actions">
+                    <button
+                      className="primary-action compact-action"
+                      disabled={isApprovingCandidate}
+                      type="submit"
+                    >
+                      Save Mapping
+                    </button>
+                    <button
+                      className="secondary-action"
+                      onClick={() => setTaxonomyCandidateId(null)}
+                      type="button"
+                    >
+                      Cancel
+                    </button>
                   </div>
-                ) : null}
-                <div className="review-actions">
-                  <button
-                    className="primary-action compact-action"
-                    disabled={isApprovingCandidate}
-                    onClick={() => void handleApproveCandidate()}
-                    type="button"
-                  >
-                    <Check aria-hidden="true" size={18} />
-                    Approve Candidate
-                  </button>
-                  <button
-                    className="secondary-action"
-                    disabled={isApprovingCandidate}
-                    onClick={() => void handleRejectCandidate()}
-                    type="button"
-                  >
-                    <X aria-hidden="true" size={18} />
-                    Remove from Import
-                  </button>
-                  <button
-                    className="secondary-action"
-                    disabled={!isCandidateApproved || isImportingBatch}
-                    onClick={() => void handleImportBatch()}
-                    type="button"
-                  >
-                    Import Approved Batch
-                  </button>
-                </div>
-              </section>
+                </form>
+              </div>
             ) : null}
 
             {workspaceRoute.name === "purchase_lines" ? (
@@ -1157,6 +1270,14 @@ function buildCreatePayload(form: ProjectWorkspaceForm): ProjectWorkspaceCreate 
 function optionalText(value: string): string | null {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function displayText(value: unknown, fallback: string): string {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : fallback;
+  }
+  return value === null || value === undefined ? fallback : String(value);
 }
 
 function buildManualSourcePayload(

@@ -128,7 +128,8 @@ h3 {
 
 .project-form label,
 .manual-source-form label,
-.review-panel label {
+.review-panel label,
+.modal-panel label {
   display: grid;
   gap: 6px;
   color: #34403f;
@@ -153,7 +154,8 @@ h3 {
 .manual-source-form select,
 .manual-source-form textarea,
 .review-panel input,
-.review-panel select {
+.review-panel select,
+.modal-panel input {
   width: 100%;
   min-width: 0;
   border: 1px solid #c7cec8;
@@ -338,6 +340,68 @@ h3 {
   font-size: 0.78rem;
   letter-spacing: 0;
   text-transform: uppercase;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(27 31 38 / 42%);
+}
+
+.modal-panel {
+  display: grid;
+  gap: 14px;
+  width: min(100%, 560px);
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  border: 1px solid #d5ddd7;
+  border-radius: 8px;
+  padding: 18px;
+  background: #ffffff;
+  box-shadow: 0 20px 48px rgb(27 31 38 / 20%);
+}
+
+.candidate-detail-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.candidate-detail-list div {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 12px;
+  border-bottom: 1px solid #e0e5e0;
+  padding-bottom: 10px;
+}
+
+.candidate-detail-list dt {
+  color: #657170;
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.candidate-detail-list dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.modal-panel .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+}
+
+.modal-panel .checkbox-label input {
+  width: auto;
 }
 
 .job-queue-list {

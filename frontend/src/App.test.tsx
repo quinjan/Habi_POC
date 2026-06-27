@@ -216,6 +216,64 @@ describe("Project Workspace app shell", () => {
         }
 
         if (
+          url === "/api/project-workspaces/1/review-batches/10/taxonomy-mappings" &&
+          method === "POST"
+        ) {
+          return jsonResponse({
+            review_batch: {
+              id: 10,
+              project_workspace_id: 1,
+              source_submission_id: 30,
+              status: "review_pending"
+            },
+            candidates: [
+              {
+                ...buildCandidate(20, "PVC pipe", "material", "Mechanical", "Pipe Materials"),
+                reviewed_payload: {
+                  line_type: "material",
+                  name: "PVC pipe",
+                  top_level_category: "Plumbing",
+                  subcategory: "Pipes",
+                  quantity: "20",
+                  unit: "pcs",
+                  price: "1500",
+                  currency: "PHP",
+                  provider_name: "ABC Trading"
+                }
+              },
+              {
+                ...buildCandidate(21, "PVC elbow", "material", "Mechanical", "Pipe Materials"),
+                reviewed_payload: {
+                  line_type: "material",
+                  name: "PVC elbow",
+                  top_level_category: "Plumbing",
+                  subcategory: "Pipes",
+                  quantity: "20",
+                  unit: "pcs",
+                  price: "1500",
+                  currency: "PHP",
+                  provider_name: "ABC Trading"
+                }
+              }
+            ],
+            duplicate_groups: [],
+            duplicate_conflicts: [],
+            taxonomy_decisions: [
+              {
+                id: 70,
+                project_workspace_id: 1,
+                review_batch_id: 10,
+                suggested_top_level_category: "Mechanical",
+                suggested_subcategory: "Pipe Materials",
+                normalized_suggested_path_key: "mechanical / pipe materials",
+                decision: "mapped",
+                resolved_taxonomy_node_id: 50
+              }
+            ]
+          });
+        }
+
+        if (
           url === "/api/project-workspaces/1/review-batches/10/candidates/20/decision" &&
           method === "POST"
         ) {
@@ -563,6 +621,55 @@ describe("Project Workspace app shell", () => {
     expect(calledPaths.findIndex((path) => path.includes("/review-draft"))).toBeLessThan(
       calledPaths.findIndex((path) => path.includes("/import"))
     );
+  });
+
+  test("reviewer saves taxonomy mapping and preserves unsaved inclusion choices", async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi.mocked(fetch);
+
+    render(<App />);
+
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+    await user.click(screen.getByRole("tab", { name: "Upload / Review" }));
+    await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
+    await user.type(
+      screen.getByLabelText("Free-form source text"),
+      "PVC pipe and PVC elbow, 20 pcs, from ABC Trading, PHP 1,500"
+    );
+    await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
+    await user.click(await screen.findByRole("button", { name: "Open Review Batch" }));
+
+    await user.click(screen.getByRole("checkbox", { name: "Include PVC elbow" }));
+    await user.click(screen.getAllByRole("button", { name: "Details" })[0]);
+    const detail = await screen.findByRole("dialog", { name: "Candidate Detail" });
+    await user.click(within(detail).getByRole("button", { name: "Change Taxonomy" }));
+
+    const taxonomy = await screen.findByRole("dialog", { name: "Resolve Taxonomy" });
+    await user.clear(within(taxonomy).getByLabelText("Top-Level Category"));
+    await user.type(within(taxonomy).getByLabelText("Top-Level Category"), "Plumbing");
+    await user.clear(within(taxonomy).getByLabelText("Subcategory"));
+    await user.type(within(taxonomy).getByLabelText("Subcategory"), "Pipes");
+    await user.click(
+      within(taxonomy).getByLabelText("Apply to similar taxonomy in this Review Batch")
+    );
+    await user.click(within(taxonomy).getByRole("button", { name: "Save Mapping" }));
+
+    expect((await screen.findAllByText("Plumbing / Pipes")).length).toBeGreaterThan(1);
+    expect(screen.getByRole("checkbox", { name: "Include PVC elbow" })).not.toBeChecked();
+    const mappingCall = fetchSpy.mock.calls.find(([input]) =>
+      input.toString().includes("/taxonomy-mappings")
+    );
+    expect(JSON.parse(String(mappingCall?.[1]?.body))).toEqual({
+      candidate_id: 20,
+      top_level_category: "Plumbing",
+      subcategory: "Pipes",
+      apply_to_similar: true
+    });
   });
 
   test("reviewer submits a manual source entry, approves it, and sees the imported purchase line", async () => {
