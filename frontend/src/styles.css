@@ -152,7 +152,8 @@ h3 {
 .manual-source-form input,
 .manual-source-form select,
 .manual-source-form textarea,
-.review-panel input {
+.review-panel input,
+.review-panel select {
   width: 100%;
   min-width: 0;
   border: 1px solid #c7cec8;
@@ -277,6 +278,53 @@ h3 {
   gap: 10px;
 }
 
+.taxonomy-note,
+.taxonomy-warning {
+  margin: 0;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+}
+
+.taxonomy-note {
+  border: 1px solid #a9c7b4;
+  color: #244a37;
+  background: #eef8f1;
+}
+
+.taxonomy-warning {
+  border: 1px solid #d8b16a;
+  color: #6d4715;
+  background: #fff7e8;
+}
+
+.taxonomy-gate {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #d5ddd7;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8faf7;
+}
+
+.taxonomy-gate p {
+  margin-bottom: 0;
+}
+
+.taxonomy-actions {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 280px) auto auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.taxonomy-actions .secondary-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
 .purchase-lines-table-wrap {
   overflow-x: auto;
 }
@@ -350,6 +398,10 @@ h3 {
   }
 
   .form-grid.three-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .taxonomy-actions {
     grid-template-columns: 1fr;
   }
 }

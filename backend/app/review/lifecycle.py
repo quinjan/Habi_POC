@@ -9,6 +9,7 @@ from backend.app.review.models import (
 )
 from backend.app.review.schemas import ReviewedPurchaseLinePayload
 from backend.app.sources.models import ManualSourceEntry
+from backend.app.taxonomy.models import TaxonomyDecision, TaxonomyNode
 
 
 TERMINAL_REVIEW_BATCH_STATUSES = {"imported", "review_closed_no_import"}
@@ -62,7 +63,11 @@ def recalculate_review_batch_status(*, session: Session, review_batch: ReviewBat
         review_batch.status = "review_in_progress"
         return
 
-    if any(_approved_candidate_satisfies_import_gates(session, candidate) for candidate in candidates):
+    approved_candidates = [candidate for candidate in candidates if candidate.decision == "approved"]
+    if approved_candidates and all(
+        _approved_candidate_satisfies_import_gates(session, candidate)
+        for candidate in approved_candidates
+    ):
         review_batch.status = "ready_to_import"
         return
 
@@ -242,11 +247,144 @@ def _approved_candidate_satisfies_import_gates(
         and _present(payload.name)
         and _present(payload.top_level_category)
         and _present(payload.subcategory)
+        and not approved_candidate_has_unresolved_taxonomy_gate(session, candidate)
+    )
+
+
+def approved_candidate_has_unresolved_taxonomy_gate(
+    session: Session,
+    candidate: ExtractedCandidate,
+) -> bool:
+    if candidate.decision != "approved":
+        return False
+    if _candidate_has_reviewed_category_path(candidate):
+        return False
+
+    suggestion = candidate.proposed_payload.get("category_suggestion")
+    if not isinstance(suggestion, dict):
+        return False
+
+    top_level_category = suggestion.get("top_level_category")
+    subcategory = suggestion.get("subcategory")
+    if not isinstance(top_level_category, str) or not _present(top_level_category):
+        return False
+
+    path_key = normalized_taxonomy_path_key(
+        top_level_category,
+        subcategory if isinstance(subcategory, str) else None,
+    )
+    decision = latest_taxonomy_decision_for_path(
+        session=session,
+        project_workspace_id=candidate.project_workspace_id,
+        normalized_path_key=path_key,
+    )
+    if decision is not None and decision.decision in {"approved", "mapped"}:
+        return False
+
+    return taxonomy_leaf_node_for_path(
+        session=session,
+        project_workspace_id=candidate.project_workspace_id,
+        top_level_category=top_level_category,
+        subcategory=subcategory if isinstance(subcategory, str) else None,
+    ) is None
+
+
+def latest_taxonomy_decision_for_path(
+    *,
+    session: Session,
+    project_workspace_id: int,
+    normalized_path_key: str,
+) -> TaxonomyDecision | None:
+    return session.scalar(
+        select(TaxonomyDecision)
+        .where(
+            TaxonomyDecision.project_workspace_id == project_workspace_id,
+            TaxonomyDecision.normalized_suggested_path_key == normalized_path_key,
+        )
+        .order_by(TaxonomyDecision.id.desc())
+    )
+
+
+def top_level_taxonomy_node_for_name(
+    *,
+    session: Session,
+    project_workspace_id: int,
+    name: str,
+) -> TaxonomyNode | None:
+    normalized_name = _normalize(name)
+    return next(
+        (
+            taxonomy_node
+            for taxonomy_node in session.scalars(
+                select(TaxonomyNode).where(
+                    TaxonomyNode.project_workspace_id == project_workspace_id,
+                    TaxonomyNode.parent_id.is_(None),
+                )
+            )
+            if _normalize(taxonomy_node.name) == normalized_name
+        ),
+        None,
+    )
+
+
+def taxonomy_leaf_node_for_path(
+    *,
+    session: Session,
+    project_workspace_id: int,
+    top_level_category: str,
+    subcategory: str | None,
+) -> TaxonomyNode | None:
+    if not _present(subcategory):
+        return None
+
+    top_level = top_level_taxonomy_node_for_name(
+        session=session,
+        project_workspace_id=project_workspace_id,
+        name=top_level_category,
+    )
+    if top_level is None:
+        return None
+
+    normalized_subcategory = _normalize(subcategory or "")
+    return next(
+        (
+            taxonomy_node
+            for taxonomy_node in session.scalars(
+                select(TaxonomyNode).where(
+                    TaxonomyNode.project_workspace_id == project_workspace_id,
+                    TaxonomyNode.parent_id == top_level.id,
+                )
+            )
+            if _normalize(taxonomy_node.name) == normalized_subcategory
+        ),
+        None,
     )
 
 
 def _present(value: str | None) -> bool:
     return value is not None and value.strip() != ""
+
+
+def _candidate_has_reviewed_category_path(candidate: ExtractedCandidate) -> bool:
+    if candidate.reviewed_payload is None:
+        return False
+
+    payload = ReviewedPurchaseLinePayload.model_validate(candidate.reviewed_payload)
+    return _present(payload.top_level_category) and _present(payload.subcategory)
+
+
+def normalized_taxonomy_path_key(
+    top_level_category: str,
+    subcategory: str | None,
+) -> str:
+    segments = [_normalize(top_level_category)]
+    if _present(subcategory):
+        segments.append(_normalize(subcategory or ""))
+    return " / ".join(segments)
+
+
+def _normalize(value: str) -> str:
+    return " ".join(value.casefold().split())
 
 
 def _manual_entry_for_source_submission(

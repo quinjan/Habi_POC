@@ -11,7 +11,10 @@ export type ExtractedCandidateRead = components["schemas"]["ExtractedCandidateRe
 export type ImportReviewBatchResponse = components["schemas"]["ImportReviewBatchResponse"];
 export type ManualSourceEntryCreate = components["schemas"]["ManualSourceEntryCreate"];
 export type ManualSourceEntrySubmission = components["schemas"]["ManualSourceEntrySubmission"];
+export type ReviewBatchDetail = components["schemas"]["ReviewBatchDetail"];
 export type ReviewedPurchaseLinePayload = components["schemas"]["ReviewedPurchaseLinePayload"];
+export type TaxonomyDecisionCreate = components["schemas"]["TaxonomyDecisionCreate"];
+export type TaxonomyNodeListRead = components["schemas"]["TaxonomyNodeListRead"];
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -61,6 +64,37 @@ export async function decideCandidate(
       method: "POST",
       body: JSON.stringify(payload)
     }
+  );
+}
+
+export async function getReviewBatch(
+  projectWorkspaceId: number,
+  reviewBatchId: number
+): Promise<ReviewBatchDetail> {
+  return request<ReviewBatchDetail>(
+    `/api/project-workspaces/${projectWorkspaceId}/review-batches/${reviewBatchId}`
+  );
+}
+
+export async function createTaxonomyDecision(
+  projectWorkspaceId: number,
+  reviewBatchId: number,
+  payload: TaxonomyDecisionCreate
+): Promise<ReviewBatchDetail> {
+  return request<ReviewBatchDetail>(
+    `/api/project-workspaces/${projectWorkspaceId}/review-batches/${reviewBatchId}/taxonomy-decisions`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }
+  );
+}
+
+export async function listTaxonomyLeafPaths(
+  projectWorkspaceId: number
+): Promise<TaxonomyNodeListRead> {
+  return request<TaxonomyNodeListRead>(
+    `/api/project-workspaces/${projectWorkspaceId}/taxonomy-nodes?leaf_only=true`
   );
 }
 

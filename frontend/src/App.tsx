@@ -1,18 +1,23 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Check, FolderOpen, Plus, Upload } from "lucide-react";
+import { Check, FolderOpen, GitBranch, Plus, Upload, X } from "lucide-react";
 
 import {
   createProjectWorkspace,
+  createTaxonomyDecision,
   createManualSourceEntry,
   decideCandidate,
+  getReviewBatch,
   getProjectWorkspacePurchaseLines,
   importReviewBatch,
+  listTaxonomyLeafPaths,
   listProjectWorkspaces,
+  type ExtractedCandidateRead,
   type ManualSourceEntrySubmission,
   type ManualSourceEntryCreate,
   type ProjectWorkspaceCreate,
   type ProjectWorkspaceListItem,
   type ProjectWorkspacePurchaseLinesView,
+  type ReviewBatchDetail,
   type ReviewedPurchaseLinePayload
 } from "./api/client";
 
@@ -89,6 +94,10 @@ function App() {
   const [isApprovingCandidate, setIsApprovingCandidate] = useState(false);
   const [isImportingBatch, setIsImportingBatch] = useState(false);
   const [isCandidateApproved, setIsCandidateApproved] = useState(false);
+  const [taxonomyLeafPaths, setTaxonomyLeafPaths] = useState<
+    { id: number; path: string }[]
+  >([]);
+  const [selectedTaxonomyNodeId, setSelectedTaxonomyNodeId] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -149,6 +158,7 @@ function App() {
     try {
       const response = await getProjectWorkspacePurchaseLines(project.id);
       setSelectedPurchaseLines(response);
+      await refreshTaxonomyLeafPaths(project.id);
       setPendingSubmission(null);
       setReviewForm(null);
       setFreeFormText("");
@@ -158,6 +168,11 @@ function App() {
     } catch {
       setErrorMessage("Purchase Lines could not be loaded.");
     }
+  }
+
+  async function refreshTaxonomyLeafPaths(projectWorkspaceId: number) {
+    const taxonomyNodes = await listTaxonomyLeafPaths(projectWorkspaceId);
+    setTaxonomyLeafPaths(taxonomyNodes.items.map((item) => ({ id: item.id, path: item.path })));
   }
 
   function updateForm(field: keyof ProjectWorkspaceForm, value: string) {
@@ -178,8 +193,21 @@ function App() {
         selectedPurchaseLines.project_workspace.id,
         buildManualSourcePayload(manualSourceForm, manualEntryMode, freeFormText)
       );
-      setPendingSubmission(submission);
-      setReviewForm(buildReviewForm(submission, manualSourceForm));
+      let reviewSubmission = submission;
+      if (submission.review_batch) {
+        const detail = await getReviewBatch(
+          selectedPurchaseLines.project_workspace.id,
+          submission.review_batch.id
+        );
+        reviewSubmission = {
+          ...submission,
+          review_batch: detail.review_batch,
+          candidates: detail.candidates
+        };
+      }
+      setPendingSubmission(reviewSubmission);
+      setReviewForm(buildReviewForm(reviewSubmission, manualSourceForm));
+      setSelectedTaxonomyNodeId("");
       setIsCandidateApproved(false);
       if (manualEntryMode === "structured_row") {
         setManualSourceForm(emptyManualSourceForm);
@@ -209,7 +237,7 @@ function App() {
     setErrorMessage(null);
 
     try {
-      await decideCandidate(
+      const updatedCandidate = await decideCandidate(
         selectedPurchaseLines.project_workspace.id,
         pendingSubmission.review_batch.id,
         candidate.id,
@@ -218,12 +246,115 @@ function App() {
           reviewed_payload: buildReviewedPayload(reviewForm)
         }
       );
+      setPendingSubmission({
+        ...pendingSubmission,
+        candidates: pendingSubmission.candidates.map((existingCandidate) =>
+          existingCandidate.id === updatedCandidate.id ? updatedCandidate : existingCandidate
+        )
+      });
       setIsCandidateApproved(true);
     } catch {
       setErrorMessage("Candidate could not be approved.");
     } finally {
       setIsApprovingCandidate(false);
     }
+  }
+
+  async function handleRejectCandidate() {
+    const candidate = pendingSubmission?.candidates[0] ?? null;
+    if (
+      selectedPurchaseLines === null ||
+      pendingSubmission === null ||
+      pendingSubmission.review_batch === null ||
+      candidate === null
+    ) {
+      return;
+    }
+
+    setIsApprovingCandidate(true);
+    setErrorMessage(null);
+
+    try {
+      const updatedCandidate = await decideCandidate(
+        selectedPurchaseLines.project_workspace.id,
+        pendingSubmission.review_batch.id,
+        candidate.id,
+        {
+          decision: "rejected",
+          reviewed_payload: null
+        }
+      );
+      setPendingSubmission({
+        ...pendingSubmission,
+        candidates: [updatedCandidate]
+      });
+      setReviewForm(null);
+      setIsCandidateApproved(false);
+    } catch {
+      setErrorMessage("Candidate could not be removed from import.");
+    } finally {
+      setIsApprovingCandidate(false);
+    }
+  }
+
+  async function handleTaxonomyDecision(decision: "approved" | "mapped" | "rejected") {
+    const candidate = pendingSubmission?.candidates[0] ?? null;
+    const suggestion = taxonomySuggestion(candidate);
+    if (
+      selectedPurchaseLines === null ||
+      pendingSubmission === null ||
+      pendingSubmission.review_batch === null ||
+      candidate === null ||
+      suggestion === null
+    ) {
+      return;
+    }
+
+    const resolvedTaxonomyNodeId =
+      decision === "mapped" && selectedTaxonomyNodeId
+        ? Number(selectedTaxonomyNodeId)
+        : undefined;
+    if (decision === "mapped" && !resolvedTaxonomyNodeId) {
+      setErrorMessage("Choose an existing taxonomy path before mapping.");
+      return;
+    }
+
+    setIsApprovingCandidate(true);
+    setErrorMessage(null);
+
+    try {
+      const detail = await createTaxonomyDecision(
+        selectedPurchaseLines.project_workspace.id,
+        pendingSubmission.review_batch.id,
+        {
+          decision,
+          suggested_top_level_category: suggestion.topLevelCategory,
+          suggested_subcategory: suggestion.subcategory,
+          resolved_taxonomy_node_id: resolvedTaxonomyNodeId ?? null
+        }
+      );
+      applyReviewBatchDetail(detail);
+      await refreshTaxonomyLeafPaths(selectedPurchaseLines.project_workspace.id);
+    } catch {
+      setErrorMessage("Taxonomy decision could not be saved.");
+    } finally {
+      setIsApprovingCandidate(false);
+    }
+  }
+
+  function applyReviewBatchDetail(detail: ReviewBatchDetail) {
+    if (pendingSubmission === null) {
+      return;
+    }
+    const updatedSubmission = {
+      ...pendingSubmission,
+      review_batch: detail.review_batch,
+      candidates: detail.candidates
+    };
+    setPendingSubmission(updatedSubmission);
+    setReviewForm(buildReviewForm(updatedSubmission, manualSourceForm));
+    setSelectedTaxonomyNodeId("");
+    setIsCandidateApproved(false);
   }
 
   async function handleImportBatch() {
@@ -560,6 +691,73 @@ function App() {
                     />
                   </label>
                 </div>
+                {pendingSubmission.candidates[0].taxonomy_default ? (
+                  <p className="taxonomy-note">
+                    {pendingSubmission.candidates[0].taxonomy_default.provenance_text}
+                  </p>
+                ) : null}
+                {pendingSubmission.candidates[0].taxonomy_gate ? (
+                  <div className="taxonomy-gate" aria-label="Taxonomy Gate" role="group">
+                    <p className="eyebrow">{pendingSubmission.candidates[0].taxonomy_gate.status}</p>
+                    <p>
+                      {pendingSubmission.candidates[0].taxonomy_gate.suggested_category_path}
+                    </p>
+                    {pendingSubmission.candidates[0].taxonomy_gate.prior_rejection ? (
+                      <p className="taxonomy-warning">
+                        Previously rejected for this Project Workspace.
+                      </p>
+                    ) : null}
+                    {pendingSubmission.candidates[0].taxonomy_gate.resolved_category_path ? (
+                      <p>
+                        Resolved to{" "}
+                        {pendingSubmission.candidates[0].taxonomy_gate.resolved_category_path}
+                      </p>
+                    ) : null}
+                    <div className="taxonomy-actions">
+                      <button
+                        className="secondary-action"
+                        disabled={isApprovingCandidate}
+                        onClick={() => void handleTaxonomyDecision("approved")}
+                        type="button"
+                      >
+                        <Check aria-hidden="true" size={18} />
+                        Approve Taxonomy
+                      </button>
+                      <label>
+                        Map to existing path
+                        <select
+                          value={selectedTaxonomyNodeId}
+                          onChange={(event) => setSelectedTaxonomyNodeId(event.target.value)}
+                        >
+                          <option value="">Choose path</option>
+                          {taxonomyLeafPaths.map((path) => (
+                            <option key={path.id} value={path.id}>
+                              {path.path}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        className="secondary-action"
+                        disabled={isApprovingCandidate}
+                        onClick={() => void handleTaxonomyDecision("mapped")}
+                        type="button"
+                      >
+                        <GitBranch aria-hidden="true" size={18} />
+                        Map Taxonomy
+                      </button>
+                      <button
+                        className="secondary-action"
+                        disabled={isApprovingCandidate}
+                        onClick={() => void handleTaxonomyDecision("rejected")}
+                        type="button"
+                      >
+                        <X aria-hidden="true" size={18} />
+                        Reject Taxonomy
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="review-actions">
                   <button
                     className="primary-action compact-action"
@@ -569,6 +767,15 @@ function App() {
                   >
                     <Check aria-hidden="true" size={18} />
                     Approve Candidate
+                  </button>
+                  <button
+                    className="secondary-action"
+                    disabled={isApprovingCandidate}
+                    onClick={() => void handleRejectCandidate()}
+                    type="button"
+                  >
+                    <X aria-hidden="true" size={18} />
+                    Remove from Import
                   </button>
                   <button
                     className="secondary-action"
@@ -691,9 +898,11 @@ function buildReviewForm(
   fallbackForm: ManualSourceForm
 ): ReviewForm | null {
   const proposedPayload = submission.candidates[0]?.proposed_payload;
+  const taxonomyDefault = submission.candidates[0]?.taxonomy_default;
   if (!proposedPayload) {
     return null;
   }
+  const defaultPath = splitCategoryPath(taxonomyDefault?.resolved_category_path ?? null);
 
   return {
     lineType:
@@ -708,8 +917,8 @@ function buildReviewForm(
     providerName: String(proposedPayload.provider_name ?? fallbackForm.providerName ?? ""),
     purchaseDate: String(proposedPayload.purchase_date ?? fallbackForm.purchaseDate ?? ""),
     remarksOrTerms: String(proposedPayload.remarks_or_terms ?? fallbackForm.remarksOrTerms ?? ""),
-    topLevelCategory: "",
-    subcategory: ""
+    topLevelCategory: defaultPath?.topLevelCategory ?? "",
+    subcategory: defaultPath?.subcategory ?? ""
   };
 }
 
@@ -727,6 +936,37 @@ function buildReviewedPayload(form: ReviewForm): ReviewedPurchaseLinePayload {
     purchase_date: form.purchaseDate || null,
     remarks_or_terms: optionalText(form.remarksOrTerms)
   };
+}
+
+function taxonomySuggestion(candidate: ExtractedCandidateRead | null):
+  | { topLevelCategory: string; subcategory: string | null }
+  | null {
+  const suggestion = candidate?.proposed_payload?.category_suggestion;
+  if (!suggestion || typeof suggestion !== "object") {
+    return null;
+  }
+  const topLevelCategory = (suggestion as { top_level_category?: unknown }).top_level_category;
+  const subcategory = (suggestion as { subcategory?: unknown }).subcategory;
+  if (typeof topLevelCategory !== "string" || topLevelCategory.trim() === "") {
+    return null;
+  }
+  return {
+    topLevelCategory,
+    subcategory: typeof subcategory === "string" ? subcategory : null
+  };
+}
+
+function splitCategoryPath(
+  categoryPath: string | null
+): { topLevelCategory: string; subcategory: string } | null {
+  if (!categoryPath) {
+    return null;
+  }
+  const [topLevelCategory, subcategory] = categoryPath.split(" / ");
+  if (!topLevelCategory || !subcategory) {
+    return null;
+  }
+  return { topLevelCategory, subcategory };
 }
 
 export default App;
