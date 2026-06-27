@@ -66,6 +66,69 @@ def test_review_taxonomy_mapping_updates_all_matching_candidates_in_batch(tmp_pa
     assert decisions[-1]["suggested_subcategory"] == "Pipe Materials"
 
 
+def test_review_taxonomy_mapping_accepts_trimmed_custom_path(tmp_path):
+    with make_client(tmp_path) as client:
+        project, submission = create_manual_submission(client)
+        candidate_id = submission["candidates"][0]["id"]
+
+        response = client.post(
+            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/taxonomy-mappings",
+            json={
+                "candidate_id": candidate_id,
+                "top_level_category": "  Custom Plumbing  ",
+                "subcategory": "  Specialty Pipes  ",
+                "apply_to_similar": False,
+            },
+        )
+
+    assert response.status_code == 200
+    candidate = response.json()["candidates"][0]
+    assert candidate["reviewed_payload"]["top_level_category"] == "Custom Plumbing"
+    assert candidate["reviewed_payload"]["subcategory"] == "Specialty Pipes"
+    decisions = response.json()["taxonomy_decisions"]
+    assert decisions[-1]["decision"] == "mapped"
+
+
+def test_review_taxonomy_mapping_accepts_custom_path_without_ai_suggestion(tmp_path):
+    with make_client(tmp_path) as client:
+        project = client.post(
+            "/api/project-workspaces",
+            json={
+                "project_name": "Arnaiz Residence Renovation",
+                "project_type": "Residential renovation",
+                "location": "Makati City",
+                "completion_year": 2025,
+            },
+        ).json()
+        submission = create_review_ready_manual_submission(
+            client,
+            project_workspace_id=project["id"],
+            structured_payload={
+                "line_type": "material",
+                "name": "PVC pipe",
+                "quantity": "20",
+                "unit": "pcs",
+            },
+        )
+        candidate_id = submission["candidates"][0]["id"]
+
+        response = client.post(
+            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/taxonomy-mappings",
+            json={
+                "candidate_id": candidate_id,
+                "top_level_category": "Custom Plumbing",
+                "subcategory": "Specialty Pipes",
+                "apply_to_similar": False,
+            },
+        )
+
+    assert response.status_code == 200
+    candidate = response.json()["candidates"][0]
+    assert candidate["reviewed_payload"]["top_level_category"] == "Custom Plumbing"
+    assert candidate["reviewed_payload"]["subcategory"] == "Specialty Pipes"
+    assert response.json()["taxonomy_decisions"][-1]["decision"] == "mapped"
+
+
 def test_review_taxonomy_mapping_rejects_terminal_batch(tmp_path):
     with make_client(tmp_path) as client:
         project, submission = create_manual_submission(client)

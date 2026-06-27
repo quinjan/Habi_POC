@@ -15,6 +15,7 @@ from backend.app.memory.models import (
     PurchaseLine,
     Service,
 )
+from backend.app.processing.models import ProcessingJob
 from backend.app.projects.models import ProjectWorkspace
 from backend.app.review.lifecycle import (
     TerminalReviewBatchError,
@@ -367,12 +368,16 @@ def save_review_batch_taxonomy_mapping(
     if target_candidate is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found")
 
-    suggestion = _candidate_taxonomy_suggestion(target_candidate)
-    if suggestion is None:
+    candidate_suggestion = _candidate_taxonomy_suggestion(target_candidate)
+    if candidate_suggestion is None and payload.apply_to_similar:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Candidate has no complete AI taxonomy suggestion",
+            detail="Apply to similar requires a complete AI taxonomy suggestion",
         )
+    suggestion = candidate_suggestion or {
+        "top_level_category": payload.top_level_category.strip(),
+        "subcategory": payload.subcategory.strip(),
+    }
 
     resolved_leaf = _approve_taxonomy_path(
         session=session,
@@ -394,21 +399,27 @@ def save_review_batch_taxonomy_mapping(
     )
     session.add(taxonomy_decision)
 
-    target_path_key = normalized_taxonomy_path_key(
-        suggestion["top_level_category"],
-        suggestion["subcategory"],
+    target_path_key = (
+        normalized_taxonomy_path_key(
+            suggestion["top_level_category"],
+            suggestion["subcategory"],
+        )
+        if candidate_suggestion is not None
+        else None
     )
     candidates_to_update = []
     for candidate in _get_batch_candidates(session, review_batch.id):
         candidate_suggestion = _candidate_taxonomy_suggestion(candidate)
-        if candidate_suggestion is None:
-            continue
         if not payload.apply_to_similar and candidate.id != target_candidate.id:
             continue
-        if payload.apply_to_similar and normalized_taxonomy_path_key(
-            candidate_suggestion["top_level_category"],
-            candidate_suggestion["subcategory"],
-        ) != target_path_key:
+        if payload.apply_to_similar and (
+            candidate_suggestion is None
+            or normalized_taxonomy_path_key(
+                candidate_suggestion["top_level_category"],
+                candidate_suggestion["subcategory"],
+            )
+            != target_path_key
+        ):
             continue
         candidates_to_update.append(candidate)
 
@@ -536,6 +547,11 @@ def close_review_batch_no_import(
             detail=str(error),
         ) from error
 
+    _mark_review_processing_job_completed(
+        session=session,
+        project_workspace_id=project_workspace_id,
+        review_batch=review_batch,
+    )
     session.commit()
     session.refresh(review_batch)
     return review_batch
@@ -570,6 +586,11 @@ def import_review_batch(
     if not approved_candidates:
         if all(candidate.decision == "rejected" for candidate in candidates):
             review_batch.status = "review_closed_no_import"
+            _mark_review_processing_job_completed(
+                session=session,
+                project_workspace_id=project_workspace_id,
+                review_batch=review_batch,
+            )
             session.commit()
             return ImportReviewBatchResponse(imported_purchase_lines=[])
         raise HTTPException(
@@ -622,6 +643,11 @@ def import_review_batch(
         imported_purchase_lines.append(ImportedPurchaseLine(id=purchase_line.id))
 
     review_batch.status = "imported"
+    _mark_review_processing_job_completed(
+        session=session,
+        project_workspace_id=project_workspace_id,
+        review_batch=review_batch,
+    )
     session.commit()
     return ImportReviewBatchResponse(imported_purchase_lines=imported_purchase_lines)
 
@@ -642,6 +668,22 @@ def _get_project_review_batch(
     if review_batch is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review batch not found")
     return review_batch
+
+
+def _mark_review_processing_job_completed(
+    *,
+    session: Session,
+    project_workspace_id: int,
+    review_batch: ReviewBatch,
+) -> None:
+    processing_job = session.scalar(
+        select(ProcessingJob).where(
+            ProcessingJob.project_workspace_id == project_workspace_id,
+            ProcessingJob.review_batch_id == review_batch.id,
+        )
+    )
+    if processing_job is not None:
+        processing_job.status = "completed"
 
 
 def _ensure_project_workspace_exists(session: Session, project_workspace_id: int) -> None:
