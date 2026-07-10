@@ -107,6 +107,58 @@
         }
       }
     },
+    "/api/project-workspaces/{project_workspace_id}/source-files": {
+      "post": {
+        "tags": [
+          "manual-source-entries"
+        ],
+        "summary": "Create Source File",
+        "operationId": "create_source_file_api_project_workspaces__project_workspace_id__source_files_post",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_source_file_api_project_workspaces__project_workspace_id__source_files_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceFileQueuedSubmission"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/project-workspaces/{project_workspace_id}/manual-source-entries": {
       "post": {
         "tags": [
@@ -905,6 +957,23 @@
   },
   "components": {
     "schemas": {
+      "Body_create_source_file_api_project_workspaces__project_workspace_id__source_files_post": {
+        "properties": {
+          "files": {
+            "items": {
+              "type": "string",
+              "format": "binary"
+            },
+            "type": "array",
+            "title": "Files"
+          }
+        },
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "title": "Body_create_source_file_api_project_workspaces__project_workspace_id__source_files_post"
+      },
       "CandidateDecisionRequest": {
         "properties": {
           "decision": {
@@ -1079,6 +1148,16 @@
               }
             ],
             "title": "Reviewed Payload"
+          },
+          "source_file": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceFileSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "taxonomy_gate": {
             "anyOf": [
@@ -1277,6 +1356,16 @@
           "source_submission": {
             "$ref": "#/components/schemas/SourceSubmissionSummary"
           },
+          "source_file": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceFileSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "review_batch_id": {
             "anyOf": [
               {
@@ -1320,6 +1409,16 @@
           },
           "source_submission": {
             "$ref": "#/components/schemas/SourceSubmissionSummary"
+          },
+          "source_file": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceFileSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "review_batch_id": {
             "anyOf": [
@@ -2135,6 +2234,133 @@
         },
         "type": "object",
         "title": "ReviewedPurchaseLinePayload"
+      },
+      "SourceFileQueuedSubmission": {
+        "properties": {
+          "source_submission": {
+            "$ref": "#/components/schemas/SourceSubmissionRead"
+          },
+          "source_file": {
+            "$ref": "#/components/schemas/SourceFileRead"
+          },
+          "processing_job": {
+            "$ref": "#/components/schemas/ProcessingJobRead"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_submission",
+          "source_file",
+          "processing_job"
+        ],
+        "title": "SourceFileQueuedSubmission"
+      },
+      "SourceFileRead": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "project_workspace_id": {
+            "type": "integer",
+            "title": "Project Workspace Id"
+          },
+          "source_submission_id": {
+            "type": "integer",
+            "title": "Source Submission Id"
+          },
+          "original_filename": {
+            "type": "string",
+            "title": "Original Filename"
+          },
+          "byte_size": {
+            "type": "integer",
+            "title": "Byte Size"
+          },
+          "declared_mime_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Declared Mime Type"
+          },
+          "uploaded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Uploaded At"
+          },
+          "sha256_checksum": {
+            "type": "string",
+            "title": "Sha256 Checksum"
+          },
+          "storage_path": {
+            "type": "string",
+            "title": "Storage Path"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_workspace_id",
+          "source_submission_id",
+          "original_filename",
+          "byte_size",
+          "declared_mime_type",
+          "uploaded_at",
+          "sha256_checksum",
+          "storage_path"
+        ],
+        "title": "SourceFileRead"
+      },
+      "SourceFileSummary": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "original_filename": {
+            "type": "string",
+            "title": "Original Filename"
+          },
+          "byte_size": {
+            "type": "integer",
+            "title": "Byte Size"
+          },
+          "declared_mime_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Declared Mime Type"
+          },
+          "uploaded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Uploaded At"
+          },
+          "sha256_checksum": {
+            "type": "string",
+            "title": "Sha256 Checksum"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "original_filename",
+          "byte_size",
+          "declared_mime_type",
+          "uploaded_at",
+          "sha256_checksum"
+        ],
+        "title": "SourceFileSummary"
       },
       "SourceSubmissionRead": {
         "properties": {

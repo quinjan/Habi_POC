@@ -27,15 +27,26 @@ class SourceSubmissionSummary(BaseModel):
     submitted_at: datetime
 
 
+class SourceFileSummary(BaseModel):
+    id: int
+    original_filename: str
+    byte_size: int
+    declared_mime_type: str | None
+    uploaded_at: datetime
+    sha256_checksum: str
+
+
 class ProcessingJobDetail(BaseModel):
     processing_job: ProcessingJobRead
     source_submission: SourceSubmissionSummary
+    source_file: SourceFileSummary | None = None
     review_batch_id: int | None
 
 
 class ProcessingJobListItem(BaseModel):
     processing_job: ProcessingJobRead
     source_submission: SourceSubmissionSummary
+    source_file: SourceFileSummary | None = None
     review_batch_id: int | None
 
 

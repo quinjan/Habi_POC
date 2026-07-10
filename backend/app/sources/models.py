@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, JSON, String, Text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.database import Base
@@ -37,3 +37,23 @@ class ManualSourceEntry(Base):
     entry_type: Mapped[str] = mapped_column(String(50), nullable=False)
     structured_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     original_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class SourceFile(Base):
+    __tablename__ = "source_files"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    project_workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("project_workspaces.id"), nullable=False, index=True
+    )
+    source_submission_id: Mapped[int] = mapped_column(
+        ForeignKey("source_submissions.id"), nullable=False, unique=True
+    )
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    byte_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    declared_mime_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    uploaded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    sha256_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    storage_path: Mapped[str] = mapped_column(String(1000), nullable=False, unique=True)

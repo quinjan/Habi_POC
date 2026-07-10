@@ -1,6 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.app.evidence.sources import candidate_source_evidence
 from backend.app.review.models import (
     DuplicateCandidateGroup,
     DuplicateCandidateGroupMember,
@@ -8,7 +9,6 @@ from backend.app.review.models import (
     ReviewBatch,
 )
 from backend.app.review.schemas import ReviewedPurchaseLinePayload
-from backend.app.sources.models import ManualSourceEntry
 from backend.app.taxonomy.models import TaxonomyDecision, TaxonomyNode
 
 
@@ -244,14 +244,7 @@ def _approved_candidate_satisfies_import_gates(
     if candidate.decision != "approved" or candidate.reviewed_payload is None:
         return False
 
-    manual_source_entry = _manual_entry_for_source_submission(
-        session=session,
-        source_submission_id=candidate.source_submission_id,
-    )
-    if (
-        manual_source_entry is None
-        or manual_source_entry.project_workspace_id != candidate.project_workspace_id
-    ):
+    if candidate_source_evidence(session=session, candidate=candidate) is None:
         return False
 
     payload = ReviewedPurchaseLinePayload.model_validate(candidate.reviewed_payload)
@@ -398,15 +391,3 @@ def normalized_taxonomy_path_key(
 
 def _normalize(value: str) -> str:
     return " ".join(value.casefold().split())
-
-
-def _manual_entry_for_source_submission(
-    *,
-    session: Session,
-    source_submission_id: int,
-) -> ManualSourceEntry | None:
-    return session.scalar(
-        select(ManualSourceEntry).where(
-            ManualSourceEntry.source_submission_id == source_submission_id
-        )
-    )

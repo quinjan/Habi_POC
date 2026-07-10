@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_session
+from backend.app.evidence.models import EvidenceRecord, MemoryRecordEvidenceLink
 from backend.app.memory.models import PurchaseLine
 from backend.app.projects.models import ProjectWorkspace
 from backend.app.projects.schemas import (
@@ -63,26 +64,41 @@ def get_project_workspace_purchase_lines(
             id=project_workspace.id,
             project_name=project_workspace.project_name,
         ),
-        items=[
-            PurchaseLineRow(
-                id=purchase_line.id,
-                item_or_service_name=purchase_line.item_or_service_name,
-                line_type=purchase_line.line_type,
-                provider_name=purchase_line.provider_name,
-                provider_type=purchase_line.provider_type,
-                provider_role=purchase_line.provider_role,
-                quantity=purchase_line.quantity,
-                unit=purchase_line.unit,
-                unit_state=purchase_line.unit_state,
-                price=purchase_line.price,
-                currency=purchase_line.currency,
-                price_state=purchase_line.price_state,
-                purchase_date=purchase_line.purchase_date,
-                date_state=purchase_line.date_state,
-                category_path=purchase_line.category_path,
-                has_evidence=True,
-                source_label="Manual Source Entry",
-            )
-            for purchase_line in purchase_lines
-        ],
+        items=[_purchase_line_row(session, purchase_line) for purchase_line in purchase_lines],
+    )
+
+
+def _purchase_line_row(session: Session, purchase_line: PurchaseLine) -> PurchaseLineRow:
+    source_label = _source_label(session, purchase_line)
+    return PurchaseLineRow(
+        id=purchase_line.id,
+        item_or_service_name=purchase_line.item_or_service_name,
+        line_type=purchase_line.line_type,
+        provider_name=purchase_line.provider_name,
+        provider_type=purchase_line.provider_type,
+        provider_role=purchase_line.provider_role,
+        quantity=purchase_line.quantity,
+        unit=purchase_line.unit,
+        unit_state=purchase_line.unit_state,
+        price=purchase_line.price,
+        currency=purchase_line.currency,
+        price_state=purchase_line.price_state,
+        purchase_date=purchase_line.purchase_date,
+        date_state=purchase_line.date_state,
+        category_path=purchase_line.category_path,
+        has_evidence=source_label is not None,
+        source_label=source_label or "No evidence",
+    )
+
+
+def _source_label(session: Session, purchase_line: PurchaseLine) -> str | None:
+    return session.scalar(
+        select(EvidenceRecord.source_label)
+        .join(
+            MemoryRecordEvidenceLink,
+            MemoryRecordEvidenceLink.evidence_record_id == EvidenceRecord.id,
+        )
+        .where(MemoryRecordEvidenceLink.memory_record_id == purchase_line.memory_record_id)
+        .order_by(EvidenceRecord.id)
+        .limit(1)
     )

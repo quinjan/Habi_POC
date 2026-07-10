@@ -4,7 +4,7 @@ This guide runs Habi with Docker Compose:
 
 - Postgres in Docker, with a persistent Docker volume.
 - FastAPI backend in Docker on `http://127.0.0.1:8000`.
-- Processing Job worker in Docker for Manual Source Entry extraction.
+- Processing Job worker in Docker for Manual Source Entry and XLSX Source File extraction.
 - React/Vite frontend in Docker on `http://127.0.0.1:5173`.
 
 ## Prerequisites
@@ -55,11 +55,16 @@ http://127.0.0.1:8000/docs
 docker compose ps
 ```
 
-The database data is stored in the named Docker volume:
+Database data and preserved Source Files/derived artifacts are stored in separate named Docker volumes:
 
 ```text
 habi_postgres_data
+habi_source_data
 ```
+
+Both the backend and worker mount `habi_source_data` at `HABI_STORAGE_ROOT=/app/data`
+so an uploaded original is available to the worker that creates worksheet artifacts.
+Direct host execution defaults to the git-ignored `.habi-data` directory.
 
 ## 4. Run Migrations Manually
 
@@ -81,9 +86,9 @@ docker compose run --rm frontend npm run generate:api
 
 ### AI Extraction Worker
 
-Free-form Manual Source Entry AI Extraction uses the OpenAI API from the
-background worker. Codex Pro subscription access is not a runtime credential for
-the app; configure a separate OpenAI API key for the worker process.
+Free-form Manual Source Entry and XLSX Source File AI Extraction use the OpenAI
+API from the background worker. Codex Pro subscription access is not a runtime
+credential for the app; configure a separate OpenAI API key for the worker process.
 
 Required:
 
@@ -99,6 +104,11 @@ $env:OPENAI_BASE_URL="https://api.openai.com/v1"
 ```
 
 If `OPENAI_MODEL` is not set, the worker defaults to `gpt-5.4-nano`.
+
+XLSX limits are deployment configuration. The defaults are 25 MiB per upload,
+10 visible worksheets, 2,000 visible non-empty rows, 50,000 visible non-empty
+cells, and 100 non-empty body rows per extraction chunk. Override them with the
+`HABI_XLSX_*` variables documented in `.env.example`.
 
 The worker starts automatically with:
 
@@ -142,13 +152,14 @@ docker compose run --rm frontend npm run build
 docker compose down
 ```
 
-Stop everything and delete the local database volume:
+Stop everything and delete the local database and preserved Source File volumes:
 
 ```powershell
 docker compose down -v
 ```
 
-Use `down -v` only when you intentionally want to erase local Habi database data.
+Use `down -v` only when you intentionally want to erase local Habi database data,
+uploaded originals, and derived worksheet artifacts.
 
 ## Troubleshooting
 
