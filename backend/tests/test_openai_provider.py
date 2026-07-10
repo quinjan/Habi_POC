@@ -73,6 +73,21 @@ def test_openai_provider_config_defaults_model_to_nano(monkeypatch):
     assert config.model == "gpt-5.4-nano"
 
 
+def test_openai_provider_config_stores_responses_by_default_and_allows_disabling(
+    monkeypatch,
+):
+    from backend.app.processing.openai_provider import OpenAiProviderConfig
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.delenv("HABI_OPENAI_STORE_RESPONSES", raising=False)
+
+    assert OpenAiProviderConfig.from_env().store_responses is True
+
+    monkeypatch.setenv("HABI_OPENAI_STORE_RESPONSES", "false")
+
+    assert OpenAiProviderConfig.from_env().store_responses is False
+
+
 def test_openai_provider_config_ignores_blank_base_url(monkeypatch):
     from backend.app.processing.openai_provider import OpenAiProviderConfig
 
@@ -276,9 +291,12 @@ def test_openai_provider_uses_stateless_strict_xlsx_profile_and_extraction_calls
     ) == extraction
 
     assert len(client.responses.calls) == 2
+    profile_prompt = client.responses.calls[0]["input"][0]["content"].lower()
+    assert "map every available extraction field" in profile_prompt
+    assert "without mapped columns must be marked unusable" in profile_prompt
     for call in client.responses.calls:
         assert call["model"] == "gpt-5.4-nano"
-        assert call["store"] is False
+        assert call["store"] is True
         assert call["text"]["format"]["type"] == "json_schema"
         assert call["text"]["format"]["strict"] is True
         assert "previous_response_id" not in call
