@@ -30,6 +30,7 @@ services:
       - .env
     environment:
       HABI_DATABASE_URL: ${HABI_DATABASE_URL:?HABI_DATABASE_URL is required}
+      HABI_STORAGE_ROOT: ${HABI_STORAGE_ROOT:-/app/data}
     depends_on:
       postgres:
         condition: service_healthy
@@ -37,6 +38,7 @@ services:
       - "${BACKEND_PORT:?BACKEND_PORT is required}:8000"
     volumes:
       - ./backend:/app/backend
+      - habi_source_data:/app/data
     command:
       [
         "sh",
@@ -64,11 +66,13 @@ services:
       - .env
     environment:
       HABI_DATABASE_URL: ${HABI_DATABASE_URL:?HABI_DATABASE_URL is required}
+      HABI_STORAGE_ROOT: ${HABI_STORAGE_ROOT:-/app/data}
     depends_on:
       backend:
         condition: service_healthy
     volumes:
       - ./backend:/app/backend
+      - habi_source_data:/app/data
     command: ["python", "-m", "backend.app.processing", "--loop"]
 
   frontend:
@@ -92,4 +96,5 @@ services:
 
 volumes:
   habi_postgres_data:
+  habi_source_data:
   habi_frontend_node_modules:

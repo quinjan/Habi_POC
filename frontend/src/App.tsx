@@ -3,6 +3,7 @@ import { Check, FolderOpen, GitBranch, Plus, Upload, X } from "lucide-react";
 
 import {
   createProjectWorkspace,
+  createSourceFile,
   createTaxonomyDecision,
   createManualSourceEntry,
   decideCandidate,
@@ -74,6 +75,8 @@ const emptyManualSourceForm: ManualSourceForm = {
   remarksOrTerms: ""
 };
 
+const MAX_XLSX_UPLOAD_BYTES = 25 * 1024 * 1024;
+
 type ReviewForm = ManualSourceForm & {
   topLevelCategory: string;
   subcategory: string;
@@ -104,6 +107,8 @@ function App() {
     useState<ManualSourceForm>(emptyManualSourceForm);
   const [manualEntryMode, setManualEntryMode] = useState<ManualEntryMode>("structured_row");
   const [freeFormText, setFreeFormText] = useState("");
+  const [selectedXlsxFile, setSelectedXlsxFile] = useState<File | null>(null);
+  const [xlsxValidationMessage, setXlsxValidationMessage] = useState<string | null>(null);
   const [processingJobs, setProcessingJobs] = useState<ProcessingJobListItem[]>([]);
   const [activeReviewBatch, setActiveReviewBatch] = useState<ReviewBatchDetail | null>(null);
   const [workspaceRoute, setWorkspaceRoute] = useState<WorkspaceRoute>({
@@ -125,6 +130,7 @@ function App() {
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isSubmittingManualSource, setIsSubmittingManualSource] = useState(false);
+  const [isUploadingXlsx, setIsUploadingXlsx] = useState(false);
   const [isApprovingCandidate, setIsApprovingCandidate] = useState(false);
   const [isImportingBatch, setIsImportingBatch] = useState(false);
   const [isCandidateApproved, setIsCandidateApproved] = useState(false);
@@ -239,6 +245,8 @@ function App() {
       setSimilarMappingConfirmation(null);
       setReviewForm(null);
       setFreeFormText("");
+      setSelectedXlsxFile(null);
+      setXlsxValidationMessage(null);
       setManualEntryMode("structured_row");
       setIsCandidateApproved(false);
       navigateWorkspace(project.id, { name: "purchase_lines" });
@@ -304,6 +312,50 @@ function App() {
       setErrorMessage("Manual Source Entry could not be created.");
     } finally {
       setIsSubmittingManualSource(false);
+    }
+  }
+
+  function handleXlsxSelection(files: FileList | null) {
+    setXlsxValidationMessage(null);
+    setSelectedXlsxFile(null);
+    if (files === null || files.length !== 1) {
+      setXlsxValidationMessage("Choose exactly one .xlsx file.");
+      return;
+    }
+    const file = files[0];
+    if (!file.name.toLowerCase().endsWith(".xlsx")) {
+      setXlsxValidationMessage("Only .xlsx source files are supported.");
+      return;
+    }
+    if (file.size > MAX_XLSX_UPLOAD_BYTES) {
+      setXlsxValidationMessage("The selected workbook exceeds the 25 MiB upload limit.");
+      return;
+    }
+    setSelectedXlsxFile(file);
+  }
+
+  async function handleXlsxUpload(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    if (selectedPurchaseLines === null || selectedXlsxFile === null) {
+      setXlsxValidationMessage("Choose exactly one .xlsx file.");
+      return;
+    }
+    setIsUploadingXlsx(true);
+    setErrorMessage(null);
+    try {
+      await createSourceFile(
+        selectedPurchaseLines.project_workspace.id,
+        selectedXlsxFile
+      );
+      await refreshProcessingJobs(selectedPurchaseLines.project_workspace.id);
+      setSelectedXlsxFile(null);
+      setXlsxValidationMessage(null);
+      form.reset();
+    } catch {
+      setXlsxValidationMessage("The workbook could not be uploaded. Check the file and try again.");
+    } finally {
+      setIsUploadingXlsx(false);
     }
   }
 
@@ -823,6 +875,47 @@ function App() {
             {workspaceRoute.name === "upload_review" ? (
               <>
                 <form
+                  className="xlsx-upload-panel"
+                  onSubmit={(event) => void handleXlsxUpload(event)}
+                >
+                  <h3>Upload Source File</h3>
+                  <aside className="upload-guidance">
+                    <strong>Excel upload (XLSX only)</strong>
+                    <p>
+                      Upload one saved `.xlsx` file. Habi reads values from visible worksheet
+                      cells and uses AI to propose reviewable purchase lines. It does not run
+                      formulas or macros; save calculated values before uploading. Hidden sheets,
+                      images, charts, comments, and attachments are not processed. Visible
+                      worksheet cell values are sent to the configured AI extraction service for
+                      processing. Nothing is added to Project Memory until you review and import it.
+                    </p>
+                  </aside>
+                  <label>
+                    Excel workbook
+                    <input
+                      accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                      onChange={(event) => handleXlsxSelection(event.currentTarget.files)}
+                      type="file"
+                    />
+                  </label>
+                  {selectedXlsxFile ? (
+                    <p className="status-message">
+                      {selectedXlsxFile.name} ({formatFileSize(selectedXlsxFile.size)})
+                    </p>
+                  ) : null}
+                  {xlsxValidationMessage ? (
+                    <p className="status-message error">{xlsxValidationMessage}</p>
+                  ) : null}
+                  <button
+                    className="primary-action compact-action"
+                    disabled={isUploadingXlsx || selectedXlsxFile === null}
+                    type="submit"
+                  >
+                    <Upload aria-hidden="true" size={18} />
+                    Upload and process
+                  </button>
+                </form>
+                <form
                   className="manual-source-form"
                   onSubmit={(event) => void handleCreateManualSourceEntry(event)}
                 >
@@ -961,15 +1054,33 @@ function App() {
                     <li className="job-queue-item" key={item.processing_job.id}>
                       <div>
                         <p className="eyebrow">{item.processing_job.status}</p>
-                        <h4>{formatSourceType(item.processing_job.source_type)}</h4>
+                        <h4>
+                          {item.source_file?.original_filename ??
+                            formatSourceType(item.processing_job.source_type)}
+                        </h4>
+                        <p>Submitted {formatDateTime(item.source_submission.submitted_at)}</p>
                         <p>
                           Candidates: {item.processing_job.candidate_count} | Review Batch:{" "}
                           {item.review_batch_id ?? "Not ready"}
                         </p>
-                        {item.processing_job.error_message ? (
-                          <p className="status-message error">
-                            {item.processing_job.error_message}
+                        {diagnosticSummary(item.processing_job.diagnostics) ? (
+                          <p className="status-message">
+                            {diagnosticSummary(item.processing_job.diagnostics)}
                           </p>
+                        ) : null}
+                        {recoveryGuidance(item.processing_job.status) ? (
+                          <p className="status-message">
+                            {recoveryGuidance(item.processing_job.status)}
+                          </p>
+                        ) : null}
+                        {item.processing_job.status === "failed" &&
+                        item.processing_job.error_message ? (
+                          <details>
+                            <summary>Technical details</summary>
+                            <p className="status-message error">
+                              {item.processing_job.error_message}
+                            </p>
+                          </details>
                         ) : null}
                       </div>
                       {item.processing_job.status === "review_ready" && item.review_batch_id ? (
@@ -1127,6 +1238,7 @@ function App() {
                         ? `${reviewedPayload.top_level_category} / ${reviewedPayload.subcategory}`
                         : "Needs taxonomy";
                     const taxonomyStatus = taxonomyStatusLabel(detailCandidate, reviewedPayload);
+                    const spreadsheetEvidence = spreadsheetCandidateEvidence(detailCandidate);
                     return (
                       <>
                         <div className="view-heading">
@@ -1140,7 +1252,26 @@ function App() {
                           </div>
                           <div>
                             <dt>Source Evidence</dt>
-                            <dd>Source Submission #{detailCandidate.source_submission_id}</dd>
+                            <dd>
+                              {spreadsheetEvidence ? (
+                                <span>
+                                  {spreadsheetEvidence.filename} - {spreadsheetEvidence.worksheet} -{" "}
+                                  {spreadsheetEvidence.rows.length === 1 ? "row" : "rows"}{" "}
+                                  {spreadsheetEvidence.rows.map((row, index) => (
+                                    <span key={row}>
+                                      {index > 0 ? "-" : ""}
+                                      {row === spreadsheetEvidence.primaryBodyRow ? (
+                                        <strong aria-label="Primary evidence row">{row}</strong>
+                                      ) : (
+                                        row
+                                      )}
+                                    </span>
+                                  ))}
+                                </span>
+                              ) : (
+                                <>Source Submission #{detailCandidate.source_submission_id}</>
+                              )}
+                            </dd>
                           </div>
                           <div>
                             <dt>Taxonomy Status</dt>
@@ -1469,6 +1600,85 @@ function formatSourceType(sourceType: string): string {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function formatFileSize(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MiB`;
+}
+
+function formatDateTime(value: string): string {
+  return new Date(value).toLocaleString();
+}
+
+function diagnosticSummary(diagnostics: unknown): string | null {
+  if (!diagnostics || typeof diagnostics !== "object") {
+    return null;
+  }
+  const values = diagnostics as Record<string, unknown>;
+  for (const key of ["warning_summary", "outcome_summary"]) {
+    if (typeof values[key] === "string" && values[key].trim() !== "") {
+      return values[key];
+    }
+  }
+  return null;
+}
+
+function recoveryGuidance(status: string): string | null {
+  if (status === "failed") {
+    return "Processing failed. Check the workbook, save calculated values, and submit it as a new Source Submission.";
+  }
+  if (status === "no_candidates_found") {
+    return "No candidates found. Check visible worksheet content or submit a new Source Submission.";
+  }
+  return null;
+}
+
+function spreadsheetCandidateEvidence(candidate: ExtractedCandidateRead):
+  | {
+      filename: string;
+      worksheet: string;
+      primaryBodyRow: number;
+      rows: number[];
+    }
+  | null {
+  if (!candidate.source_file) {
+    return null;
+  }
+  const evidence = candidate.proposed_payload.evidence;
+  if (!evidence || typeof evidence !== "object") {
+    return null;
+  }
+  const values = evidence as Record<string, unknown>;
+  const worksheet = values.worksheet;
+  const primaryBodyRow = values.primary_body_row;
+  const locators = values.locators;
+  if (
+    typeof worksheet !== "string" ||
+    typeof primaryBodyRow !== "number" ||
+    !Array.isArray(locators)
+  ) {
+    return null;
+  }
+  const rows = Array.from(
+    new Set(
+      locators.flatMap((locator) => {
+        if (!locator || typeof locator !== "object") {
+          return [];
+        }
+        const row = (locator as Record<string, unknown>).row;
+        return typeof row === "number" ? [row] : [];
+      })
+    )
+  ).sort((left, right) => left - right);
+  if (!rows.includes(primaryBodyRow)) {
+    return null;
+  }
+  return {
+    filename: candidate.source_file.original_filename,
+    worksheet,
+    primaryBodyRow,
+    rows
+  };
 }
 
 function buildReviewedPayload(form: ReviewForm): ReviewedPurchaseLinePayload {

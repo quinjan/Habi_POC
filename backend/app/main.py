@@ -12,6 +12,7 @@ from backend.app.processing import models as processing_models  # noqa: F401
 from backend.app.review import models as review_models  # noqa: F401
 from backend.app.sources import models as sources_models  # noqa: F401
 from backend.app.taxonomy import models as taxonomy_models  # noqa: F401
+from backend.app.xlsx import models as xlsx_models  # noqa: F401
 
 
 def create_app(

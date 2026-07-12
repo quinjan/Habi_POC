@@ -8,10 +8,11 @@ from backend.app.processing.schemas import (
     ProcessingJobDetail,
     ProcessingJobList,
     ProcessingJobListItem,
+    SourceFileSummary,
     SourceSubmissionSummary,
 )
 from backend.app.projects.models import ProjectWorkspace
-from backend.app.sources.models import SourceSubmission
+from backend.app.sources.models import SourceFile, SourceSubmission
 
 
 router = APIRouter(tags=["processing-jobs"])
@@ -45,6 +46,16 @@ def list_processing_jobs(
             )
         )
     }
+    source_files = {
+        source_file.source_submission_id: source_file
+        for source_file in session.scalars(
+            select(SourceFile).where(
+                SourceFile.source_submission_id.in_(
+                    [processing_job.source_submission_id for processing_job in processing_jobs]
+                )
+            )
+        )
+    }
 
     return ProcessingJobList(
         items=[
@@ -52,6 +63,9 @@ def list_processing_jobs(
                 processing_job=processing_job,
                 source_submission=_source_submission_summary(
                     source_submissions[processing_job.source_submission_id]
+                ),
+                source_file=_source_file_summary(
+                    source_files.get(processing_job.source_submission_id)
                 ),
                 review_batch_id=processing_job.review_batch_id,
             )
@@ -89,6 +103,13 @@ def get_processing_job(
     return ProcessingJobDetail(
         processing_job=processing_job,
         source_submission=_source_submission_summary(source_submission),
+        source_file=_source_file_summary(
+            session.scalar(
+                select(SourceFile).where(
+                    SourceFile.source_submission_id == source_submission.id
+                )
+            )
+        ),
         review_batch_id=processing_job.review_batch_id,
     )
 
@@ -98,4 +119,17 @@ def _source_submission_summary(source_submission: SourceSubmission) -> SourceSub
         id=source_submission.id,
         submission_type=source_submission.submission_type,
         submitted_at=source_submission.submitted_at,
+    )
+
+
+def _source_file_summary(source_file: SourceFile | None) -> SourceFileSummary | None:
+    if source_file is None:
+        return None
+    return SourceFileSummary(
+        id=source_file.id,
+        original_filename=source_file.original_filename,
+        byte_size=source_file.byte_size,
+        declared_mime_type=source_file.declared_mime_type,
+        uploaded_at=source_file.uploaded_at,
+        sha256_checksum=source_file.sha256_checksum,
     )

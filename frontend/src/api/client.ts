@@ -12,6 +12,7 @@ export type ImportReviewBatchResponse = components["schemas"]["ImportReviewBatch
 export type ManualSourceEntryCreate = components["schemas"]["ManualSourceEntryCreate"];
 export type ManualSourceEntryQueuedSubmission =
   components["schemas"]["ManualSourceEntryQueuedSubmission"];
+export type SourceFileQueuedSubmission = components["schemas"]["SourceFileQueuedSubmission"];
 export type ProcessingJobList = components["schemas"]["ProcessingJobList"];
 export type ProcessingJobListItem = components["schemas"]["ProcessingJobListItem"];
 export type ReviewBatchDraftSaveRequest =
@@ -55,6 +56,21 @@ export async function createManualSourceEntry(
     {
       method: "POST",
       body: JSON.stringify(payload)
+    }
+  );
+}
+
+export async function createSourceFile(
+  projectWorkspaceId: number,
+  file: File
+): Promise<SourceFileQueuedSubmission> {
+  const formData = new FormData();
+  formData.append("files", file);
+  return request<SourceFileQueuedSubmission>(
+    `/api/project-workspaces/${projectWorkspaceId}/source-files`,
+    {
+      method: "POST",
+      body: formData
     }
   );
 }
@@ -152,12 +168,16 @@ export async function importReviewBatch(
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers =
+    init.body instanceof FormData
+      ? init.headers
+      : {
+          "Content-Type": "application/json",
+          ...init.headers
+        };
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...init.headers
-    }
+    headers
   });
 
   if (!response.ok) {

@@ -8,6 +8,7 @@ from backend.app.evidence.models import (
     EvidenceRecord,
     MemoryRecordEvidenceLink,
 )
+from backend.app.evidence.sources import CandidateSourceEvidence, candidate_source_evidence
 from backend.app.memory.models import (
     Material,
     MemoryRecord,
@@ -16,6 +17,7 @@ from backend.app.memory.models import (
     Service,
 )
 from backend.app.processing.models import ProcessingJob
+from backend.app.processing.schemas import SourceFileSummary
 from backend.app.projects.models import ProjectWorkspace
 from backend.app.review.lifecycle import (
     TerminalReviewBatchError,
@@ -55,7 +57,7 @@ from backend.app.review.schemas import (
     TaxonomyNodePathRead,
     TaxonomyNodeUpdate,
 )
-from backend.app.sources.models import ManualSourceEntry
+from backend.app.sources.models import SourceFile
 from backend.app.taxonomy.models import TaxonomyDecision, TaxonomyNode, normalize_taxonomy_name
 
 
@@ -611,11 +613,8 @@ def import_review_batch(
                 detail="Approved candidates require reviewed payloads",
             )
 
-        manual_source_entry = _manual_entry_for_source_submission(
-            session=session,
-            source_submission_id=candidate.source_submission_id,
-        )
-        if manual_source_entry is None or manual_source_entry.project_workspace_id != project_workspace_id:
+        source_evidence = candidate_source_evidence(session=session, candidate=candidate)
+        if source_evidence is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Approved candidates require source evidence",
@@ -631,7 +630,7 @@ def import_review_batch(
         purchase_line = _import_purchase_line(
             session=session,
             project_workspace_id=project_workspace_id,
-            manual_source_entry=manual_source_entry,
+            source_evidence=source_evidence,
             payload=payload,
         )
         _promote_merged_candidate_evidence(
@@ -785,8 +784,27 @@ def _reviewed_payload_with_category(
 
 def _candidate_read(session: Session, candidate: ExtractedCandidate) -> ExtractedCandidateRead:
     candidate_read = ExtractedCandidateRead.model_validate(candidate)
+    source_file = session.scalar(
+        select(SourceFile).where(
+            SourceFile.source_submission_id == candidate.source_submission_id,
+            SourceFile.project_workspace_id == candidate.project_workspace_id,
+        )
+    )
+    source_file_summary = (
+        SourceFileSummary(
+            id=source_file.id,
+            original_filename=source_file.original_filename,
+            byte_size=source_file.byte_size,
+            declared_mime_type=source_file.declared_mime_type,
+            uploaded_at=source_file.uploaded_at,
+            sha256_checksum=source_file.sha256_checksum,
+        )
+        if source_file is not None
+        else None
+    )
     return candidate_read.model_copy(
         update={
+            "source_file": source_file_summary,
             "taxonomy_gate": _taxonomy_gate_for_candidate(session, candidate),
             "taxonomy_default": _taxonomy_default_for_candidate(session, candidate),
         }
@@ -910,7 +928,7 @@ def _import_purchase_line(
     *,
     session: Session,
     project_workspace_id: int,
-    manual_source_entry: ManualSourceEntry,
+    source_evidence: CandidateSourceEvidence,
     payload: ReviewedPurchaseLinePayload,
 ) -> PurchaseLine:
     top_level = _get_or_create_taxonomy_node(
@@ -964,9 +982,10 @@ def _import_purchase_line(
 
     evidence = EvidenceRecord(
         project_workspace_id=project_workspace_id,
-        manual_source_entry_id=manual_source_entry.id,
-        source_label="Manual Source Entry",
-        content=_manual_source_evidence_content(manual_source_entry),
+        manual_source_entry_id=source_evidence.manual_source_entry_id,
+        source_file_id=source_evidence.source_file_id,
+        source_label=source_evidence.source_label,
+        content=source_evidence.content,
     )
     session.add(evidence)
     session.flush()
@@ -1035,18 +1054,18 @@ def _promote_merged_candidate_evidence(
         .order_by(ExtractedCandidate.id)
     )
     for merged_candidate in merged_candidates:
-        manual_source_entry = _manual_entry_for_source_submission(
-            session=session,
-            source_submission_id=merged_candidate.source_submission_id,
+        source_evidence = candidate_source_evidence(
+            session=session, candidate=merged_candidate
         )
-        if manual_source_entry is None or manual_source_entry.project_workspace_id != project_workspace_id:
+        if source_evidence is None:
             continue
 
         evidence = EvidenceRecord(
             project_workspace_id=project_workspace_id,
-            manual_source_entry_id=manual_source_entry.id,
-            source_label="Manual Source Entry",
-            content=_manual_source_evidence_content(manual_source_entry),
+            manual_source_entry_id=source_evidence.manual_source_entry_id,
+            source_file_id=source_evidence.source_file_id,
+            source_label=source_evidence.source_label,
+            content=source_evidence.content,
         )
         session.add(evidence)
         session.flush()
@@ -1414,21 +1433,3 @@ def _candidate_reviewed_category_path(candidate: ExtractedCandidate) -> str | No
     if not _present(payload.top_level_category) or not _present(payload.subcategory):
         return None
     return f"{payload.top_level_category.strip()} / {payload.subcategory.strip()}"
-
-
-def _manual_entry_for_source_submission(
-    *,
-    session: Session,
-    source_submission_id: int,
-) -> ManualSourceEntry | None:
-    return session.scalar(
-        select(ManualSourceEntry).where(
-            ManualSourceEntry.source_submission_id == source_submission_id
-        )
-    )
-
-
-def _manual_source_evidence_content(manual_source_entry: ManualSourceEntry) -> dict:
-    if manual_source_entry.structured_payload is not None:
-        return manual_source_entry.structured_payload
-    return {"original_text": manual_source_entry.original_text}

@@ -1,15 +1,50 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_session
 from backend.app.processing.models import ProcessingJob
 from backend.app.projects.models import ProjectWorkspace
-from backend.app.review.schemas import ManualSourceEntryQueuedSubmission
+from backend.app.review.schemas import ManualSourceEntryQueuedSubmission, SourceFileQueuedSubmission
 from backend.app.sources.models import ManualSourceEntry, SourceSubmission
 from backend.app.sources.schemas import ManualSourceEntryCreate
+from backend.app.xlsx.config import XlsxProcessingConfig
+from backend.app.xlsx.upload import XlsxUploadTooLarge, preserve_xlsx_upload
 
 
 router = APIRouter(tags=["manual-source-entries"])
+
+
+@router.post(
+    "/{project_workspace_id}/source-files",
+    response_model=SourceFileQueuedSubmission,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_source_file(
+    project_workspace_id: int,
+    files: list[UploadFile] = File(...),
+    session: Session = Depends(get_session),
+) -> SourceFileQueuedSubmission:
+    project_workspace = session.get(ProjectWorkspace, project_workspace_id)
+    if project_workspace is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project workspace not found")
+    if len(files) != 1:
+        raise HTTPException(status_code=422, detail="Upload exactly one .xlsx file")
+    if not (files[0].filename or "").lower().endswith(".xlsx"):
+        raise HTTPException(status_code=422, detail="Only .xlsx source files are supported")
+    try:
+        source_submission, source_file, processing_job = preserve_xlsx_upload(
+            session=session,
+            project_workspace_id=project_workspace.id,
+            upload=files[0],
+            config=XlsxProcessingConfig.from_env(),
+        )
+    except XlsxUploadTooLarge as error:
+        raise HTTPException(status_code=413, detail=str(error)) from error
+    return SourceFileQueuedSubmission(
+        source_submission=source_submission,
+        source_file=source_file,
+        processing_job=processing_job,
+    )
 
 
 @router.post(

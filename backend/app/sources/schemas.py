@@ -54,3 +54,17 @@ class ManualSourceEntryRead(BaseModel):
     entry_type: str
     structured_payload: dict | None
     original_text: str | None
+
+
+class SourceFileRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_workspace_id: int
+    source_submission_id: int
+    original_filename: str
+    byte_size: int
+    declared_mime_type: str | None
+    uploaded_at: datetime
+    sha256_checksum: str
+    storage_path: str

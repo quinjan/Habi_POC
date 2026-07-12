@@ -3,8 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from backend.app.processing.schemas import ProcessingJobRead
-from backend.app.sources.schemas import ManualSourceEntryRead, SourceSubmissionRead
+from backend.app.processing.schemas import ProcessingJobRead, SourceFileSummary
+from backend.app.sources.schemas import ManualSourceEntryRead, SourceFileRead, SourceSubmissionRead
 
 
 class ReviewBatchRead(BaseModel):
@@ -28,6 +28,7 @@ class ExtractedCandidateRead(BaseModel):
     decision: str | None
     merged_into_candidate_id: int | None
     reviewed_payload: dict | None
+    source_file: SourceFileSummary | None = None
     taxonomy_gate: "TaxonomyGateRead | None" = None
     taxonomy_default: "TaxonomyDefaultRead | None" = None
 
@@ -43,6 +44,12 @@ class ManualSourceEntrySubmission(BaseModel):
 class ManualSourceEntryQueuedSubmission(BaseModel):
     source_submission: SourceSubmissionRead
     manual_source_entry: ManualSourceEntryRead
+    processing_job: ProcessingJobRead
+
+
+class SourceFileQueuedSubmission(BaseModel):
+    source_submission: SourceSubmissionRead
+    source_file: SourceFileRead
     processing_job: ProcessingJobRead
 
 

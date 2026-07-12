@@ -16,6 +16,7 @@ from backend.app.projects import models  # noqa: F401
 from backend.app.review import models as review_models  # noqa: F401
 from backend.app.sources import models as sources_models  # noqa: F401
 from backend.app.taxonomy import models as taxonomy_models  # noqa: F401
+from backend.app.xlsx import models as xlsx_models  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", database_url_from_env())

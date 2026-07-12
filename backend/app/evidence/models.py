@@ -1,4 +1,4 @@
-from sqlalchemy import ForeignKey, JSON, String
+from sqlalchemy import CheckConstraint, ForeignKey, JSON, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.database import Base
@@ -6,13 +6,22 @@ from backend.app.database import Base
 
 class EvidenceRecord(Base):
     __tablename__ = "evidence_records"
+    __table_args__ = (
+        CheckConstraint(
+            "(manual_source_entry_id IS NOT NULL) <> (source_file_id IS NOT NULL)",
+            name="ck_evidence_record_exactly_one_source",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     project_workspace_id: Mapped[int] = mapped_column(
         ForeignKey("project_workspaces.id"), nullable=False, index=True
     )
-    manual_source_entry_id: Mapped[int] = mapped_column(
-        ForeignKey("manual_source_entries.id"), nullable=False
+    manual_source_entry_id: Mapped[int | None] = mapped_column(
+        ForeignKey("manual_source_entries.id"), nullable=True
+    )
+    source_file_id: Mapped[int | None] = mapped_column(
+        ForeignKey("source_files.id"), nullable=True
     )
     source_label: Mapped[str] = mapped_column(String(255), nullable=False)
     content: Mapped[dict] = mapped_column(JSON, nullable=False)

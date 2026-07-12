@@ -115,6 +115,7 @@ h3 {
 }
 
 .project-form,
+.xlsx-upload-panel,
 .manual-source-form,
 .review-panel {
   display: grid;
@@ -127,6 +128,7 @@ h3 {
 }
 
 .project-form label,
+.xlsx-upload-panel label,
 .manual-source-form label,
 .review-panel label,
 .modal-panel label {
@@ -151,6 +153,7 @@ h3 {
 }
 
 .manual-source-form input,
+.xlsx-upload-panel input,
 .manual-source-form select,
 .manual-source-form textarea,
 .review-panel input,
@@ -282,6 +285,7 @@ h3 {
   background: #f3f5f2;
 }
 
+.xlsx-upload-panel,
 .manual-source-form,
 .processing-job-queue,
 .review-panel,
@@ -291,6 +295,24 @@ h3 {
   border: 1px solid #d5ddd7;
   border-radius: 8px;
   background: #ffffff;
+}
+
+.xlsx-upload-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.upload-guidance {
+  border-left: 4px solid #2f6f73;
+  border-radius: 6px;
+  padding: 12px 14px;
+  color: #34403f;
+  background: #edf6f2;
+}
+
+.upload-guidance p {
+  margin: 6px 0 0;
+  line-height: 1.5;
 }
 
 .processing-job-queue {
@@ -454,6 +476,16 @@ h3 {
 .job-queue-item h4,
 .job-queue-item p {
   margin: 0;
+}
+
+.job-queue-item details {
+  margin-top: 8px;
+}
+
+.job-queue-item summary {
+  cursor: pointer;
+  color: #234e52;
+  font-weight: 700;
 }
 
 .review-actions {

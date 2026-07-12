@@ -87,11 +87,15 @@ Edit the repo-local `.env` file:
 OPENAI_API_KEY=sk-your-real-key-here
 OPENAI_MODEL=gpt-5.4-nano
 OPENAI_BASE_URL=
+HABI_OPENAI_STORE_RESPONSES=true
 ```
 
 Notes:
 
 - Leave `OPENAI_BASE_URL` empty for the default OpenAI API endpoint.
+- `HABI_OPENAI_STORE_RESPONSES` defaults to `true`. This retains Responses API
+  calls for OpenAI Platform debugging; set it to `false` for deployments that
+  should not retain source-evidence prompts and outputs there.
 - Keep `.env.example` as placeholders only.
 - Restart Docker Compose after changing `.env`; existing containers do not
   automatically reload changed environment variables.

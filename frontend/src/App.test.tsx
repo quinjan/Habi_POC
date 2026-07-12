@@ -82,6 +82,117 @@ describe("Project Workspace app shell", () => {
           });
         }
 
+        if (url === "/api/project-workspaces/1/source-files" && method === "POST") {
+          const formData = init?.body as FormData;
+          const file = formData.get("files") as File;
+          const sourceSubmission = {
+            id: 29,
+            project_workspace_id: 1,
+            submission_type: "source_file",
+            submitted_at: "2026-07-10T00:00:00Z",
+            entered_by: null
+          };
+          const sourceFile = {
+            id: 39,
+            project_workspace_id: 1,
+            source_submission_id: sourceSubmission.id,
+            original_filename: file.name,
+            byte_size: file.size,
+            declared_mime_type: file.type,
+            uploaded_at: "2026-07-10T00:00:00Z",
+            sha256_checksum: "test-checksum",
+            storage_path: "source-files/39/original.xlsx"
+          };
+          const processingJob = {
+            id: 49,
+            project_workspace_id: 1,
+            source_submission_id: sourceSubmission.id,
+            source_type: "source_file",
+            processor_name: "ai_xlsx_purchase_lines_v1",
+            created_at: "2026-07-10T00:00:00Z",
+            started_at: null,
+            finished_at: null,
+            error_message: null,
+            diagnostics: null,
+            status: "queued",
+            candidate_count: 0,
+            review_batch_id: null
+          };
+          processingJobsByProject.set(1, [
+            {
+              processing_job: {
+                ...processingJob,
+                status: "review_ready",
+                candidate_count: 1,
+                review_batch_id: 11
+              },
+              source_submission: sourceSubmission,
+              source_file: {
+                id: sourceFile.id,
+                original_filename: sourceFile.original_filename,
+                byte_size: sourceFile.byte_size,
+                declared_mime_type: sourceFile.declared_mime_type,
+                uploaded_at: sourceFile.uploaded_at,
+                sha256_checksum: sourceFile.sha256_checksum
+              },
+              review_batch_id: 11
+            }
+          ]);
+          return jsonResponse(
+            {
+              source_submission: sourceSubmission,
+              source_file: sourceFile,
+              processing_job: processingJob
+            },
+            201
+          );
+        }
+
+        if (url === "/api/project-workspaces/1/review-batches/11" && method === "GET") {
+          return jsonResponse({
+            review_batch: {
+              id: 11,
+              project_workspace_id: 1,
+              source_submission_id: 29,
+              status: "review_pending"
+            },
+            candidates: [
+              {
+                ...buildCandidate(30, "PVC pipe", "material", "Plumbing", "Pipes"),
+                review_batch_id: 11,
+                source_submission_id: 29,
+                source_file: {
+                  id: 39,
+                  original_filename: "purchase-log.xlsx",
+                  byte_size: 8,
+                  declared_mime_type:
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                  uploaded_at: "2026-07-10T00:00:00Z",
+                  sha256_checksum: "test-checksum"
+                },
+                proposed_payload: {
+                  ...buildCandidate(30, "PVC pipe", "material", "Plumbing", "Pipes")
+                    .proposed_payload,
+                  evidence: {
+                    source_submission_id: 29,
+                    source_file_id: 39,
+                    worksheet: "Purchases",
+                    region_id: "purchases",
+                    primary_body_row: 31,
+                    locators: [
+                      { row: 31, role: "body" },
+                      { row: 32, role: "body" }
+                    ]
+                  }
+                }
+              }
+            ],
+            duplicate_groups: [],
+            duplicate_conflicts: [],
+            taxonomy_decisions: []
+          });
+        }
+
         if (url === "/api/project-workspaces/1/manual-source-entries" && method === "POST") {
           const body = JSON.parse(String(init?.body));
           const nextIndex = (processingJobsByProject.get(1)?.length ?? 0) + 1;
@@ -519,6 +630,97 @@ describe("Project Workspace app shell", () => {
     expect(screen.queryByRole("heading", { name: "Review Candidate" })).not.toBeInTheDocument();
   });
 
+  test("reviewer explicitly uploads one XLSX file with visible processing guidance", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+    await user.click(screen.getByRole("tab", { name: "Upload / Review" }));
+
+    expect(
+      screen.getByText(/Upload one saved `.xlsx` file\. Habi reads values from visible worksheet cells/)
+    ).toBeInTheDocument();
+    const file = new File(["workbook"], "purchase-log.xlsx", {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    });
+    await user.upload(screen.getByLabelText("Excel workbook"), file);
+    expect(screen.getByText(/purchase-log\.xlsx/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Upload and process" }));
+
+    const queue = await screen.findByRole("region", { name: "Processing Job queue" });
+    expect(await within(queue).findByText("purchase-log.xlsx")).toBeInTheDocument();
+    const uploadCall = vi
+      .mocked(fetch)
+      .mock.calls.find(([input, init]) =>
+        input.toString().endsWith("/api/project-workspaces/1/source-files") &&
+        init?.method === "POST"
+    );
+    expect(uploadCall?.[1]?.body).toBeInstanceOf(FormData);
+    expect(new Headers(uploadCall?.[1]?.headers).has("Content-Type")).toBe(false);
+  });
+
+  test("XLSX upload rejects unsupported and over-25-MiB files before submission", async () => {
+    const user = userEvent.setup({ applyAccept: false });
+
+    render(<App />);
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+    await user.click(screen.getByRole("tab", { name: "Upload / Review" }));
+    const input = screen.getByLabelText("Excel workbook");
+
+    await user.upload(input, new File(["csv"], "purchase-log.csv", { type: "text/csv" }));
+    expect(screen.getByText("Only .xlsx source files are supported.")).toBeInTheDocument();
+
+    const oversized = new File(["xlsx"], "purchase-log.xlsx");
+    Object.defineProperty(oversized, "size", { value: 25 * 1024 * 1024 + 1 });
+    await user.upload(input, oversized);
+    expect(
+      screen.getByText("The selected workbook exceeds the 25 MiB upload limit.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Upload and process" })).toBeDisabled();
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.some(([request]) => request.toString().endsWith("/source-files"))
+    ).toBe(false);
+  });
+
+  test("reviewer sees verified spreadsheet rows in Candidate Detail", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+    await user.click(screen.getByRole("tab", { name: "Upload / Review" }));
+    await user.upload(
+      screen.getByLabelText("Excel workbook"),
+      new File(["workbook"], "purchase-log.xlsx", {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      })
+    );
+    await user.click(screen.getByRole("button", { name: "Upload and process" }));
+    await user.click(await screen.findByRole("button", { name: "Open Review Batch" }));
+    await user.click(screen.getAllByRole("button", { name: "Details" })[0]);
+
+    const detail = await screen.findByRole("dialog", { name: "Candidate Detail" });
+    expect(detail).toHaveTextContent("purchase-log.xlsx - Purchases - rows 31-32");
+    expect(within(detail).getByLabelText("Primary evidence row")).toHaveTextContent("31");
+  });
+
   test("reviewer opens Upload Review tab and navigates to a dedicated Review Batch page", async () => {
     const user = userEvent.setup();
 
@@ -884,6 +1086,8 @@ describe("Project Workspace app shell", () => {
     expect(within(queue).getByText("no_candidates_found")).toBeInTheDocument();
     expect(within(queue).getByText("failed")).toBeInTheDocument();
     expect(within(queue).getByText("provider unavailable")).toBeInTheDocument();
+    const technicalDetails = within(queue).getByText("Technical details").closest("details");
+    expect(technicalDetails).not.toHaveAttribute("open");
     expect(within(queue).queryByText("Unclear thing")).not.toBeInTheDocument();
   });
 });

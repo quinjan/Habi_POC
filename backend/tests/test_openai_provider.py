@@ -73,6 +73,21 @@ def test_openai_provider_config_defaults_model_to_nano(monkeypatch):
     assert config.model == "gpt-5.4-nano"
 
 
+def test_openai_provider_config_stores_responses_by_default_and_allows_disabling(
+    monkeypatch,
+):
+    from backend.app.processing.openai_provider import OpenAiProviderConfig
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.delenv("HABI_OPENAI_STORE_RESPONSES", raising=False)
+
+    assert OpenAiProviderConfig.from_env().store_responses is True
+
+    monkeypatch.setenv("HABI_OPENAI_STORE_RESPONSES", "false")
+
+    assert OpenAiProviderConfig.from_env().store_responses is False
+
+
 def test_openai_provider_config_ignores_blank_base_url(monkeypatch):
     from backend.app.processing.openai_provider import OpenAiProviderConfig
 
@@ -162,6 +177,22 @@ class FakeOpenAiClient:
         self.responses = FakeResponses()
 
 
+class SequencedResponses:
+    def __init__(self, outputs):
+        self.outputs = list(outputs)
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        output = self.outputs.pop(0)
+        return type("Response", (), {"output_parsed": output})()
+
+
+class SequencedOpenAiClient:
+    def __init__(self, outputs):
+        self.responses = SequencedResponses(outputs)
+
+
 class UnusableResponseFakeResponses(FakeResponses):
     def create(self, **kwargs):
         self.calls.append(kwargs)
@@ -223,6 +254,53 @@ def test_openai_provider_requests_strict_structured_output():
     assert "text" in call
     assert call["text"]["format"]["type"] == "json_schema"
     assert call["text"]["format"]["strict"] is True
+
+
+def test_openai_provider_uses_stateless_strict_xlsx_profile_and_extraction_calls():
+    from backend.app.processing.openai_provider import (
+        OpenAiExtractionProvider,
+        OpenAiProviderConfig,
+    )
+
+    profile = {
+        "worksheet_name": "Purchases",
+        "title_rows": [],
+        "header_rows": [1],
+        "regions": [],
+    }
+    extraction = {"candidates": []}
+    client = SequencedOpenAiClient([profile, extraction])
+    provider = OpenAiExtractionProvider(
+        config=OpenAiProviderConfig(api_key="test-key", model="gpt-5.4-nano"),
+        client=client,
+    )
+    worksheet = {
+        "worksheet": {"name": "Purchases", "index": 0, "merged_ranges": []},
+        "cells": [],
+    }
+
+    assert provider.profile_worksheet(
+        worksheet=worksheet, source_submission_id=123
+    ) == profile
+    assert provider.extract_worksheet_chunk(
+        profile=profile,
+        region={"region_id": "purchases"},
+        rows=[],
+        context_rows=[],
+        source_submission_id=123,
+    ) == extraction
+
+    assert len(client.responses.calls) == 2
+    profile_prompt = client.responses.calls[0]["input"][0]["content"].lower()
+    assert "map every available extraction field" in profile_prompt
+    assert "without mapped columns must be marked unusable" in profile_prompt
+    for call in client.responses.calls:
+        assert call["model"] == "gpt-5.4-nano"
+        assert call["store"] is True
+        assert call["text"]["format"]["type"] == "json_schema"
+        assert call["text"]["format"]["strict"] is True
+        assert "previous_response_id" not in call
+        assert "conversation" not in call
 
 
 def test_openai_provider_rejects_unusable_structured_response():

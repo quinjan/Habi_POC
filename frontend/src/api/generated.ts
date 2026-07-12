@@ -39,6 +39,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/project-workspaces/{project_workspace_id}/source-files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Source File */
+        post: operations["create_source_file_api_project_workspaces__project_workspace_id__source_files_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/project-workspaces/{project_workspace_id}/manual-source-entries": {
         parameters: {
             query?: never;
@@ -281,6 +298,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** Body_create_source_file_api_project_workspaces__project_workspace_id__source_files_post */
+        Body_create_source_file_api_project_workspaces__project_workspace_id__source_files_post: {
+            /** Files */
+            files: string[];
+        };
         /** CandidateDecisionRequest */
         CandidateDecisionRequest: {
             /** Decision */
@@ -336,6 +358,7 @@ export interface components {
             reviewed_payload: {
                 [key: string]: unknown;
             } | null;
+            source_file?: components["schemas"]["SourceFileSummary"] | null;
             taxonomy_gate?: components["schemas"]["TaxonomyGateRead"] | null;
             taxonomy_default?: components["schemas"]["TaxonomyDefaultRead"] | null;
         };
@@ -392,6 +415,7 @@ export interface components {
         ProcessingJobDetail: {
             processing_job: components["schemas"]["ProcessingJobRead"];
             source_submission: components["schemas"]["SourceSubmissionSummary"];
+            source_file?: components["schemas"]["SourceFileSummary"] | null;
             /** Review Batch Id */
             review_batch_id: number | null;
         };
@@ -404,6 +428,7 @@ export interface components {
         ProcessingJobListItem: {
             processing_job: components["schemas"]["ProcessingJobRead"];
             source_submission: components["schemas"]["SourceSubmissionSummary"];
+            source_file?: components["schemas"]["SourceFileSummary"] | null;
             /** Review Batch Id */
             review_batch_id: number | null;
         };
@@ -614,6 +639,54 @@ export interface components {
             purchase_date?: string | null;
             /** Remarks Or Terms */
             remarks_or_terms?: string | null;
+        };
+        /** SourceFileQueuedSubmission */
+        SourceFileQueuedSubmission: {
+            source_submission: components["schemas"]["SourceSubmissionRead"];
+            source_file: components["schemas"]["SourceFileRead"];
+            processing_job: components["schemas"]["ProcessingJobRead"];
+        };
+        /** SourceFileRead */
+        SourceFileRead: {
+            /** Id */
+            id: number;
+            /** Project Workspace Id */
+            project_workspace_id: number;
+            /** Source Submission Id */
+            source_submission_id: number;
+            /** Original Filename */
+            original_filename: string;
+            /** Byte Size */
+            byte_size: number;
+            /** Declared Mime Type */
+            declared_mime_type: string | null;
+            /**
+             * Uploaded At
+             * Format: date-time
+             */
+            uploaded_at: string;
+            /** Sha256 Checksum */
+            sha256_checksum: string;
+            /** Storage Path */
+            storage_path: string;
+        };
+        /** SourceFileSummary */
+        SourceFileSummary: {
+            /** Id */
+            id: number;
+            /** Original Filename */
+            original_filename: string;
+            /** Byte Size */
+            byte_size: number;
+            /** Declared Mime Type */
+            declared_mime_type: string | null;
+            /**
+             * Uploaded At
+             * Format: date-time
+             */
+            uploaded_at: string;
+            /** Sha256 Checksum */
+            sha256_checksum: string;
         };
         /** SourceSubmissionRead */
         SourceSubmissionRead: {
@@ -842,6 +915,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectWorkspacePurchaseLinesView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_source_file_api_project_workspaces__project_workspace_id__source_files_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_create_source_file_api_project_workspaces__project_workspace_id__source_files_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceFileQueuedSubmission"];
                 };
             };
             /** @description Validation Error */
