@@ -15,6 +15,7 @@ def test_processing_job_list_returns_project_jobs_newest_first(tmp_path):
                 "project_type": "Residential renovation",
                 "location": "Makati City",
                 "completion_year": 2025,
+                "contractor_assigned": "Internal",
             },
         ).json()
         other_project = client.post(
@@ -24,6 +25,7 @@ def test_processing_job_list_returns_project_jobs_newest_first(tmp_path):
                 "project_type": "Commercial fit-out",
                 "location": "Pasig City",
                 "completion_year": 2024,
+                "contractor_assigned": "Internal",
             },
         ).json()
 
@@ -63,6 +65,7 @@ def test_processing_job_list_marks_no_import_review_completion(tmp_path):
                 "project_type": "Residential renovation",
                 "location": "Makati City",
                 "completion_year": 2025,
+                "contractor_assigned": "Internal",
             },
         ).json()
         submission = create_review_ready_manual_submission(

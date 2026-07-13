@@ -17,6 +17,7 @@ class ProjectWorkspace(Base):
     completion_year: Mapped[int | None] = mapped_column(nullable=True)
     floor_area: Mapped[str | None] = mapped_column(String(100), nullable=True)
     trade_scopes: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    contractor_assigned: Mapped[str] = mapped_column(String(255), nullable=False)
     client_or_owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
     notes: Mapped[str | None] = mapped_column(String(2000), nullable=True)
 

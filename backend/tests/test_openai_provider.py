@@ -6,6 +6,7 @@ def create_project(client):
             "project_type": "Residential renovation",
             "location": "Makati City",
             "completion_year": 2025,
+            "contractor_assigned": "Internal",
         },
     ).json()
 
@@ -131,6 +132,7 @@ def test_worker_provider_factory_failure_does_not_claim_queued_job(client):
             "project_type": "Residential renovation",
             "location": "Makati City",
             "completion_year": 2025,
+            "contractor_assigned": "Internal",
         },
     ).json()
     submission = client.post(
@@ -247,13 +249,29 @@ def test_openai_provider_requests_strict_structured_output():
         client=client,
     )
 
-    provider.extract_purchase_lines(original_text="PVC pipe", source_submission_id=123)
+    provider.extract_purchase_lines(
+        original_text="PVC pipe",
+        source_submission_id=123,
+        memory_context={
+            "contractor_assigned": "Quinlan Construction",
+            "taxonomy_paths": ["Plumbing / Pipes"],
+            "materials": [],
+            "services": [],
+            "providers": [],
+        },
+    )
 
     call = client.responses.calls[0]
     assert call["model"] == "gpt-5.4-nano"
     assert "text" in call
     assert call["text"]["format"]["type"] == "json_schema"
     assert call["text"]["format"]["strict"] is True
+    candidate_schema = call["text"]["format"]["schema"]["properties"]["candidates"][
+        "items"
+    ]
+    assert "linked_concepts" in candidate_schema["properties"]
+    assert "provider_state" in candidate_schema["properties"]
+    assert "Quinlan Construction" in call["input"][1]["content"]
 
 
 def test_openai_provider_uses_stateless_strict_xlsx_profile_and_extraction_calls():

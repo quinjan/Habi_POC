@@ -93,12 +93,10 @@ def validate_approved_reviewed_payload(reviewed_payload: dict | None) -> None:
         raise ValueError("Included candidates require reviewed payloads")
 
     payload = ReviewedPurchaseLinePayload.model_validate(reviewed_payload)
-    if payload.line_type not in {"material", "service"}:
-        raise ValueError("Included candidates require a Material or Service line type")
-    if not _present(payload.name):
-        raise ValueError("Included candidates require an item or service name")
-    if not _present(payload.top_level_category) or not _present(payload.subcategory):
-        raise ValueError("Included candidates require a resolved category path")
+    if not _payload_has_importable_shape(payload):
+        raise ValueError(
+            "Included candidates require valid linked concepts and resolved category paths"
+        )
 
 
 def detect_duplicate_conflicts(*, session: Session, review_batch: ReviewBatch) -> list[str]:
@@ -249,10 +247,7 @@ def _approved_candidate_satisfies_import_gates(
 
     payload = ReviewedPurchaseLinePayload.model_validate(candidate.reviewed_payload)
     return (
-        payload.line_type in {"material", "service"}
-        and _present(payload.name)
-        and _present(payload.top_level_category)
-        and _present(payload.subcategory)
+        _payload_has_importable_shape(payload)
         and not approved_candidate_has_unresolved_taxonomy_gate(session, candidate)
     )
 
@@ -376,7 +371,39 @@ def _candidate_has_reviewed_category_path(candidate: ExtractedCandidate) -> bool
         return False
 
     payload = ReviewedPurchaseLinePayload.model_validate(candidate.reviewed_payload)
-    return _present(payload.top_level_category) and _present(payload.subcategory)
+    return _payload_has_importable_shape(payload)
+
+
+def _payload_has_importable_shape(payload: ReviewedPurchaseLinePayload) -> bool:
+    concepts = payload.concepts()
+    concept_types = {concept.concept_type for concept in concepts}
+    if len(concepts) not in {1, 2} or len(concept_types) != len(concepts):
+        return False
+    if len(concepts) == 2 and concept_types != {"material", "service"}:
+        return False
+    if any(
+        not _present(concept.name)
+        or not _present(concept.top_level_category)
+        or not _present(concept.subcategory)
+        for concept in concepts
+    ):
+        return False
+    if payload.provider_state == "external":
+        return (
+            _present(payload.provider_name)
+            and _present(payload.provider_top_level_category)
+            and _present(payload.provider_subcategory)
+        )
+    if payload.provider_state == "unknown":
+        return not any(
+            _present(value)
+            for value in (
+                payload.provider_name,
+                payload.provider_top_level_category,
+                payload.provider_subcategory,
+            )
+        )
+    return True
 
 
 def normalized_taxonomy_path_key(

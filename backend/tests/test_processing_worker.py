@@ -16,6 +16,7 @@ def test_worker_processes_structured_row_job_to_review_ready(client):
             "project_type": "Residential renovation",
             "location": "Makati City",
             "completion_year": 2025,
+            "contractor_assigned": "Internal",
         },
     ).json()
     submission = client.post(
@@ -81,6 +82,7 @@ def test_worker_command_processes_structured_job_outside_fastapi_app(client, mon
             "project_type": "Residential renovation",
             "location": "Makati City",
             "completion_year": 2025,
+            "contractor_assigned": "Internal",
         },
     ).json()
     submission = client.post(
@@ -125,6 +127,7 @@ def test_worker_run_once_processes_only_one_queued_job(client):
             "project_type": "Residential renovation",
             "location": "Makati City",
             "completion_year": 2025,
+            "contractor_assigned": "Internal",
         },
     ).json()
     for name in ["PVC pipe", "Hauling"]:
@@ -159,6 +162,7 @@ def test_worker_run_once_skips_ai_free_form_jobs_without_provider(client):
             "project_type": "Residential renovation",
             "location": "Makati City",
             "completion_year": 2025,
+            "contractor_assigned": "Internal",
         },
     ).json()
     free_form_submission = client.post(
@@ -203,6 +207,7 @@ def test_worker_review_ready_output_remains_project_scoped(client):
             "project_type": "Residential renovation",
             "location": "Makati City",
             "completion_year": 2025,
+            "contractor_assigned": "Internal",
         },
     ).json()
     other_project = client.post(
@@ -212,6 +217,7 @@ def test_worker_review_ready_output_remains_project_scoped(client):
             "project_type": "Commercial fitout",
             "location": "Pasig City",
             "completion_year": 2024,
+            "contractor_assigned": "Internal",
         },
     ).json()
     submission = client.post(

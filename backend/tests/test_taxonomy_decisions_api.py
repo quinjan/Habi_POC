@@ -19,6 +19,7 @@ def test_taxonomy_decision_is_project_scoped_and_rejects_cross_project_mapping(t
                 "project_type": "Commercial fit-out",
                 "location": "Pasig City",
                 "completion_year": 2024,
+                "contractor_assigned": "Internal",
             },
         ).json()
         other_project_node_id = create_taxonomy_path(
@@ -417,6 +418,7 @@ def test_taxonomy_leaf_listing_is_project_scoped_and_returns_two_level_paths(tmp
                 "project_type": "Commercial fit-out",
                 "location": "Pasig City",
                 "completion_year": 2024,
+                "contractor_assigned": "Internal",
             },
         ).json()
         local_leaf_id = create_taxonomy_path(
@@ -492,7 +494,9 @@ def test_rename_taxonomy_node_returns_updated_path_and_updates_live_purchase_lin
         "parent_id": 1,
         "path": "Plumbing / Pipe Materials",
     }
-    assert purchase_lines.json()["items"][0]["category_path"] == "Plumbing / Pipe Materials"
+    assert purchase_lines.json()["items"][0]["linked_concepts"][0]["category_path"] == (
+        "Plumbing / Pipe Materials"
+    )
 
 
 def test_rename_taxonomy_node_rejects_duplicate_sibling_name_after_normalization(tmp_path):
@@ -875,7 +879,9 @@ def test_new_top_level_taxonomy_gate_stays_unready_until_category_path_is_review
         "prior_rejection": None,
     }
     assert blocked_import.status_code == 400
-    assert blocked_import.json()["detail"] == "Approved candidates require a resolved category path"
+    assert blocked_import.json()["detail"] == (
+        "Each linked concept requires a resolved category path"
+    )
     assert taxonomy_decision.status_code == 201
     assert taxonomy_decision.json()["taxonomy_decisions"][0]["decision"] == "approved"
     assert taxonomy_decision.json()["taxonomy_decisions"][0]["resolved_taxonomy_node_id"] is not None
@@ -920,7 +926,9 @@ def test_reviewer_supplied_category_path_imports_without_taxonomy_decision(tmp_p
 
     assert decision.status_code == 200
     assert imported.status_code == 200
-    assert purchase_lines.json()["items"][0]["category_path"] == "Plumbing / Pipes"
+    assert purchase_lines.json()["items"][0]["linked_concepts"][0]["category_path"] == (
+        "Plumbing / Pipes"
+    )
 
 
 def test_ready_to_import_requires_every_approved_candidate_to_satisfy_import_gates(tmp_path):
@@ -984,7 +992,7 @@ def test_ready_to_import_requires_every_approved_candidate_to_satisfy_import_gat
     assert second_decision.status_code == 200
     assert batch.json()["review_batch"]["status"] == "review_in_progress"
     assert imported.status_code == 400
-    assert imported.json()["detail"] == "Approved candidates require a resolved category path"
+    assert imported.json()["detail"] == "Each linked concept requires a resolved category path"
 
 
 def create_manual_submission(client: TestClient, project_name: str):
@@ -995,6 +1003,7 @@ def create_manual_submission(client: TestClient, project_name: str):
             "project_type": "Residential renovation",
             "location": "Makati City",
             "completion_year": 2025,
+            "contractor_assigned": "Internal",
         },
     ).json()
     submission = create_review_ready_manual_submission(

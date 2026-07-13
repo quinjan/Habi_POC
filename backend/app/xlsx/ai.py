@@ -4,7 +4,13 @@ from typing import Literal
 from openpyxl.utils import column_index_from_string
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from backend.app.processing.ai_extraction import AiCategorySuggestion, CurrencyState, LineType
+from backend.app.processing.ai_extraction import (
+    AiCategorySuggestion,
+    AiLinkedConcept,
+    CurrencyState,
+    LineType,
+    ProviderState,
+)
 
 
 class XlsxProfileRegion(BaseModel):
@@ -58,8 +64,13 @@ class XlsxCandidateEvidence(BaseModel):
 class XlsxPurchaseLineCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    line_type: LineType
-    name: str = Field(min_length=1, max_length=255)
+    linked_concepts: list[AiLinkedConcept] = Field(default_factory=list, max_length=2)
+    provider_state: ProviderState | None = None
+    provider_category_suggestion: AiCategorySuggestion | None = None
+
+    # Legacy XLSX providers remain valid while queued jobs migrate to linked concepts.
+    line_type: LineType | None = None
+    name: str | None = Field(default=None, max_length=255)
     quantity: str | None = Field(default=None, max_length=100)
     unit: str | None = Field(default=None, max_length=100)
     price: str | None = Field(default=None, max_length=100)
@@ -69,7 +80,7 @@ class XlsxPurchaseLineCandidate(BaseModel):
     purchase_date: date | None = None
     remarks_or_terms: str | None = Field(default=None, max_length=2000)
     confidence: float = Field(ge=0, le=1)
-    category_suggestion: AiCategorySuggestion
+    category_suggestion: AiCategorySuggestion | None = None
     evidence: XlsxCandidateEvidence
 
     @field_validator("name", mode="before")
@@ -98,6 +109,29 @@ class XlsxPurchaseLineCandidate(BaseModel):
         if self.price is not None and self.currency is None:
             self.currency = "PHP"
             self.currency_state = "defaulted"
+        return self
+
+    @model_validator(mode="after")
+    def require_valid_concept_shape_and_provider(self) -> "XlsxPurchaseLineCandidate":
+        if self.linked_concepts:
+            concept_types = {concept.concept_type for concept in self.linked_concepts}
+            if len(concept_types) != len(self.linked_concepts):
+                raise ValueError("Linked concepts must have distinct types")
+            if len(self.linked_concepts) == 2 and concept_types != {"material", "service"}:
+                raise ValueError("Bundles require one Material and one Service")
+        elif self.line_type is None or not self.name or self.category_suggestion is None:
+            raise ValueError("Candidate requires linked concepts or one legacy concept")
+
+        if self.provider_state == "external":
+            if self.provider_name is None:
+                raise ValueError("External Provider State requires a Provider name")
+            if self.provider_category_suggestion is None:
+                self.provider_category_suggestion = AiCategorySuggestion(
+                    top_level_category="Providers",
+                    subcategory="General",
+                )
+        elif self.provider_state == "unknown" and self.provider_name is not None:
+            raise ValueError("Unknown Provider State cannot include a Provider name")
         return self
 
 

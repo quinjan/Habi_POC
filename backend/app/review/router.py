@@ -14,6 +14,7 @@ from backend.app.memory.models import (
     MemoryRecord,
     Provider,
     PurchaseLine,
+    PurchaseLineConceptLink,
     Service,
 )
 from backend.app.processing.models import ProcessingJob
@@ -39,9 +40,11 @@ from backend.app.review.models import (
 )
 from backend.app.review.schemas import (
     CandidateDecisionRequest,
+    CandidateTaxonomyGateRead,
     DuplicateCandidateGroupCreate,
     DuplicateCandidateGroupMembersRequest,
     DuplicateCandidateGroupRead,
+    ExistingMemoryMatchRead,
     ExtractedCandidateRead,
     ImportedPurchaseLine,
     ImportReviewBatchResponse,
@@ -131,7 +134,6 @@ def update_taxonomy_node(
     taxonomy_node.name = cleaned_name
     taxonomy_node.normalized_name = normalize_taxonomy_name(cleaned_name)
     session.flush()
-    _refresh_purchase_line_category_paths(session, project_workspace_id)
     session.commit()
     session.refresh(taxonomy_node)
     path = _taxonomy_node_path(session, taxonomy_node.id)
@@ -731,19 +733,17 @@ def _batch_has_taxonomy_suggestion(
     for candidate in _get_batch_candidates(session, review_batch_id):
         if candidate.project_workspace_id != project_workspace_id:
             continue
-        suggestion = candidate.proposed_payload.get("category_suggestion")
-        if not isinstance(suggestion, dict):
-            continue
-        top_level_category = suggestion.get("top_level_category")
-        subcategory = suggestion.get("subcategory")
-        if not isinstance(top_level_category, str) or not _present(top_level_category):
-            continue
-        candidate_path_key = normalized_taxonomy_path_key(
-            top_level_category,
-            subcategory if isinstance(subcategory, str) else None,
-        )
-        if candidate_path_key == normalized_suggested_path_key:
-            return True
+        for _, _, suggestion in _candidate_taxonomy_subjects(candidate):
+            top_level_category = suggestion.get("top_level_category")
+            subcategory = suggestion.get("subcategory")
+            if not isinstance(top_level_category, str) or not _present(top_level_category):
+                continue
+            candidate_path_key = normalized_taxonomy_path_key(
+                top_level_category,
+                subcategory if isinstance(subcategory, str) else None,
+            )
+            if candidate_path_key == normalized_suggested_path_key:
+                return True
     return False
 
 
@@ -806,6 +806,8 @@ def _candidate_read(session: Session, candidate: ExtractedCandidate) -> Extracte
         update={
             "source_file": source_file_summary,
             "taxonomy_gate": _taxonomy_gate_for_candidate(session, candidate),
+            "taxonomy_gates": _taxonomy_gates_for_candidate(session, candidate),
+            "existing_memory_matches": _existing_memory_matches(session, candidate),
             "taxonomy_default": _taxonomy_default_for_candidate(session, candidate),
         }
     )
@@ -907,20 +909,53 @@ def _ensure_review_batch_editable_or_conflict(review_batch: ReviewBatch) -> None
 
 
 def _validate_importable_payload(payload: ReviewedPurchaseLinePayload) -> None:
-    if payload.line_type not in {"material", "service"}:
+    concepts = payload.concepts()
+    concept_types = {concept.concept_type for concept in concepts}
+    if len(concepts) not in {1, 2} or len(concept_types) != len(concepts):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Approved candidates require a Material or Service line type",
+            detail="Approved candidates require one Material or Service, or one of each",
         )
-    if not _present(payload.name):
+    if len(concepts) == 2 and concept_types != {"material", "service"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Approved candidates require an item or service name",
+            detail="Bundled Purchase Lines require exactly one Material and one Service",
         )
-    if not _present(payload.top_level_category) or not _present(payload.subcategory):
+    for concept in concepts:
+        if not _present(concept.name):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Approved candidates require a linked concept name",
+            )
+        if not _present(concept.top_level_category) or not _present(concept.subcategory):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Each linked concept requires a resolved category path",
+            )
+    if payload.provider_state == "external":
+        if not _present(payload.provider_name):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="External Provider State requires a Provider name",
+            )
+        if not _present(payload.provider_top_level_category) or not _present(
+            payload.provider_subcategory
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="External Providers require their own resolved category path",
+            )
+    if payload.provider_state == "unknown" and any(
+        _present(value)
+        for value in (
+            payload.provider_name,
+            payload.provider_top_level_category,
+            payload.provider_subcategory,
+        )
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Approved candidates require a resolved category path",
+            detail="Unknown Provider State cannot include Provider details",
         )
 
 
@@ -931,50 +966,73 @@ def _import_purchase_line(
     source_evidence: CandidateSourceEvidence,
     payload: ReviewedPurchaseLinePayload,
 ) -> PurchaseLine:
-    top_level = _get_or_create_taxonomy_node(
-        session=session,
-        project_workspace_id=project_workspace_id,
-        name=payload.top_level_category or "",
-        parent_id=None,
-    )
-    subcategory = _get_or_create_taxonomy_node(
-        session=session,
-        project_workspace_id=project_workspace_id,
-        name=payload.subcategory or "",
-        parent_id=top_level.id,
-    )
-    category_path = f"{top_level.name} / {subcategory.name}"
-
-    item_record = _get_or_create_entity_record(
-        session=session,
-        project_workspace_id=project_workspace_id,
-        record_type=payload.line_type or "material",
-        display_name=payload.name or "",
-        taxonomy_node_id=subcategory.id,
-    )
-    if payload.line_type == "material":
-        _ensure_type_record(session, Material, item_record.id)
-    else:
-        _ensure_type_record(session, Service, item_record.id)
+    concept_records: list[tuple[str, MemoryRecord]] = []
+    for concept in payload.concepts():
+        top_level = _get_or_create_taxonomy_node(
+            session=session,
+            project_workspace_id=project_workspace_id,
+            name=concept.top_level_category or "",
+            parent_id=None,
+        )
+        subcategory = _get_or_create_taxonomy_node(
+            session=session,
+            project_workspace_id=project_workspace_id,
+            name=concept.subcategory or "",
+            parent_id=top_level.id,
+        )
+        concept_record = _get_or_create_entity_record(
+            session=session,
+            project_workspace_id=project_workspace_id,
+            record_type=concept.concept_type,
+            display_name=concept.name or "",
+            taxonomy_node_id=subcategory.id,
+        )
+        _ensure_type_record(
+            session,
+            Material if concept.concept_type == "material" else Service,
+            concept_record.id,
+        )
+        concept_records.append((concept.concept_type, concept_record))
 
     provider_record = None
-    provider_name = _clean(payload.provider_name)
-    if provider_name is not None:
+    provider_state = _resolved_provider_state(
+        session=session,
+        project_workspace_id=project_workspace_id,
+        payload=payload,
+    )
+    provider_name = _clean(payload.provider_name) if provider_state == "external" else None
+    if provider_state == "external" and provider_name is not None:
+        provider_top_level_name = payload.provider_top_level_category or "Providers"
+        provider_subcategory_name = payload.provider_subcategory or "General"
+        provider_top_level = _get_or_create_taxonomy_node(
+            session=session,
+            project_workspace_id=project_workspace_id,
+            name=provider_top_level_name,
+            parent_id=None,
+        )
+        provider_subcategory = _get_or_create_taxonomy_node(
+            session=session,
+            project_workspace_id=project_workspace_id,
+            name=provider_subcategory_name,
+            parent_id=provider_top_level.id,
+        )
         provider_record = _get_or_create_entity_record(
             session=session,
             project_workspace_id=project_workspace_id,
             record_type="provider",
             display_name=provider_name,
-            taxonomy_node_id=subcategory.id,
+            taxonomy_node_id=provider_subcategory.id,
         )
         _ensure_type_record(session, Provider, provider_record.id)
 
+    primary_record = concept_records[0][1]
+    purchase_display_name = " + ".join(record.display_name for _, record in concept_records)
     purchase_record = MemoryRecord(
         project_workspace_id=project_workspace_id,
         record_type="purchase_line",
-        display_name=payload.name or "",
-        normalized_name=_normalize(payload.name or ""),
-        taxonomy_node_id=subcategory.id,
+        display_name=purchase_display_name,
+        normalized_name=_normalize(purchase_display_name),
+        taxonomy_node_id=primary_record.taxonomy_node_id,
         status="active",
     )
     session.add(purchase_record)
@@ -990,7 +1048,10 @@ def _import_purchase_line(
     session.add(evidence)
     session.flush()
 
-    for record_id in [purchase_record.id, item_record.id, provider_record.id if provider_record else None]:
+    evidence_record_ids = [record.id for _, record in concept_records]
+    if provider_record is not None:
+        evidence_record_ids.append(provider_record.id)
+    for record_id in [purchase_record.id, *evidence_record_ids]:
         if record_id is not None:
             session.add(
                 MemoryRecordEvidenceLink(
@@ -1015,13 +1076,8 @@ def _import_purchase_line(
     purchase_line = PurchaseLine(
         project_workspace_id=project_workspace_id,
         memory_record_id=purchase_record.id,
-        item_memory_record_id=item_record.id,
         provider_memory_record_id=provider_record.id if provider_record else None,
-        item_or_service_name=payload.name or "",
-        line_type=payload.line_type or "material",
-        provider_name=provider_name,
-        provider_type="external" if provider_name is not None else "unknown",
-        provider_role=_provider_role(payload.line_type, provider_name),
+        provider_state=provider_state,
         quantity=_clean(payload.quantity),
         unit=_clean(payload.unit),
         unit_state="known" if _present(payload.unit) else "unknown",
@@ -1030,11 +1086,37 @@ def _import_purchase_line(
         price_state="known" if price is not None else "unknown",
         purchase_date=payload.purchase_date,
         date_state="known" if payload.purchase_date is not None else "unknown",
-        category_path=category_path,
     )
     session.add(purchase_line)
     session.flush()
+    for concept_type, concept_record in concept_records:
+        session.add(
+            PurchaseLineConceptLink(
+                purchase_line_id=purchase_line.id,
+                concept_memory_record_id=concept_record.id,
+                concept_type=concept_type,
+            )
+        )
+    session.flush()
     return purchase_line
+
+
+def _resolved_provider_state(
+    *,
+    session: Session,
+    project_workspace_id: int,
+    payload: ReviewedPurchaseLinePayload,
+) -> str:
+    if payload.provider_state is not None:
+        return payload.provider_state
+    provider_name = _clean(payload.provider_name)
+    if provider_name is None:
+        return "unknown"
+    project = session.get(ProjectWorkspace, project_workspace_id)
+    contractor = _normalize(project.contractor_assigned) if project is not None else "internal"
+    if contractor != "internal" and _normalize(provider_name) == contractor:
+        return "internal"
+    return "external"
 
 
 def _promote_merged_candidate_evidence(
@@ -1070,11 +1152,14 @@ def _promote_merged_candidate_evidence(
         session.add(evidence)
         session.flush()
 
-        record_ids = [
-            purchase_line.memory_record_id,
-            purchase_line.item_memory_record_id,
-            purchase_line.provider_memory_record_id,
-        ]
+        record_ids = [purchase_line.memory_record_id, purchase_line.provider_memory_record_id]
+        record_ids.extend(
+            session.scalars(
+                select(PurchaseLineConceptLink.concept_memory_record_id).where(
+                    PurchaseLineConceptLink.purchase_line_id == purchase_line.id
+                )
+            )
+        )
         for record_id in record_ids:
             if record_id is not None:
                 session.add(
@@ -1226,12 +1311,6 @@ def _ensure_type_record(session: Session, model: type[Material] | type[Service] 
         session.flush()
 
 
-def _provider_role(line_type: str | None, provider_name: str | None) -> str | None:
-    if provider_name is None:
-        return None
-    return "material_supplier" if line_type == "material" else "service_provider"
-
-
 def _present(value: str | None) -> bool:
     return value is not None and value.strip() != ""
 
@@ -1253,10 +1332,156 @@ def _taxonomy_gate_for_candidate(
 ) -> TaxonomyGateRead | None:
     if _candidate_reviewed_category_path(candidate) is not None:
         return None
+    subjects = _candidate_taxonomy_subjects(candidate)
+    if len(subjects) != 1 or candidate.proposed_payload.get("linked_concepts"):
+        return None
+    return _taxonomy_gate_for_suggestion(session, candidate, subjects[0][2])
+
+
+def _taxonomy_gates_for_candidate(
+    session: Session,
+    candidate: ExtractedCandidate,
+) -> list[CandidateTaxonomyGateRead]:
+    reviewed_subjects = _reviewed_taxonomy_subjects(candidate)
+    gates: list[CandidateTaxonomyGateRead] = []
+    for subject_type, subject_name, suggestion in _candidate_taxonomy_subjects(candidate):
+        if (subject_type, _normalize(subject_name)) in reviewed_subjects:
+            continue
+        if _existing_memory_record(
+            session,
+            candidate.project_workspace_id,
+            subject_type,
+            subject_name,
+        ) is not None:
+            continue
+        gate = _taxonomy_gate_for_suggestion(session, candidate, suggestion)
+        if gate is not None:
+            gates.append(
+                CandidateTaxonomyGateRead(
+                    subject_type=subject_type,
+                    subject_name=subject_name,
+                    **gate.model_dump(),
+                )
+            )
+    return gates
+
+
+def _existing_memory_matches(
+    session: Session,
+    candidate: ExtractedCandidate,
+) -> list[ExistingMemoryMatchRead]:
+    matches: list[ExistingMemoryMatchRead] = []
+    seen: set[tuple[str, int]] = set()
+    for subject_type, subject_name, _suggestion in _candidate_taxonomy_subjects(candidate):
+        record = _existing_memory_record(
+            session,
+            candidate.project_workspace_id,
+            subject_type,
+            subject_name,
+        )
+        if record is None or (subject_type, record.id) in seen:
+            continue
+        seen.add((subject_type, record.id))
+        category_path = _taxonomy_node_path(session, record.taxonomy_node_id)
+        if category_path is None:
+            continue
+        matches.append(
+            ExistingMemoryMatchRead(
+                subject_type=subject_type,
+                subject_name=record.display_name,
+                category_path=category_path,
+            )
+        )
+    return matches
+
+
+def _existing_memory_record(
+    session: Session,
+    project_workspace_id: int,
+    subject_type: str,
+    subject_name: str,
+) -> MemoryRecord | None:
+    return session.scalar(
+        select(MemoryRecord).where(
+            MemoryRecord.project_workspace_id == project_workspace_id,
+            MemoryRecord.record_type == subject_type,
+            MemoryRecord.normalized_name == _normalize(subject_name),
+            MemoryRecord.status == "active",
+        )
+    )
+
+
+def _candidate_taxonomy_subjects(
+    candidate: ExtractedCandidate,
+) -> list[tuple[str, str, dict]]:
+    subjects: list[tuple[str, str, dict]] = []
+    linked_concepts = candidate.proposed_payload.get("linked_concepts")
+    if isinstance(linked_concepts, list):
+        for concept in linked_concepts:
+            if not isinstance(concept, dict):
+                continue
+            concept_type = concept.get("concept_type")
+            name = concept.get("name")
+            suggestion = concept.get("category_suggestion")
+            if (
+                concept_type in {"material", "service"}
+                and isinstance(name, str)
+                and _present(name)
+                and isinstance(suggestion, dict)
+            ):
+                subjects.append((concept_type, name.strip(), suggestion))
+        if candidate.proposed_payload.get("provider_state") == "external":
+            provider_name = candidate.proposed_payload.get("provider_name")
+            provider_suggestion = candidate.proposed_payload.get(
+                "provider_category_suggestion"
+            )
+            if (
+                isinstance(provider_name, str)
+                and _present(provider_name)
+                and isinstance(provider_suggestion, dict)
+            ):
+                subjects.append(("provider", provider_name.strip(), provider_suggestion))
+        return subjects
 
     suggestion = candidate.proposed_payload.get("category_suggestion")
-    if not isinstance(suggestion, dict):
-        return None
+    line_type = candidate.proposed_payload.get("line_type")
+    name = candidate.proposed_payload.get("name")
+    if (
+        line_type in {"material", "service"}
+        and isinstance(name, str)
+        and _present(name)
+        and isinstance(suggestion, dict)
+    ):
+        subjects.append((line_type, name.strip(), suggestion))
+    return subjects
+
+
+def _reviewed_taxonomy_subjects(candidate: ExtractedCandidate) -> set[tuple[str, str]]:
+    if candidate.reviewed_payload is None:
+        return set()
+    payload = ReviewedPurchaseLinePayload.model_validate(candidate.reviewed_payload)
+    subjects = {
+        (concept.concept_type, _normalize(concept.name or ""))
+        for concept in payload.concepts()
+        if _present(concept.name)
+        and _present(concept.top_level_category)
+        and _present(concept.subcategory)
+    }
+    if (
+        payload.provider_state == "external"
+        and _present(payload.provider_name)
+        and _present(payload.provider_top_level_category)
+        and _present(payload.provider_subcategory)
+    ):
+        subjects.add(("provider", _normalize(payload.provider_name or "")))
+    return subjects
+
+
+def _taxonomy_gate_for_suggestion(
+    session: Session,
+    candidate: ExtractedCandidate,
+    suggestion: dict,
+) -> TaxonomyGateRead | None:
 
     top_level_category = suggestion.get("top_level_category")
     subcategory = suggestion.get("subcategory")
@@ -1411,18 +1636,6 @@ def _taxonomy_node_path(session: Session, taxonomy_node_id: int) -> str | None:
     if parent is None:
         return taxonomy_node.name
     return f"{parent.name} / {taxonomy_node.name}"
-
-
-def _refresh_purchase_line_category_paths(session: Session, project_workspace_id: int) -> None:
-    for purchase_line in session.scalars(
-        select(PurchaseLine).where(PurchaseLine.project_workspace_id == project_workspace_id)
-    ):
-        memory_record = session.get(MemoryRecord, purchase_line.memory_record_id)
-        if memory_record is None:
-            continue
-        category_path = _taxonomy_node_path(session, memory_record.taxonomy_node_id)
-        if category_path is not None:
-            purchase_line.category_path = category_path
 
 
 def _candidate_reviewed_category_path(candidate: ExtractedCandidate) -> str | None:

@@ -95,7 +95,9 @@ def test_review_batch_draft_rejects_included_candidate_without_category_path(tmp
         ).json()
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Included candidates require a resolved category path"
+    assert response.json()["detail"] == (
+        "Included candidates require valid linked concepts and resolved category paths"
+    )
     assert batch["candidates"][0]["decision"] is None
     assert batch["review_batch"]["status"] == "review_pending"
 
@@ -136,6 +138,7 @@ def create_manual_submission(client: TestClient):
             "project_type": "Residential renovation",
             "location": "Makati City",
             "completion_year": 2025,
+            "contractor_assigned": "Internal",
         },
     ).json()
     submission = create_review_ready_manual_submission(

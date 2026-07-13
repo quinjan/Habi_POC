@@ -30,6 +30,8 @@ class ExtractedCandidateRead(BaseModel):
     reviewed_payload: dict | None
     source_file: SourceFileSummary | None = None
     taxonomy_gate: "TaxonomyGateRead | None" = None
+    taxonomy_gates: list["CandidateTaxonomyGateRead"] = Field(default_factory=list)
+    existing_memory_matches: list["ExistingMemoryMatchRead"] = Field(default_factory=list)
     taxonomy_default: "TaxonomyDefaultRead | None" = None
 
 
@@ -53,7 +55,20 @@ class SourceFileQueuedSubmission(BaseModel):
     processing_job: ProcessingJobRead
 
 
+class ReviewedConceptPayload(BaseModel):
+    concept_type: Literal["material", "service"]
+    name: str | None = Field(default=None, max_length=255)
+    top_level_category: str | None = Field(default=None, max_length=255)
+    subcategory: str | None = Field(default=None, max_length=255)
+
+
 class ReviewedPurchaseLinePayload(BaseModel):
+    linked_concepts: list[ReviewedConceptPayload] = Field(default_factory=list, max_length=2)
+    provider_state: Literal["external", "internal", "unknown"] | None = None
+    provider_top_level_category: str | None = Field(default=None, max_length=255)
+    provider_subcategory: str | None = Field(default=None, max_length=255)
+
+    # Legacy single-concept fields remain accepted while old review batches are migrated.
     line_type: Literal["material", "service"] | None = None
     name: str | None = Field(default=None, max_length=255)
     top_level_category: str | None = Field(default=None, max_length=255)
@@ -65,6 +80,20 @@ class ReviewedPurchaseLinePayload(BaseModel):
     provider_name: str | None = Field(default=None, max_length=255)
     purchase_date: date | None = None
     remarks_or_terms: str | None = Field(default=None, max_length=2000)
+
+    def concepts(self) -> list[ReviewedConceptPayload]:
+        if self.linked_concepts:
+            return self.linked_concepts
+        if self.line_type is None:
+            return []
+        return [
+            ReviewedConceptPayload(
+                concept_type=self.line_type,
+                name=self.name,
+                top_level_category=self.top_level_category,
+                subcategory=self.subcategory,
+            )
+        ]
 
 
 class CandidateDecisionRequest(BaseModel):
@@ -118,6 +147,17 @@ class TaxonomyGateRead(BaseModel):
     decision: str | None = None
     taxonomy_decision_id: int | None = None
     prior_rejection: dict | None = None
+
+
+class CandidateTaxonomyGateRead(TaxonomyGateRead):
+    subject_type: Literal["material", "service", "provider"]
+    subject_name: str
+
+
+class ExistingMemoryMatchRead(BaseModel):
+    subject_type: Literal["material", "service", "provider"]
+    subject_name: str
+    category_path: str
 
 
 class TaxonomyDefaultRead(BaseModel):

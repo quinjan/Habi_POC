@@ -107,6 +107,145 @@
         }
       }
     },
+    "/api/project-workspaces/{project_workspace_id}/materials": {
+      "get": {
+        "tags": [
+          "project-workspaces"
+        ],
+        "summary": "Get Project Workspace Materials",
+        "operationId": "get_project_workspace_materials_api_project_workspaces__project_workspace_id__materials_get",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityMemoryListView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project-workspaces/{project_workspace_id}/services": {
+      "get": {
+        "tags": [
+          "project-workspaces"
+        ],
+        "summary": "Get Project Workspace Services",
+        "operationId": "get_project_workspace_services_api_project_workspaces__project_workspace_id__services_get",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityMemoryListView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project-workspaces/{project_workspace_id}/providers": {
+      "get": {
+        "tags": [
+          "project-workspaces"
+        ],
+        "summary": "Get Project Workspace Providers",
+        "operationId": "get_project_workspace_providers_api_project_workspaces__project_workspace_id__providers_get",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          },
+          {
+            "name": "roles",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [],
+              "title": "Roles"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderMemoryListView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/project-workspaces/{project_workspace_id}/source-files": {
       "post": {
         "tags": [
@@ -1020,6 +1159,95 @@
         ],
         "title": "CandidateDecisionRequest"
       },
+      "CandidateTaxonomyGateRead": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "suggested_category_path": {
+            "type": "string",
+            "title": "Suggested Category Path"
+          },
+          "resolved_category_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved Category Path"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision"
+          },
+          "taxonomy_decision_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Taxonomy Decision Id"
+          },
+          "prior_rejection": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Rejection"
+          },
+          "subject_type": {
+            "type": "string",
+            "enum": [
+              "material",
+              "service",
+              "provider"
+            ],
+            "title": "Subject Type"
+          },
+          "subject_name": {
+            "type": "string",
+            "title": "Subject Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "suggested_category_path",
+          "subject_type",
+          "subject_name"
+        ],
+        "title": "CandidateTaxonomyGateRead"
+      },
       "DuplicateCandidateGroupCreate": {
         "properties": {
           "member_candidate_ids": {
@@ -1087,6 +1315,87 @@
           "member_candidate_ids"
         ],
         "title": "DuplicateCandidateGroupRead"
+      },
+      "EntityMemoryListView": {
+        "properties": {
+          "project_workspace": {
+            "$ref": "#/components/schemas/ProjectWorkspaceListItem"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EntityMemoryRow"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project_workspace",
+          "items"
+        ],
+        "title": "EntityMemoryListView"
+      },
+      "EntityMemoryRow": {
+        "properties": {
+          "memory_record_id": {
+            "type": "integer",
+            "title": "Memory Record Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "category_path": {
+            "type": "string",
+            "title": "Category Path"
+          },
+          "linked_purchase_line_count": {
+            "type": "integer",
+            "title": "Linked Purchase Line Count"
+          },
+          "source_submission_count": {
+            "type": "integer",
+            "title": "Source Submission Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "memory_record_id",
+          "name",
+          "category_path",
+          "linked_purchase_line_count",
+          "source_submission_count"
+        ],
+        "title": "EntityMemoryRow"
+      },
+      "ExistingMemoryMatchRead": {
+        "properties": {
+          "subject_type": {
+            "type": "string",
+            "enum": [
+              "material",
+              "service",
+              "provider"
+            ],
+            "title": "Subject Type"
+          },
+          "subject_name": {
+            "type": "string",
+            "title": "Subject Name"
+          },
+          "category_path": {
+            "type": "string",
+            "title": "Category Path"
+          }
+        },
+        "type": "object",
+        "required": [
+          "subject_type",
+          "subject_name",
+          "category_path"
+        ],
+        "title": "ExistingMemoryMatchRead"
       },
       "ExtractedCandidateRead": {
         "properties": {
@@ -1168,6 +1477,20 @@
                 "type": "null"
               }
             ]
+          },
+          "taxonomy_gates": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateTaxonomyGateRead"
+            },
+            "type": "array",
+            "title": "Taxonomy Gates"
+          },
+          "existing_memory_matches": {
+            "items": {
+              "$ref": "#/components/schemas/ExistingMemoryMatchRead"
+            },
+            "type": "array",
+            "title": "Existing Memory Matches"
           },
           "taxonomy_default": {
             "anyOf": [
@@ -1616,6 +1939,12 @@
             "type": "array",
             "title": "Trade Scopes"
           },
+          "contractor_assigned": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Contractor Assigned"
+          },
           "client_or_owner": {
             "anyOf": [
               {
@@ -1645,7 +1974,8 @@
         "required": [
           "project_name",
           "project_type",
-          "location"
+          "location",
+          "contractor_assigned"
         ],
         "title": "ProjectWorkspaceCreate"
       },
@@ -1767,6 +2097,12 @@
             "type": "array",
             "title": "Trade Scopes"
           },
+          "contractor_assigned": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Contractor Assigned"
+          },
           "client_or_owner": {
             "anyOf": [
               {
@@ -1801,9 +2137,99 @@
           "project_name",
           "project_type",
           "location",
+          "contractor_assigned",
           "id"
         ],
         "title": "ProjectWorkspaceRead"
+      },
+      "ProviderMemoryListView": {
+        "properties": {
+          "project_workspace": {
+            "$ref": "#/components/schemas/ProjectWorkspaceListItem"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderMemoryRow"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project_workspace",
+          "items"
+        ],
+        "title": "ProviderMemoryListView"
+      },
+      "ProviderMemoryRow": {
+        "properties": {
+          "memory_record_id": {
+            "type": "integer",
+            "title": "Memory Record Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "category_path": {
+            "type": "string",
+            "title": "Category Path"
+          },
+          "linked_purchase_line_count": {
+            "type": "integer",
+            "title": "Linked Purchase Line Count"
+          },
+          "source_submission_count": {
+            "type": "integer",
+            "title": "Source Submission Count"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Roles"
+          }
+        },
+        "type": "object",
+        "required": [
+          "memory_record_id",
+          "name",
+          "category_path",
+          "linked_purchase_line_count",
+          "source_submission_count",
+          "roles"
+        ],
+        "title": "ProviderMemoryRow"
+      },
+      "PurchaseLineConceptRead": {
+        "properties": {
+          "memory_record_id": {
+            "type": "integer",
+            "title": "Memory Record Id"
+          },
+          "concept_type": {
+            "type": "string",
+            "title": "Concept Type"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "category_path": {
+            "type": "string",
+            "title": "Category Path"
+          }
+        },
+        "type": "object",
+        "required": [
+          "memory_record_id",
+          "concept_type",
+          "name",
+          "category_path"
+        ],
+        "title": "PurchaseLineConceptRead"
       },
       "PurchaseLineRow": {
         "properties": {
@@ -1811,13 +2237,20 @@
             "type": "integer",
             "title": "Id"
           },
-          "item_or_service_name": {
-            "type": "string",
-            "title": "Item Or Service Name"
-          },
           "line_type": {
             "type": "string",
             "title": "Line Type"
+          },
+          "linked_concepts": {
+            "items": {
+              "$ref": "#/components/schemas/PurchaseLineConceptRead"
+            },
+            "type": "array",
+            "title": "Linked Concepts"
+          },
+          "provider_state": {
+            "type": "string",
+            "title": "Provider State"
           },
           "provider_name": {
             "anyOf": [
@@ -1830,11 +2263,7 @@
             ],
             "title": "Provider Name"
           },
-          "provider_type": {
-            "type": "string",
-            "title": "Provider Type"
-          },
-          "provider_role": {
+          "provider_category_path": {
             "anyOf": [
               {
                 "type": "string"
@@ -1843,7 +2272,14 @@
                 "type": "null"
               }
             ],
-            "title": "Provider Role"
+            "title": "Provider Category Path"
+          },
+          "provider_roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Provider Roles"
           },
           "quantity": {
             "anyOf": [
@@ -1913,10 +2349,6 @@
             "type": "string",
             "title": "Date State"
           },
-          "category_path": {
-            "type": "string",
-            "title": "Category Path"
-          },
           "has_evidence": {
             "type": "boolean",
             "title": "Has Evidence"
@@ -1929,11 +2361,12 @@
         "type": "object",
         "required": [
           "id",
-          "item_or_service_name",
           "line_type",
+          "linked_concepts",
+          "provider_state",
           "provider_name",
-          "provider_type",
-          "provider_role",
+          "provider_category_path",
+          "provider_roles",
           "quantity",
           "unit",
           "unit_state",
@@ -1942,7 +2375,6 @@
           "price_state",
           "purchase_date",
           "date_state",
-          "category_path",
           "has_evidence",
           "source_label"
         ],
@@ -2094,8 +2526,109 @@
         ],
         "title": "ReviewBatchTaxonomyMappingRequest"
       },
+      "ReviewedConceptPayload": {
+        "properties": {
+          "concept_type": {
+            "type": "string",
+            "enum": [
+              "material",
+              "service"
+            ],
+            "title": "Concept Type"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "top_level_category": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Level Category"
+          },
+          "subcategory": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subcategory"
+          }
+        },
+        "type": "object",
+        "required": [
+          "concept_type"
+        ],
+        "title": "ReviewedConceptPayload"
+      },
       "ReviewedPurchaseLinePayload": {
         "properties": {
+          "linked_concepts": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewedConceptPayload"
+            },
+            "type": "array",
+            "maxItems": 2,
+            "title": "Linked Concepts"
+          },
+          "provider_state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "external",
+                  "internal",
+                  "unknown"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider State"
+          },
+          "provider_top_level_category": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Top Level Category"
+          },
+          "provider_subcategory": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Subcategory"
+          },
           "line_type": {
             "anyOf": [
               {

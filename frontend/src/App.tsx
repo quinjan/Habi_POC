@@ -8,7 +8,10 @@ import {
   createManualSourceEntry,
   decideCandidate,
   getReviewBatch,
+  getProjectWorkspaceMaterials,
   getProjectWorkspacePurchaseLines,
+  getProjectWorkspaceProviders,
+  getProjectWorkspaceServices,
   importReviewBatch,
   listProcessingJobs,
   listTaxonomyLeafPaths,
@@ -16,11 +19,13 @@ import {
   saveReviewBatchDraft,
   saveReviewBatchTaxonomyMapping,
   type ExtractedCandidateRead,
+  type EntityMemoryListView,
   type ManualSourceEntryCreate,
   type ProcessingJobListItem,
   type ProjectWorkspaceCreate,
   type ProjectWorkspaceListItem,
   type ProjectWorkspacePurchaseLinesView,
+  type ProviderMemoryListView,
   type ReviewBatchDetail,
   type ReviewedPurchaseLinePayload
 } from "./api/client";
@@ -33,6 +38,7 @@ type ProjectWorkspaceForm = {
   completionYear: string;
   floorArea: string;
   tradeScopes: string;
+  contractorAssigned: string;
   clientOrOwner: string;
   notes: string;
 };
@@ -45,6 +51,7 @@ const emptyForm: ProjectWorkspaceForm = {
   completionYear: "",
   floorArea: "",
   tradeScopes: "",
+  contractorAssigned: "",
   clientOrOwner: "",
   notes: ""
 };
@@ -84,6 +91,9 @@ type ReviewForm = ManualSourceForm & {
 
 type WorkspaceRoute =
   | { name: "purchase_lines" }
+  | { name: "materials" }
+  | { name: "services" }
+  | { name: "providers" }
   | { name: "upload_review" }
   | { name: "review_batch"; reviewBatchId: number };
 
@@ -102,6 +112,10 @@ function App() {
   const [projects, setProjects] = useState<ProjectWorkspaceListItem[]>([]);
   const [selectedPurchaseLines, setSelectedPurchaseLines] =
     useState<ProjectWorkspacePurchaseLinesView | null>(null);
+  const [entityMemory, setEntityMemory] = useState<
+    EntityMemoryListView | ProviderMemoryListView | null
+  >(null);
+  const [selectedProviderRoles, setSelectedProviderRoles] = useState<string[]>([]);
   const [form, setForm] = useState<ProjectWorkspaceForm>(emptyForm);
   const [manualSourceForm, setManualSourceForm] =
     useState<ManualSourceForm>(emptyManualSourceForm);
@@ -237,6 +251,8 @@ function App() {
     try {
       const response = await getProjectWorkspacePurchaseLines(project.id);
       setSelectedPurchaseLines(response);
+      setEntityMemory(null);
+      setSelectedProviderRoles([]);
       await refreshTaxonomyLeafPaths(project.id);
       setActiveReviewBatch(null);
       setCandidateDrafts({});
@@ -260,10 +276,49 @@ function App() {
     const path =
       route.name === "purchase_lines"
         ? `/projects/${projectId}/purchase-lines`
+        : route.name === "materials" || route.name === "services" || route.name === "providers"
+          ? `/projects/${projectId}/${route.name}`
         : route.name === "upload_review"
           ? `/projects/${projectId}/upload-review`
           : `/projects/${projectId}/review-batches/${route.reviewBatchId}`;
     window.history.pushState({}, "", path);
+  }
+
+  async function handleMemoryTab(route: "materials" | "services" | "providers") {
+    if (selectedPurchaseLines === null) {
+      return;
+    }
+    const projectId = selectedPurchaseLines.project_workspace.id;
+    setErrorMessage(null);
+    try {
+      const response =
+        route === "materials"
+          ? await getProjectWorkspaceMaterials(projectId)
+          : route === "services"
+            ? await getProjectWorkspaceServices(projectId)
+            : await getProjectWorkspaceProviders(projectId, selectedProviderRoles);
+      setEntityMemory(response);
+      navigateWorkspace(projectId, { name: route });
+    } catch {
+      setErrorMessage(`${route[0].toUpperCase()}${route.slice(1)} could not be loaded.`);
+    }
+  }
+
+  async function handleProviderRoleChange(role: string, checked: boolean) {
+    if (selectedPurchaseLines === null) {
+      return;
+    }
+    const roles = checked
+      ? [...selectedProviderRoles, role]
+      : selectedProviderRoles.filter((selectedRole) => selectedRole !== role);
+    setSelectedProviderRoles(roles);
+    try {
+      setEntityMemory(
+        await getProjectWorkspaceProviders(selectedPurchaseLines.project_workspace.id, roles)
+      );
+    } catch {
+      setErrorMessage("Providers could not be loaded.");
+    }
   }
 
   async function refreshTaxonomyLeafPaths(projectWorkspaceId: number) {
@@ -394,6 +449,27 @@ function App() {
         reviewedPayload: included ? reviewedPayloadForCandidate(candidate) : null
       }
     }));
+  }
+
+  function updateCandidateReviewedPayload(
+    candidate: ExtractedCandidateRead,
+    update: (payload: ReviewedPurchaseLinePayload) => ReviewedPurchaseLinePayload
+  ) {
+    setCandidateDrafts((currentDrafts) => {
+      const currentDraft = currentDrafts[candidate.id] ?? {
+        included: true,
+        reviewedPayload: reviewedPayloadForCandidate(candidate)
+      };
+      return {
+        ...currentDrafts,
+        [candidate.id]: {
+          ...currentDraft,
+          reviewedPayload: update(
+            currentDraft.reviewedPayload ?? reviewedPayloadForCandidate(candidate)
+          )
+        }
+      };
+    });
   }
 
   async function handleSaveReviewDraft() {
@@ -812,6 +888,14 @@ function App() {
             />
           </label>
           <label>
+            Contractor Assigned
+            <input
+              required
+              value={form.contractorAssigned}
+              onChange={(event) => updateForm("contractorAssigned", event.target.value)}
+            />
+          </label>
+          <label>
             Client or owner
             <input
               value={form.clientOrOwner}
@@ -843,6 +927,9 @@ function App() {
             <div className="view-heading">
               <p className="eyebrow">{selectedPurchaseLines.project_workspace.project_name}</p>
               {workspaceRoute.name === "purchase_lines" ? <h2>Purchase Lines</h2> : null}
+              {workspaceRoute.name === "materials" ? <h2>Materials</h2> : null}
+              {workspaceRoute.name === "services" ? <h2>Services</h2> : null}
+              {workspaceRoute.name === "providers" ? <h2>Providers</h2> : null}
               {workspaceRoute.name === "upload_review" ? <h2>Upload / Review</h2> : null}
             </div>
             <div className="workspace-tabs" role="tablist" aria-label="Project Workspace sections">
@@ -857,6 +944,30 @@ function App() {
                 type="button"
               >
                 Purchase Lines
+              </button>
+              <button
+                role="tab"
+                aria-selected={workspaceRoute.name === "materials"}
+                onClick={() => void handleMemoryTab("materials")}
+                type="button"
+              >
+                Materials
+              </button>
+              <button
+                role="tab"
+                aria-selected={workspaceRoute.name === "services"}
+                onClick={() => void handleMemoryTab("services")}
+                type="button"
+              >
+                Services
+              </button>
+              <button
+                role="tab"
+                aria-selected={workspaceRoute.name === "providers"}
+                onClick={() => void handleMemoryTab("providers")}
+                type="button"
+              >
+                Providers
               </button>
               <button
                 role="tab"
@@ -1158,12 +1269,17 @@ function App() {
                       };
                       const reviewedPayload =
                         draft.reviewedPayload ?? reviewedPayloadForCandidate(candidate);
-                      const candidateName =
-                        reviewedPayload.name ??
-                        displayText(candidate.proposed_payload.name, "candidate");
-                      const candidateType =
-                        reviewedPayload.line_type ??
-                        displayText(candidate.proposed_payload.line_type, "");
+                      const linkedConcepts = reviewedConcepts(reviewedPayload);
+                      const candidateName = linkedConcepts
+                        .map((concept) => concept.name)
+                        .filter(Boolean)
+                        .join(" + ") || "candidate";
+                      const candidateType = linkedConcepts
+                        .map((concept) => concept.concept_type)
+                        .join(" + ");
+                      const reviewedCategories = linkedConcepts
+                        .map((concept) => categoryPath(concept.top_level_category, concept.subcategory))
+                        .filter((category): category is string => category !== null);
                       return (
                         <tr key={candidate.id}>
                           <td>
@@ -1179,8 +1295,8 @@ function App() {
                           <td>{candidateName}</td>
                           <td>{candidateType}</td>
                           <td>
-                            {reviewedPayload.top_level_category && reviewedPayload.subcategory
-                              ? `${reviewedPayload.top_level_category} / ${reviewedPayload.subcategory}`
+                            {reviewedCategories.length === linkedConcepts.length
+                              ? reviewedCategories.join("; ")
                               : "Needs taxonomy"}
                           </td>
                           <td>{draft.included ? "Included draft" : "Excluded draft"}</td>
@@ -1216,29 +1332,31 @@ function App() {
                     };
                     const reviewedPayload =
                       draft.reviewedPayload ?? reviewedPayloadForCandidate(detailCandidate);
-                    const candidateName =
-                      reviewedPayload.name ??
-                      displayText(detailCandidate.proposed_payload.name, "candidate");
-                    const candidateType =
-                      reviewedPayload.line_type ??
-                      displayText(detailCandidate.proposed_payload.line_type, "");
-                    const providerName =
-                      reviewedPayload.provider_name ??
-                      displayText(
-                        detailCandidate.proposed_payload.provider_name,
-                        "Unknown provider"
-                      );
+                    const linkedConcepts = reviewedConcepts(reviewedPayload);
+                    const candidateName = linkedConcepts
+                      .map((concept) => concept.name)
+                      .filter(Boolean)
+                      .join(" + ") || "candidate";
+                    const candidateType = linkedConcepts
+                      .map((concept) => concept.concept_type)
+                      .join(" + ");
+                    const providerState = reviewedPayload.provider_state ??
+                      (reviewedPayload.provider_name ? "external" : "unknown");
+                    const providerName = reviewedPayload.provider_name ?? "Unknown provider";
                     const suggestion = taxonomySuggestion(detailCandidate);
                     const proposedCategory =
                       suggestion?.topLevelCategory && suggestion.subcategory
                         ? `${suggestion.topLevelCategory} / ${suggestion.subcategory}`
                         : "No complete taxonomy suggestion";
-                    const reviewedCategory =
-                      reviewedPayload.top_level_category && reviewedPayload.subcategory
-                        ? `${reviewedPayload.top_level_category} / ${reviewedPayload.subcategory}`
-                        : "Needs taxonomy";
+                    const reviewedCategory = linkedConcepts
+                      .map((concept) =>
+                        categoryPath(concept.top_level_category, concept.subcategory) ??
+                        "Needs taxonomy"
+                      )
+                      .join("; ");
                     const taxonomyStatus = taxonomyStatusLabel(detailCandidate, reviewedPayload);
                     const spreadsheetEvidence = spreadsheetCandidateEvidence(detailCandidate);
+                    const existingMemoryMatches = detailCandidate.existing_memory_matches ?? [];
                     return (
                       <>
                         <div className="view-heading">
@@ -1296,14 +1414,224 @@ function App() {
                         </dl>
                         <div className="candidate-detail-sections">
                           <section>
-                            <h4>Proposed Fields</h4>
-                            <p>{displayText(detailCandidate.proposed_payload.name, "candidate")}</p>
-                            <p>{proposedCategory}</p>
+                            <h4>Linked Concepts</h4>
+                            {linkedConcepts.map((concept, index) => (
+                              <div key={`${concept.concept_type}-${concept.name}-${index}`}>
+                                <p><strong>{concept.name || "Unnamed concept"}</strong></p>
+                                <p>{formatConceptType(concept.concept_type)}</p>
+                                <p>
+                                  {categoryPath(
+                                    concept.top_level_category,
+                                    concept.subcategory
+                                  ) ?? "Needs taxonomy"}
+                                </p>
+                                {existingMemoryMatches.find(
+                                  (match) => match.subject_type === concept.concept_type
+                                ) ? (
+                                  <p className="status-message">
+                                    Matched existing memory: {existingMemoryMatches.find(
+                                      (match) => match.subject_type === concept.concept_type
+                                    )?.subject_name} - existing category will be preserved.
+                                  </p>
+                                ) : null}
+                                {(
+                                  [
+                                    ["name", `${formatConceptType(concept.concept_type)} name`],
+                                    [
+                                      "top_level_category",
+                                      `${formatConceptType(concept.concept_type)} top-level category`
+                                    ],
+                                    [
+                                      "subcategory",
+                                      `${formatConceptType(concept.concept_type)} subcategory`
+                                    ]
+                                  ] as const
+                                ).map(([field, label]) => (
+                                  <label key={field}>
+                                    {label}
+                                    <input
+                                      onChange={(event) =>
+                                        updateCandidateReviewedPayload(
+                                          detailCandidate,
+                                          (payload) => ({
+                                            ...payload,
+                                            linked_concepts: reviewedConcepts(payload).map((item) =>
+                                              item.concept_type === concept.concept_type
+                                                ? { ...item, [field]: event.target.value || null }
+                                                : item
+                                            )
+                                          })
+                                        )
+                                      }
+                                      value={concept[field] ?? ""}
+                                    />
+                                  </label>
+                                ))}
+                              </div>
+                            ))}
+                            <div className="review-actions">
+                              {(["material", "service"] as const).map((conceptType) => {
+                                const isLinked = linkedConcepts.some(
+                                  (concept) => concept.concept_type === conceptType
+                                );
+                                return (
+                                  <label key={conceptType}>
+                                    <input
+                                      checked={isLinked}
+                                      onChange={(event) =>
+                                        updateCandidateReviewedPayload(
+                                          detailCandidate,
+                                          (payload) => ({
+                                            ...payload,
+                                            line_type: null,
+                                            name: null,
+                                            top_level_category: null,
+                                            subcategory: null,
+                                            linked_concepts: event.target.checked
+                                              ? [
+                                                  ...reviewedConcepts(payload),
+                                                  {
+                                                    concept_type: conceptType,
+                                                    name: "",
+                                                    top_level_category: null,
+                                                    subcategory: null
+                                                  }
+                                                ]
+                                              : reviewedConcepts(payload).filter(
+                                                  (concept) => concept.concept_type !== conceptType
+                                                )
+                                          })
+                                        )
+                                      }
+                                      type="checkbox"
+                                    />
+                                    Link {formatConceptType(conceptType)}
+                                  </label>
+                                );
+                              })}
+                            </div>
                           </section>
                           <section>
-                            <h4>Reviewed Fields</h4>
-                            <p>{candidateName}</p>
-                            <p>{reviewedCategory}</p>
+                            <h4>Provider</h4>
+                            <p>{formatProviderState(providerState)}</p>
+                            <label>
+                              Provider State
+                              <select
+                                onChange={(event) => {
+                                  const nextState = event.target.value as
+                                    | "external"
+                                    | "internal"
+                                    | "unknown";
+                                  updateCandidateReviewedPayload(detailCandidate, (payload) => ({
+                                    ...payload,
+                                    provider_state: nextState,
+                                    provider_name:
+                                      nextState === "external" ? payload.provider_name : null,
+                                    provider_top_level_category:
+                                      nextState === "external"
+                                        ? payload.provider_top_level_category ?? "Providers"
+                                        : null,
+                                    provider_subcategory:
+                                      nextState === "external"
+                                        ? payload.provider_subcategory ?? "General"
+                                        : null
+                                  }));
+                                }}
+                                value={providerState}
+                              >
+                                <option value="external">External</option>
+                                <option value="internal">Internal</option>
+                                <option value="unknown">Unknown</option>
+                              </select>
+                            </label>
+                            {providerState === "external" ? (
+                              <>
+                                <p>{providerName}</p>
+                                <p>
+                                  {categoryPath(
+                                    reviewedPayload.provider_top_level_category,
+                                    reviewedPayload.provider_subcategory
+                                  ) ?? "Providers / General"}
+                                </p>
+                                {existingMemoryMatches.find(
+                                  (match) => match.subject_type === "provider"
+                                ) ? (
+                                  <p className="status-message">
+                                    Matched existing memory: {existingMemoryMatches.find(
+                                      (match) => match.subject_type === "provider"
+                                    )?.subject_name} - existing category will be preserved.
+                                  </p>
+                                ) : null}
+                                {(
+                                  [
+                                    ["provider_name", "Provider name"],
+                                    [
+                                      "provider_top_level_category",
+                                      "Provider top-level category"
+                                    ],
+                                    ["provider_subcategory", "Provider subcategory"]
+                                  ] as const
+                                ).map(([field, label]) => (
+                                  <label key={field}>
+                                    {label}
+                                    <input
+                                      onChange={(event) =>
+                                        updateCandidateReviewedPayload(
+                                          detailCandidate,
+                                          (payload) => ({
+                                            ...payload,
+                                            [field]: event.target.value || null
+                                          })
+                                        )
+                                      }
+                                      value={reviewedPayload[field] ?? ""}
+                                    />
+                                  </label>
+                                ))}
+                              </>
+                            ) : null}
+                            {providerState === "unknown" ? <p>Provider is a data gap.</p> : null}
+                          </section>
+                          <section>
+                            <h4>Purchase Details</h4>
+                            <p>
+                              {[reviewedPayload.quantity, reviewedPayload.unit]
+                                .filter(Boolean)
+                                .join(" ") || "Quantity not provided"}
+                            </p>
+                            <p>
+                              {[reviewedPayload.currency, reviewedPayload.price]
+                                .filter(Boolean)
+                                .join(" ") || "Price not provided"}
+                            </p>
+                            <p>{reviewedPayload.purchase_date ?? "Date not provided"}</p>
+                            {reviewedPayload.remarks_or_terms ? (
+                              <p>{reviewedPayload.remarks_or_terms}</p>
+                            ) : null}
+                            {(
+                              [
+                                ["quantity", "Quantity"],
+                                ["unit", "Unit"],
+                                ["price", "Price"],
+                                ["currency", "Currency"],
+                                ["purchase_date", "Purchase date"],
+                                ["remarks_or_terms", "Remarks or terms"]
+                              ] as const
+                            ).map(([field, label]) => (
+                              <label key={field}>
+                                {label}
+                                <input
+                                  onChange={(event) =>
+                                    updateCandidateReviewedPayload(detailCandidate, (payload) => ({
+                                      ...payload,
+                                      [field]: event.target.value || null
+                                    }))
+                                  }
+                                  type={field === "purchase_date" ? "date" : "text"}
+                                  value={reviewedPayload[field] ?? ""}
+                                />
+                              </label>
+                            ))}
                           </section>
                         </div>
                         <div className="review-actions">
@@ -1450,6 +1778,69 @@ function App() {
               </div>
             ) : null}
 
+            {workspaceRoute.name === "providers" ? (
+              <fieldset className="provider-role-filters">
+                <legend>Provider roles</legend>
+                {[
+                  ["material_supplier", "Material supplier"],
+                  ["service_provider", "Service provider"],
+                  ["supply_and_install_provider", "Supply & install"]
+                ].map(([role, label]) => (
+                  <label key={role}>
+                    <input
+                      checked={selectedProviderRoles.includes(role)}
+                      onChange={(event) =>
+                        void handleProviderRoleChange(role, event.target.checked)
+                      }
+                      type="checkbox"
+                    />
+                    {label}
+                  </label>
+                ))}
+              </fieldset>
+            ) : null}
+
+            {workspaceRoute.name === "materials" ||
+            workspaceRoute.name === "services" ||
+            workspaceRoute.name === "providers" ? (
+              entityMemory === null || entityMemory.items.length === 0 ? (
+                <div className="empty-state">
+                  <h3>No active {workspaceRoute.name} yet</h3>
+                </div>
+              ) : (
+                <div className="purchase-lines-table-wrap">
+                  <table className="purchase-lines-table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Category</th>
+                        {workspaceRoute.name === "providers" ? <th>Roles</th> : null}
+                        <th>Purchase Lines</th>
+                        <th>Sources</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {entityMemory.items.map((item) => (
+                        <tr key={item.memory_record_id}>
+                          <td>{item.name}</td>
+                          <td>{item.category_path}</td>
+                          {workspaceRoute.name === "providers" ? (
+                            <td>
+                              {"roles" in item
+                                ? item.roles.map(formatProviderRole).join(", ")
+                                : ""}
+                            </td>
+                          ) : null}
+                          <td>{item.linked_purchase_line_count}</td>
+                          <td>{item.source_submission_count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            ) : null}
+
             {workspaceRoute.name === "purchase_lines" ? (
               selectedPurchaseLines.items.length === 0 ? (
                 <div className="empty-state">
@@ -1473,7 +1864,11 @@ function App() {
                     <tbody>
                       {selectedPurchaseLines.items.map((purchaseLine) => (
                         <tr key={purchaseLine.id}>
-                          <td>{purchaseLine.item_or_service_name}</td>
+                          <td>
+                            {purchaseLine.linked_concepts.map((concept) => (
+                              <div key={concept.memory_record_id}>{concept.name}</div>
+                            ))}
+                          </td>
                           <td>{purchaseLine.line_type}</td>
                           <td>{purchaseLine.provider_name ?? "Unknown provider"}</td>
                           <td>
@@ -1486,7 +1881,11 @@ function App() {
                               : "Unknown price"}
                           </td>
                           <td>{purchaseLine.purchase_date ?? "Unknown date"}</td>
-                          <td>{purchaseLine.category_path}</td>
+                          <td>
+                            {purchaseLine.linked_concepts.map((concept) => (
+                              <div key={concept.memory_record_id}>{concept.category_path}</div>
+                            ))}
+                          </td>
                           <td>
                             {purchaseLine.has_evidence ? purchaseLine.source_label : "No evidence"}
                           </td>
@@ -1520,6 +1919,7 @@ function buildCreatePayload(form: ProjectWorkspaceForm): ProjectWorkspaceCreate 
       .split(",")
       .map((scope) => scope.trim())
       .filter(Boolean),
+    contractor_assigned: form.contractorAssigned.trim(),
     client_or_owner: optionalText(form.clientOrOwner),
     notes: optionalText(form.notes)
   };
@@ -1600,6 +2000,15 @@ function formatSourceType(sourceType: string): string {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function formatProviderRole(role: string): string {
+  const labels: Record<string, string> = {
+    material_supplier: "Material supplier",
+    service_provider: "Service provider",
+    supply_and_install_provider: "Supply & install"
+  };
+  return labels[role] ?? role;
 }
 
 function formatFileSize(bytes: number): string {
@@ -1704,23 +2113,132 @@ function reviewedPayloadForCandidate(candidate: ExtractedCandidateRead): Reviewe
   }
   const proposedPayload = candidate.proposed_payload;
   const suggestion = taxonomySuggestion(candidate);
+  const proposedLinkedConcepts = Array.isArray(proposedPayload.linked_concepts)
+    ? proposedPayload.linked_concepts
+        .map((concept) => proposedConcept(concept))
+        .filter((concept): concept is NonNullable<typeof concept> => concept !== null)
+    : [];
+  const providerState =
+    proposedPayload.provider_state === "external" ||
+    proposedPayload.provider_state === "internal" ||
+    proposedPayload.provider_state === "unknown"
+      ? proposedPayload.provider_state
+      : proposedPayload.provider_name
+        ? "external"
+        : "unknown";
+  const providerCategory = proposedPayload.provider_category_suggestion;
+  const providerTopLevelCategory = objectString(providerCategory, "top_level_category");
+  const providerSubcategory = objectString(providerCategory, "subcategory");
   return {
+    linked_concepts:
+      proposedLinkedConcepts.length > 0
+        ? proposedLinkedConcepts
+        : [
+            {
+              concept_type:
+                proposedPayload.line_type === "service" ? "service" : "material",
+              name: String(proposedPayload.name ?? ""),
+              top_level_category: suggestion?.topLevelCategory ?? null,
+              subcategory: suggestion?.subcategory ?? null
+            }
+          ],
+    provider_state: providerState,
+    provider_top_level_category:
+      providerState === "external" ? providerTopLevelCategory ?? "Providers" : null,
+    provider_subcategory:
+      providerState === "external" ? providerSubcategory ?? "General" : null,
     line_type:
       proposedPayload.line_type === "service" || proposedPayload.line_type === "material"
         ? proposedPayload.line_type
-        : "material",
-    name: String(proposedPayload.name ?? ""),
+        : null,
+    name: proposedLinkedConcepts.length > 0 ? null : String(proposedPayload.name ?? ""),
     top_level_category: suggestion?.topLevelCategory ?? null,
     subcategory: suggestion?.subcategory ?? null,
     quantity: optionalText(String(proposedPayload.quantity ?? "")),
     unit: optionalText(String(proposedPayload.unit ?? "")),
     price: optionalText(String(proposedPayload.price ?? "")),
     currency: optionalText(String(proposedPayload.currency ?? "")),
-    provider_name: optionalText(String(proposedPayload.provider_name ?? "")),
+    provider_name:
+      providerState === "external"
+        ? optionalText(String(proposedPayload.provider_name ?? ""))
+        : null,
     purchase_date:
       typeof proposedPayload.purchase_date === "string" ? proposedPayload.purchase_date : null,
     remarks_or_terms: optionalText(String(proposedPayload.remarks_or_terms ?? ""))
   };
+}
+
+type ReviewedConcept = {
+  concept_type: "material" | "service";
+  name: string;
+  top_level_category: string | null;
+  subcategory: string | null;
+};
+
+function reviewedConcepts(payload: ReviewedPurchaseLinePayload): ReviewedConcept[] {
+  if (payload.linked_concepts && payload.linked_concepts.length > 0) {
+    return payload.linked_concepts.map((concept) => ({
+      concept_type: concept.concept_type,
+      name: concept.name ?? "",
+      top_level_category: concept.top_level_category ?? null,
+      subcategory: concept.subcategory ?? null
+    }));
+  }
+
+  return [
+    {
+      concept_type: payload.line_type === "service" ? "service" : "material",
+      name: payload.name ?? "",
+      top_level_category: payload.top_level_category ?? null,
+      subcategory: payload.subcategory ?? null
+    }
+  ];
+}
+
+function proposedConcept(value: unknown): ReviewedConcept | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const conceptType = objectString(value, "concept_type");
+  if (conceptType !== "material" && conceptType !== "service") {
+    return null;
+  }
+  const categorySuggestion = (value as Record<string, unknown>).category_suggestion;
+  return {
+    concept_type: conceptType,
+    name: objectString(value, "name") ?? "",
+    top_level_category: objectString(categorySuggestion, "top_level_category"),
+    subcategory: objectString(categorySuggestion, "subcategory")
+  };
+}
+
+function objectString(value: unknown, key: string): string | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === "string" && field.trim() !== "" ? field : null;
+}
+
+function categoryPath(
+  topLevelCategory: string | null | undefined,
+  subcategory: string | null | undefined
+): string | null {
+  return topLevelCategory && subcategory ? `${topLevelCategory} / ${subcategory}` : null;
+}
+
+function formatConceptType(conceptType: "material" | "service"): string {
+  return conceptType === "material" ? "Material" : "Service";
+}
+
+function formatProviderState(providerState: "external" | "internal" | "unknown"): string {
+  if (providerState === "external") {
+    return "External";
+  }
+  if (providerState === "internal") {
+    return "Internal";
+  }
+  return "Unknown";
 }
 
 function initialDraftsForCandidates(

@@ -6,6 +6,8 @@ export type ProjectWorkspaceListItem = components["schemas"]["ProjectWorkspaceLi
 export type ProjectWorkspacePurchaseLinesView =
   components["schemas"]["ProjectWorkspacePurchaseLinesView"];
 export type ProjectWorkspaceRead = components["schemas"]["ProjectWorkspaceRead"];
+export type EntityMemoryListView = components["schemas"]["EntityMemoryListView"];
+export type ProviderMemoryListView = components["schemas"]["ProviderMemoryListView"];
 export type CandidateDecisionRequest = components["schemas"]["CandidateDecisionRequest"];
 export type ExtractedCandidateRead = components["schemas"]["ExtractedCandidateRead"];
 export type ImportReviewBatchResponse = components["schemas"]["ImportReviewBatchResponse"];
@@ -44,6 +46,34 @@ export async function getProjectWorkspacePurchaseLines(
 ): Promise<ProjectWorkspacePurchaseLinesView> {
   return request<ProjectWorkspacePurchaseLinesView>(
     `/api/project-workspaces/${projectWorkspaceId}/purchase-lines`
+  );
+}
+
+export async function getProjectWorkspaceMaterials(
+  projectWorkspaceId: number
+): Promise<EntityMemoryListView> {
+  return request<EntityMemoryListView>(
+    `/api/project-workspaces/${projectWorkspaceId}/materials`
+  );
+}
+
+export async function getProjectWorkspaceServices(
+  projectWorkspaceId: number
+): Promise<EntityMemoryListView> {
+  return request<EntityMemoryListView>(
+    `/api/project-workspaces/${projectWorkspaceId}/services`
+  );
+}
+
+export async function getProjectWorkspaceProviders(
+  projectWorkspaceId: number,
+  roles: string[] = []
+): Promise<ProviderMemoryListView> {
+  const query = new URLSearchParams();
+  roles.forEach((role) => query.append("roles", role));
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return request<ProviderMemoryListView>(
+    `/api/project-workspaces/${projectWorkspaceId}/providers${suffix}`
   );
 }
 

@@ -114,7 +114,7 @@ def test_import_rejects_approved_candidate_without_resolved_category_path(tmp_pa
         )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Approved candidates require a resolved category path"
+    assert response.json()["detail"] == "Each linked concept requires a resolved category path"
 
 
 def test_import_rejects_batch_from_another_project_workspace(tmp_path):
@@ -127,6 +127,7 @@ def test_import_rejects_batch_from_another_project_workspace(tmp_path):
                 "project_type": "Commercial fit-out",
                 "location": "Pasig City",
                 "completion_year": 2024,
+                "contractor_assigned": "Internal",
             },
         ).json()
 
@@ -226,6 +227,7 @@ def create_manual_submission(client: TestClient):
             "project_type": "Residential renovation",
             "location": "Makati City",
             "completion_year": 2025,
+            "contractor_assigned": "Internal",
         },
     ).json()
     submission = create_review_ready_manual_submission(

@@ -1,4 +1,5 @@
 import json
+import inspect
 from pathlib import Path
 
 from openpyxl import load_workbook
@@ -6,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.processing.models import ProcessingJob
+from backend.app.processing.memory_context import build_project_memory_context
 from backend.app.review.models import ExtractedCandidate, ReviewBatch
 from backend.app.sources.models import SourceFile
 from backend.app.xlsx.artifacts import WorkbookLimitExceeded, create_worksheet_artifacts
@@ -80,11 +82,22 @@ def process_xlsx_source_file(
     extraction_chunk_count = 0
     usable_region_count = 0
     unusable_region_count = 0
+    artifact_contents = [
+        json.loads((config.storage_root / artifact.artifact_path).read_text(encoding="utf-8"))
+        for artifact in artifacts
+    ]
+    source_text = " ".join(
+        str(cell.get("displayed_text") or cell.get("raw_value") or "")
+        for artifact_content in artifact_contents
+        for cell in artifact_content["cells"]
+    )
+    memory_context, omitted_counts = build_project_memory_context(
+        session=session,
+        project_workspace_id=job.project_workspace_id,
+        source_text=source_text,
+    )
     try:
-        for artifact in artifacts:
-            artifact_content = json.loads(
-                (config.storage_root / artifact.artifact_path).read_text(encoding="utf-8")
-            )
+        for artifact, artifact_content in zip(artifacts, artifact_contents, strict=True):
             profile_request_count += 1
             raw_profile = ai_provider.profile_worksheet(
                 worksheet=artifact_content,
@@ -130,13 +143,17 @@ def process_xlsx_source_file(
                         "source_file_id": source_file.id,
                         "worksheet": artifact_content["worksheet"]["name"],
                     }
-                    raw_result = ai_provider.extract_worksheet_chunk(
-                        profile=profile,
-                        region=provider_region,
-                        rows=chunk,
-                        context_rows=context_rows,
-                        source_submission_id=job.source_submission_id,
-                    )
+                    extract = ai_provider.extract_worksheet_chunk
+                    kwargs = {
+                        "profile": profile,
+                        "region": provider_region,
+                        "rows": chunk,
+                        "context_rows": context_rows,
+                        "source_submission_id": job.source_submission_id,
+                    }
+                    if "memory_context" in inspect.signature(extract).parameters:
+                        kwargs["memory_context"] = memory_context
+                    raw_result = extract(**kwargs)
                     if not isinstance(raw_result, dict) or not isinstance(
                         raw_result.get("candidates", []), list
                     ):
@@ -174,6 +191,8 @@ def process_xlsx_source_file(
         valid_candidate_count=len(valid_payloads),
         dropped_candidate_count=dropped_candidate_count,
     )
+    if any(omitted_counts.values()):
+        diagnostics["memory_context_omitted_counts"] = omitted_counts
     if not valid_payloads:
         return None, [], diagnostics, "no_candidates_found", None
 

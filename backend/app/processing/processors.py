@@ -1,3 +1,5 @@
+import inspect
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -6,6 +8,7 @@ from backend.app.processing.ai_extraction import (
     validate_ai_candidates,
 )
 from backend.app.processing.models import ProcessingJob
+from backend.app.processing.memory_context import build_project_memory_context
 from backend.app.review.models import ExtractedCandidate, ReviewBatch
 from backend.app.sources.models import ManualSourceEntry
 from backend.app.sources.schemas import StructuredManualSourcePayload
@@ -75,11 +78,20 @@ def process_ai_manual_free_form(
             "Free-form AI job requires preserved original text",
         )
 
+    memory_context, omitted_counts = build_project_memory_context(
+        session=session,
+        project_workspace_id=job.project_workspace_id,
+        source_text=manual_entry.original_text,
+    )
     try:
-        raw_result = ai_provider.extract_purchase_lines(
-            original_text=manual_entry.original_text,
-            source_submission_id=job.source_submission_id,
-        )
+        extract = ai_provider.extract_purchase_lines
+        kwargs = {
+            "original_text": manual_entry.original_text,
+            "source_submission_id": job.source_submission_id,
+        }
+        if "memory_context" in inspect.signature(extract).parameters:
+            kwargs["memory_context"] = memory_context
+        raw_result = extract(**kwargs)
     except Exception as error:
         return (
             None,
@@ -135,6 +147,8 @@ def process_ai_manual_free_form(
         "valid_candidate_count": len(valid_payloads),
         "dropped_candidate_count": dropped_count,
     }
+    if any(omitted_counts.values()):
+        diagnostics["memory_context_omitted_counts"] = omitted_counts
 
     if not raw_candidates:
         return None, [], diagnostics, "no_candidates_found", None

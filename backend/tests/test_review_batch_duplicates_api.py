@@ -289,6 +289,7 @@ def create_project(client: TestClient):
             "project_type": "Residential renovation",
             "location": "Makati City",
             "completion_year": 2025,
+            "contractor_assigned": "Internal",
         },
     ).json()
 

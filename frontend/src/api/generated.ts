@@ -39,6 +39,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/project-workspaces/{project_workspace_id}/materials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Workspace Materials */
+        get: operations["get_project_workspace_materials_api_project_workspaces__project_workspace_id__materials_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/project-workspaces/{project_workspace_id}/services": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Workspace Services */
+        get: operations["get_project_workspace_services_api_project_workspaces__project_workspace_id__services_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/project-workspaces/{project_workspace_id}/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Workspace Providers */
+        get: operations["get_project_workspace_providers_api_project_workspaces__project_workspace_id__providers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/project-workspaces/{project_workspace_id}/source-files": {
         parameters: {
             query?: never;
@@ -311,6 +362,32 @@ export interface components {
             /** Merged Into Candidate Id */
             merged_into_candidate_id?: number | null;
         };
+        /** CandidateTaxonomyGateRead */
+        CandidateTaxonomyGateRead: {
+            /** Status */
+            status: string;
+            /** Reason */
+            reason?: string | null;
+            /** Suggested Category Path */
+            suggested_category_path: string;
+            /** Resolved Category Path */
+            resolved_category_path?: string | null;
+            /** Decision */
+            decision?: string | null;
+            /** Taxonomy Decision Id */
+            taxonomy_decision_id?: number | null;
+            /** Prior Rejection */
+            prior_rejection?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Subject Type
+             * @enum {string}
+             */
+            subject_type: "material" | "service" | "provider";
+            /** Subject Name */
+            subject_name: string;
+        };
         /** DuplicateCandidateGroupCreate */
         DuplicateCandidateGroupCreate: {
             /** Member Candidate Ids */
@@ -333,6 +410,37 @@ export interface components {
             review_batch_id: number;
             /** Member Candidate Ids */
             member_candidate_ids: number[];
+        };
+        /** EntityMemoryListView */
+        EntityMemoryListView: {
+            project_workspace: components["schemas"]["ProjectWorkspaceListItem"];
+            /** Items */
+            items: components["schemas"]["EntityMemoryRow"][];
+        };
+        /** EntityMemoryRow */
+        EntityMemoryRow: {
+            /** Memory Record Id */
+            memory_record_id: number;
+            /** Name */
+            name: string;
+            /** Category Path */
+            category_path: string;
+            /** Linked Purchase Line Count */
+            linked_purchase_line_count: number;
+            /** Source Submission Count */
+            source_submission_count: number;
+        };
+        /** ExistingMemoryMatchRead */
+        ExistingMemoryMatchRead: {
+            /**
+             * Subject Type
+             * @enum {string}
+             */
+            subject_type: "material" | "service" | "provider";
+            /** Subject Name */
+            subject_name: string;
+            /** Category Path */
+            category_path: string;
         };
         /** ExtractedCandidateRead */
         ExtractedCandidateRead: {
@@ -360,6 +468,10 @@ export interface components {
             } | null;
             source_file?: components["schemas"]["SourceFileSummary"] | null;
             taxonomy_gate?: components["schemas"]["TaxonomyGateRead"] | null;
+            /** Taxonomy Gates */
+            taxonomy_gates?: components["schemas"]["CandidateTaxonomyGateRead"][];
+            /** Existing Memory Matches */
+            existing_memory_matches?: components["schemas"]["ExistingMemoryMatchRead"][];
             taxonomy_default?: components["schemas"]["TaxonomyDefaultRead"] | null;
         };
         /** HTTPValidationError */
@@ -482,6 +594,8 @@ export interface components {
             floor_area?: string | null;
             /** Trade Scopes */
             trade_scopes?: string[];
+            /** Contractor Assigned */
+            contractor_assigned: string;
             /** Client Or Owner */
             client_or_owner?: string | null;
             /** Notes */
@@ -521,6 +635,8 @@ export interface components {
             floor_area?: string | null;
             /** Trade Scopes */
             trade_scopes?: string[];
+            /** Contractor Assigned */
+            contractor_assigned: string;
             /** Client Or Owner */
             client_or_owner?: string | null;
             /** Notes */
@@ -528,20 +644,54 @@ export interface components {
             /** Id */
             id: number;
         };
+        /** ProviderMemoryListView */
+        ProviderMemoryListView: {
+            project_workspace: components["schemas"]["ProjectWorkspaceListItem"];
+            /** Items */
+            items: components["schemas"]["ProviderMemoryRow"][];
+        };
+        /** ProviderMemoryRow */
+        ProviderMemoryRow: {
+            /** Memory Record Id */
+            memory_record_id: number;
+            /** Name */
+            name: string;
+            /** Category Path */
+            category_path: string;
+            /** Linked Purchase Line Count */
+            linked_purchase_line_count: number;
+            /** Source Submission Count */
+            source_submission_count: number;
+            /** Roles */
+            roles: string[];
+        };
+        /** PurchaseLineConceptRead */
+        PurchaseLineConceptRead: {
+            /** Memory Record Id */
+            memory_record_id: number;
+            /** Concept Type */
+            concept_type: string;
+            /** Name */
+            name: string;
+            /** Category Path */
+            category_path: string;
+        };
         /** PurchaseLineRow */
         PurchaseLineRow: {
             /** Id */
             id: number;
-            /** Item Or Service Name */
-            item_or_service_name: string;
             /** Line Type */
             line_type: string;
+            /** Linked Concepts */
+            linked_concepts: components["schemas"]["PurchaseLineConceptRead"][];
+            /** Provider State */
+            provider_state: string;
             /** Provider Name */
             provider_name: string | null;
-            /** Provider Type */
-            provider_type: string;
-            /** Provider Role */
-            provider_role: string | null;
+            /** Provider Category Path */
+            provider_category_path: string | null;
+            /** Provider Roles */
+            provider_roles: string[];
             /** Quantity */
             quantity: string | null;
             /** Unit */
@@ -558,8 +708,6 @@ export interface components {
             purchase_date: string | null;
             /** Date State */
             date_state: string;
-            /** Category Path */
-            category_path: string;
             /** Has Evidence */
             has_evidence: boolean;
             /** Source Label */
@@ -615,8 +763,30 @@ export interface components {
              */
             apply_to_similar: boolean;
         };
+        /** ReviewedConceptPayload */
+        ReviewedConceptPayload: {
+            /**
+             * Concept Type
+             * @enum {string}
+             */
+            concept_type: "material" | "service";
+            /** Name */
+            name?: string | null;
+            /** Top Level Category */
+            top_level_category?: string | null;
+            /** Subcategory */
+            subcategory?: string | null;
+        };
         /** ReviewedPurchaseLinePayload */
         ReviewedPurchaseLinePayload: {
+            /** Linked Concepts */
+            linked_concepts?: components["schemas"]["ReviewedConceptPayload"][];
+            /** Provider State */
+            provider_state?: ("external" | "internal" | "unknown") | null;
+            /** Provider Top Level Category */
+            provider_top_level_category?: string | null;
+            /** Provider Subcategory */
+            provider_subcategory?: string | null;
             /** Line Type */
             line_type?: ("material" | "service") | null;
             /** Name */
@@ -915,6 +1085,101 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectWorkspacePurchaseLinesView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_workspace_materials_api_project_workspaces__project_workspace_id__materials_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityMemoryListView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_workspace_services_api_project_workspaces__project_workspace_id__services_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityMemoryListView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_workspace_providers_api_project_workspaces__project_workspace_id__providers_get: {
+        parameters: {
+            query?: {
+                roles?: string[];
+            };
+            header?: never;
+            path: {
+                project_workspace_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderMemoryListView"];
                 };
             };
             /** @description Validation Error */

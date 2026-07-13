@@ -98,6 +98,7 @@ def test_review_taxonomy_mapping_accepts_custom_path_without_ai_suggestion(tmp_p
                 "project_type": "Residential renovation",
                 "location": "Makati City",
                 "completion_year": 2025,
+                "contractor_assigned": "Internal",
             },
         ).json()
         submission = create_review_ready_manual_submission(
@@ -176,6 +177,7 @@ def create_manual_submission(client: TestClient):
             "project_type": "Residential renovation",
             "location": "Makati City",
             "completion_year": 2025,
+            "contractor_assigned": "Internal",
         },
     ).json()
     submission = create_review_ready_manual_submission(
