@@ -181,6 +181,57 @@ def test_ai_extraction_receives_only_selected_project_active_classification_memo
     assert "evidence" not in serialized_context.casefold()
 
 
+def test_ai_provider_matching_contractor_assigned_defaults_to_internal_before_review(client):
+    from backend.app.processing.worker import run_once
+
+    project = create_project(
+        client,
+        contractor_assigned="  Quinlan   Construction  ",
+    )
+    submission = create_free_form_submission(
+        client,
+        project["id"],
+        "Quinlan Construction installed the PVC pipe.",
+    )
+    source_submission_id = submission["source_submission"]["id"]
+    provider = FakeAiProvider(
+        [
+            {
+                "linked_concepts": [
+                    {
+                        "concept_type": "service",
+                        "name": "PVC pipe installation",
+                        "category_suggestion": {
+                            "top_level_category": "Services",
+                            "subcategory": "Pipe installation",
+                        },
+                    }
+                ],
+                "provider_state": "external",
+                "provider_name": "quinlan construction",
+                "provider_category_suggestion": {
+                    "top_level_category": "Providers",
+                    "subcategory": "General",
+                },
+                "confidence": 0.9,
+                "evidence": {
+                    "source_submission_id": source_submission_id,
+                    "locator": "manual_source_entry.original_text",
+                },
+            }
+        ]
+    )
+
+    assert run_once(client.app.state.session_factory, ai_provider=provider) == 1
+
+    job = get_job(client, project["id"], submission["processing_job"]["id"])
+    candidate = client.get(
+        f"/api/project-workspaces/{project['id']}/review-batches/{job['review_batch_id']}"
+    ).json()["candidates"][0]
+
+    assert candidate["proposed_payload"]["provider_state"] == "internal"
+
+
 def test_ai_memory_context_cap_prefers_source_token_overlap_and_reports_omissions(client):
     from backend.app.processing.worker import run_once
 

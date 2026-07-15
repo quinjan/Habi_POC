@@ -147,3 +147,27 @@ def validate_ai_candidates(
             continue
         valid.append(candidate.model_dump(mode="json"))
     return valid, dropped
+
+
+def apply_contractor_assigned_provider_default(
+    payload: dict,
+    *,
+    contractor_assigned: str,
+) -> dict:
+    provider_name = payload.get("provider_name")
+    normalized_contractor = _normalize(contractor_assigned)
+    if (
+        normalized_contractor != "internal"
+        and isinstance(provider_name, str)
+        and _normalize(provider_name) == normalized_contractor
+    ):
+        return {
+            **payload,
+            "provider_state": "internal",
+            "provider_category_suggestion": None,
+        }
+    return payload
+
+
+def _normalize(value: str) -> str:
+    return " ".join(value.casefold().split())

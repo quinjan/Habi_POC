@@ -297,7 +297,19 @@ describe("Project Workspace app shell", () => {
                 reviewed_payload: null,
                 source_file: null,
                 taxonomy_gate: null,
-                taxonomy_gates: [],
+                taxonomy_gates: [
+                  {
+                    subject_type: "service",
+                    subject_name: "PVC pipe installation",
+                    status: "new_taxonomy_path",
+                    reason: "new_taxonomy_path",
+                    suggested_category_path: "Trade services / Pipe installation",
+                    resolved_category_path: null,
+                    decision: null,
+                    taxonomy_decision_id: null,
+                    prior_rejection: null
+                  }
+                ],
                 existing_memory_matches: [
                   {
                     subject_type: "material",
@@ -873,6 +885,19 @@ describe("Project Workspace app shell", () => {
     expect(within(detail).getByRole("heading", { name: "Purchase Details" })).toBeInTheDocument();
     expect(within(detail).getByText("PHP 1500")).toBeInTheDocument();
     expect(within(detail).getAllByText(/Matched existing memory/)).toHaveLength(2);
+    const approveServiceTaxonomy = within(detail).getByRole("button", {
+      name: "Approve service taxonomy: Trade services / Pipe installation"
+    });
+    await user.click(approveServiceTaxonomy);
+    const taxonomyDecisionCall = vi.mocked(fetch).mock.calls.find(([input]) =>
+      input.toString().includes("/review-batches/12/taxonomy-decisions")
+    );
+    expect(JSON.parse(String(taxonomyDecisionCall?.[1]?.body))).toEqual({
+      decision: "approved",
+      suggested_top_level_category: "Trade services",
+      suggested_subcategory: "Pipe installation",
+      resolved_taxonomy_node_id: null
+    });
 
     await user.selectOptions(within(detail).getByLabelText("Provider State"), "unknown");
     expect(within(detail).getByText("Provider is a data gap.")).toBeInTheDocument();

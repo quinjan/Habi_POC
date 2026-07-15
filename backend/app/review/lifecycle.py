@@ -2,6 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.evidence.sources import candidate_source_evidence
+from backend.app.memory.models import MemoryRecord
 from backend.app.review.models import (
     DuplicateCandidateGroup,
     DuplicateCandidateGroupMember,
@@ -258,36 +259,51 @@ def approved_candidate_has_unresolved_taxonomy_gate(
 ) -> bool:
     if candidate.decision != "approved":
         return False
-    if _candidate_has_reviewed_category_path(candidate):
-        return False
 
-    suggestion = candidate.proposed_payload.get("category_suggestion")
-    if not isinstance(suggestion, dict):
-        return False
+    reviewed_subjects = _reviewed_taxonomy_subjects_by_type(candidate)
+    for subject_type, suggestion in _candidate_taxonomy_suggestions(candidate):
+        reviewed_subject = reviewed_subjects.get(subject_type)
+        if reviewed_subject is None:
+            continue
+        reviewed_name, reviewed_top_level, reviewed_subcategory = reviewed_subject
+        if _existing_memory_record(
+            session=session,
+            project_workspace_id=candidate.project_workspace_id,
+            record_type=subject_type,
+            name=reviewed_name,
+        ) is not None:
+            continue
 
-    top_level_category = suggestion.get("top_level_category")
-    subcategory = suggestion.get("subcategory")
-    if not isinstance(top_level_category, str) or not _present(top_level_category):
-        return False
+        top_level_category = suggestion.get("top_level_category")
+        subcategory = suggestion.get("subcategory")
+        if not isinstance(top_level_category, str) or not _present(top_level_category):
+            continue
+        suggested_path_key = normalized_taxonomy_path_key(
+            top_level_category,
+            subcategory if isinstance(subcategory, str) else None,
+        )
+        reviewed_path_key = normalized_taxonomy_path_key(
+            reviewed_top_level,
+            reviewed_subcategory,
+        )
+        if reviewed_path_key != suggested_path_key:
+            continue
 
-    path_key = normalized_taxonomy_path_key(
-        top_level_category,
-        subcategory if isinstance(subcategory, str) else None,
-    )
-    decision = latest_taxonomy_decision_for_path(
-        session=session,
-        project_workspace_id=candidate.project_workspace_id,
-        normalized_path_key=path_key,
-    )
-    if decision is not None and decision.decision in {"approved", "mapped"}:
-        return False
-
-    return taxonomy_leaf_node_for_path(
-        session=session,
-        project_workspace_id=candidate.project_workspace_id,
-        top_level_category=top_level_category,
-        subcategory=subcategory if isinstance(subcategory, str) else None,
-    ) is None
+        decision = latest_taxonomy_decision_for_path(
+            session=session,
+            project_workspace_id=candidate.project_workspace_id,
+            normalized_path_key=suggested_path_key,
+        )
+        if decision is not None and decision.decision in {"approved", "mapped"}:
+            continue
+        if taxonomy_leaf_node_for_path(
+            session=session,
+            project_workspace_id=candidate.project_workspace_id,
+            top_level_category=top_level_category,
+            subcategory=subcategory if isinstance(subcategory, str) else None,
+        ) is None:
+            return True
+    return False
 
 
 def latest_taxonomy_decision_for_path(
@@ -366,12 +382,80 @@ def _present(value: str | None) -> bool:
     return value is not None and value.strip() != ""
 
 
-def _candidate_has_reviewed_category_path(candidate: ExtractedCandidate) -> bool:
-    if candidate.reviewed_payload is None:
-        return False
+def _candidate_taxonomy_suggestions(
+    candidate: ExtractedCandidate,
+) -> list[tuple[str, dict]]:
+    suggestions: list[tuple[str, dict]] = []
+    linked_concepts = candidate.proposed_payload.get("linked_concepts")
+    if isinstance(linked_concepts, list):
+        for concept in linked_concepts:
+            if not isinstance(concept, dict):
+                continue
+            concept_type = concept.get("concept_type")
+            suggestion = concept.get("category_suggestion")
+            if concept_type in {"material", "service"} and isinstance(suggestion, dict):
+                suggestions.append((concept_type, suggestion))
+        if candidate.proposed_payload.get("provider_state") == "external":
+            provider_suggestion = candidate.proposed_payload.get(
+                "provider_category_suggestion"
+            )
+            if isinstance(provider_suggestion, dict):
+                suggestions.append(("provider", provider_suggestion))
+        return suggestions
 
+    line_type = candidate.proposed_payload.get("line_type")
+    suggestion = candidate.proposed_payload.get("category_suggestion")
+    if line_type in {"material", "service"} and isinstance(suggestion, dict):
+        suggestions.append((line_type, suggestion))
+    return suggestions
+
+
+def _reviewed_taxonomy_subjects_by_type(
+    candidate: ExtractedCandidate,
+) -> dict[str, tuple[str, str, str]]:
+    if candidate.reviewed_payload is None:
+        return {}
     payload = ReviewedPurchaseLinePayload.model_validate(candidate.reviewed_payload)
-    return _payload_has_importable_shape(payload)
+    subjects = {
+        concept.concept_type: (
+            concept.name or "",
+            concept.top_level_category or "",
+            concept.subcategory or "",
+        )
+        for concept in payload.concepts()
+        if _present(concept.name)
+        and _present(concept.top_level_category)
+        and _present(concept.subcategory)
+    }
+    if (
+        payload.provider_state == "external"
+        and _present(payload.provider_name)
+        and _present(payload.provider_top_level_category)
+        and _present(payload.provider_subcategory)
+    ):
+        subjects["provider"] = (
+            payload.provider_name or "",
+            payload.provider_top_level_category or "",
+            payload.provider_subcategory or "",
+        )
+    return subjects
+
+
+def _existing_memory_record(
+    *,
+    session: Session,
+    project_workspace_id: int,
+    record_type: str,
+    name: str,
+) -> MemoryRecord | None:
+    return session.scalar(
+        select(MemoryRecord).where(
+            MemoryRecord.project_workspace_id == project_workspace_id,
+            MemoryRecord.record_type == record_type,
+            MemoryRecord.normalized_name == _normalize(name),
+            MemoryRecord.status == "active",
+        )
+    )
 
 
 def _payload_has_importable_shape(payload: ReviewedPurchaseLinePayload) -> bool:

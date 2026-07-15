@@ -70,6 +70,8 @@ type ManualSourceForm = {
 
 type ManualEntryMode = "structured_row" | "free_form_text";
 
+type CandidateTaxonomyGate = NonNullable<ExtractedCandidateRead["taxonomy_gates"]>[number];
+
 const emptyManualSourceForm: ManualSourceForm = {
   lineType: "material",
   name: "",
@@ -673,13 +675,14 @@ function App() {
     }
   }
 
-  async function handleTaxonomyDecision(decision: "approved" | "mapped" | "rejected") {
-    const candidate = activeReviewBatch?.candidates[0] ?? null;
-    const suggestion = taxonomySuggestion(candidate);
+  async function handleTaxonomyDecision(
+    gate: CandidateTaxonomyGate,
+    decision: "approved" | "mapped" | "rejected"
+  ) {
+    const suggestion = splitCategoryPath(gate.suggested_category_path);
     if (
       selectedPurchaseLines === null ||
       activeReviewBatch === null ||
-      candidate === null ||
       suggestion === null
     ) {
       return;
@@ -1633,6 +1636,36 @@ function App() {
                               </label>
                             ))}
                           </section>
+                          {(detailCandidate.taxonomy_gates ?? []).length > 0 ? (
+                            <section>
+                              <h4>Taxonomy Gates</h4>
+                              {(detailCandidate.taxonomy_gates ?? []).map((gate) => (
+                                <div
+                                  key={`${gate.subject_type}-${gate.subject_name}-${gate.suggested_category_path}`}
+                                >
+                                  <p>
+                                    <strong>{formatTaxonomySubjectType(gate.subject_type)}</strong>: {" "}
+                                    {gate.subject_name}
+                                  </p>
+                                  <p>{gate.suggested_category_path}</p>
+                                  {gate.decision ? (
+                                    <p className="status-message">{gate.status}</p>
+                                  ) : splitCategoryPath(gate.suggested_category_path) ? (
+                                    <button
+                                      className="secondary-action"
+                                      disabled={isApprovingCandidate}
+                                      onClick={() => void handleTaxonomyDecision(gate, "approved")}
+                                      type="button"
+                                    >
+                                      Approve {gate.subject_type} taxonomy: {gate.suggested_category_path}
+                                    </button>
+                                  ) : (
+                                    <p className="status-message">Choose a complete category path.</p>
+                                  )}
+                                </div>
+                              ))}
+                            </section>
+                          ) : null}
                         </div>
                         <div className="review-actions">
                           <button
@@ -2239,6 +2272,13 @@ function formatProviderState(providerState: "external" | "internal" | "unknown")
     return "Internal";
   }
   return "Unknown";
+}
+
+function formatTaxonomySubjectType(subjectType: string): string {
+  if (subjectType === "provider") {
+    return "Provider";
+  }
+  return formatConceptType(subjectType === "service" ? "service" : "material");
 }
 
 function initialDraftsForCandidates(

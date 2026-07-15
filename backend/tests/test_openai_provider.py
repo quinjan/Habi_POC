@@ -272,6 +272,9 @@ def test_openai_provider_requests_strict_structured_output():
     assert "linked_concepts" in candidate_schema["properties"]
     assert "provider_state" in candidate_schema["properties"]
     assert "Quinlan Construction" in call["input"][1]["content"]
+    system_prompt = call["input"][0]["content"].lower()
+    assert "case-and-whitespace normalization" in system_prompt
+    assert "contractor assigned" in system_prompt
 
 
 def test_openai_provider_uses_stateless_strict_xlsx_profile_and_extraction_calls():
@@ -312,6 +315,9 @@ def test_openai_provider_uses_stateless_strict_xlsx_profile_and_extraction_calls
     profile_prompt = client.responses.calls[0]["input"][0]["content"].lower()
     assert "map every available extraction field" in profile_prompt
     assert "without mapped columns must be marked unusable" in profile_prompt
+    extraction_prompt = client.responses.calls[1]["input"][0]["content"].lower()
+    assert "case-and-whitespace normalization" in extraction_prompt
+    assert "contractor assigned" in extraction_prompt
     for call in client.responses.calls:
         assert call["model"] == "gpt-5.4-nano"
         assert call["store"] is True

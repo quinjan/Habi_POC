@@ -351,6 +351,74 @@ def test_review_exposes_independent_taxonomy_gates_for_new_linked_memory(client)
     ]
     assert all(gate["status"] == "new_taxonomy_path" for gate in gates)
 
+    decision = client.post(
+        f"/api/project-workspaces/{project['id']}/review-batches/"
+        f"{submission['review_batch']['id']}/candidates/{submission['candidates'][0]['id']}/decision",
+        json={
+            "decision": "approved",
+            "reviewed_payload": {
+                "linked_concepts": [
+                    {
+                        "concept_type": "material",
+                        "name": "PVC pipe",
+                        "top_level_category": "Plumbing",
+                        "subcategory": "Pipes",
+                    },
+                    {
+                        "concept_type": "service",
+                        "name": "PVC pipe installation",
+                        "top_level_category": "Trade services",
+                        "subcategory": "Pipe installation",
+                    },
+                ],
+                "provider_state": "external",
+                "provider_name": "ABC Trading",
+                "provider_top_level_category": "Providers",
+                "provider_subcategory": "General",
+            },
+        },
+    )
+    assert decision.status_code == 200
+
+    blocked_review = client.get(
+        f"/api/project-workspaces/{project['id']}/review-batches/"
+        f"{submission['review_batch']['id']}"
+    ).json()
+    blocked_import = client.post(
+        f"/api/project-workspaces/{project['id']}/review-batches/"
+        f"{submission['review_batch']['id']}/import"
+    )
+
+    assert blocked_review["review_batch"]["status"] == "review_in_progress"
+    assert len(blocked_review["candidates"][0]["taxonomy_gates"]) == 3
+    assert blocked_import.status_code == 400
+    assert blocked_import.json()["detail"] == "Approved candidates require a resolved taxonomy gate"
+
+    paths = [
+        ("Plumbing", "Pipes"),
+        ("Trade services", "Pipe installation"),
+        ("Providers", "General"),
+    ]
+    for index, (top_level_category, subcategory) in enumerate(paths):
+        resolved = client.post(
+            f"/api/project-workspaces/{project['id']}/review-batches/"
+            f"{submission['review_batch']['id']}/taxonomy-decisions",
+            json={
+                "decision": "approved",
+                "suggested_top_level_category": top_level_category,
+                "suggested_subcategory": subcategory,
+            },
+        )
+        assert resolved.status_code == 201
+        expected_status = "ready_to_import" if index == len(paths) - 1 else "review_in_progress"
+        assert resolved.json()["review_batch"]["status"] == expected_status
+
+    imported = client.post(
+        f"/api/project-workspaces/{project['id']}/review-batches/"
+        f"{submission['review_batch']['id']}/import"
+    )
+    assert imported.status_code == 200
+
 
 def test_exact_name_reuse_preserves_categories_and_distinct_source_counts(client):
     project = _create_project(client)

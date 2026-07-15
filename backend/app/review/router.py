@@ -1345,8 +1345,17 @@ def _taxonomy_gates_for_candidate(
     reviewed_subjects = _reviewed_taxonomy_subjects(candidate)
     gates: list[CandidateTaxonomyGateRead] = []
     for subject_type, subject_name, suggestion in _candidate_taxonomy_subjects(candidate):
-        if (subject_type, _normalize(subject_name)) in reviewed_subjects:
-            continue
+        reviewed_subject = reviewed_subjects.get(subject_type)
+        if reviewed_subject is not None:
+            subject_name, reviewed_path_key = reviewed_subject
+            suggestion_path_key = normalized_taxonomy_path_key(
+                str(suggestion.get("top_level_category") or ""),
+                suggestion.get("subcategory")
+                if isinstance(suggestion.get("subcategory"), str)
+                else None,
+            )
+            if reviewed_path_key != suggestion_path_key:
+                continue
         if _existing_memory_record(
             session,
             candidate.project_workspace_id,
@@ -1456,12 +1465,18 @@ def _candidate_taxonomy_subjects(
     return subjects
 
 
-def _reviewed_taxonomy_subjects(candidate: ExtractedCandidate) -> set[tuple[str, str]]:
+def _reviewed_taxonomy_subjects(candidate: ExtractedCandidate) -> dict[str, tuple[str, str]]:
     if candidate.reviewed_payload is None:
-        return set()
+        return {}
     payload = ReviewedPurchaseLinePayload.model_validate(candidate.reviewed_payload)
     subjects = {
-        (concept.concept_type, _normalize(concept.name or ""))
+        concept.concept_type: (
+            concept.name or "",
+            normalized_taxonomy_path_key(
+                concept.top_level_category or "",
+                concept.subcategory,
+            ),
+        )
         for concept in payload.concepts()
         if _present(concept.name)
         and _present(concept.top_level_category)
@@ -1473,7 +1488,13 @@ def _reviewed_taxonomy_subjects(candidate: ExtractedCandidate) -> set[tuple[str,
         and _present(payload.provider_top_level_category)
         and _present(payload.provider_subcategory)
     ):
-        subjects.add(("provider", _normalize(payload.provider_name or "")))
+        subjects["provider"] = (
+            payload.provider_name or "",
+            normalized_taxonomy_path_key(
+                payload.provider_top_level_category or "",
+                payload.provider_subcategory,
+            ),
+        )
     return subjects
 
 

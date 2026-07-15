@@ -6,8 +6,9 @@ from openpyxl import load_workbook
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.processing.models import ProcessingJob
+from backend.app.processing.ai_extraction import apply_contractor_assigned_provider_default
 from backend.app.processing.memory_context import build_project_memory_context
+from backend.app.processing.models import ProcessingJob
 from backend.app.review.models import ExtractedCandidate, ReviewBatch
 from backend.app.sources.models import SourceFile
 from backend.app.xlsx.artifacts import WorkbookLimitExceeded, create_worksheet_artifacts
@@ -168,7 +169,13 @@ def process_xlsx_source_file(
                         profile=profile,
                         expected_region_id=region["region_id"],
                     )
-                    valid_payloads.extend(valid)
+                    valid_payloads.extend(
+                        apply_contractor_assigned_provider_default(
+                            payload,
+                            contractor_assigned=memory_context["contractor_assigned"],
+                        )
+                        for payload in valid
+                    )
                     dropped_candidate_count += dropped
     except Exception as error:
         message = f"XLSX AI processing failed: {error}"

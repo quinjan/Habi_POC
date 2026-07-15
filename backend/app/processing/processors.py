@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.processing.ai_extraction import (
     AiExtractionProvider,
+    apply_contractor_assigned_provider_default,
     validate_ai_candidates,
 )
 from backend.app.processing.models import ProcessingJob
@@ -139,6 +140,13 @@ def process_ai_manual_free_form(
         source_submission_id=job.source_submission_id,
         raw_candidates=raw_candidates,
     )
+    valid_payloads = [
+        apply_contractor_assigned_provider_default(
+            payload,
+            contractor_assigned=memory_context["contractor_assigned"],
+        )
+        for payload in valid_payloads
+    ]
     diagnostics = {
         "processor": "ai_manual_free_form_v1",
         "provider": provider_name,

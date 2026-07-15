@@ -241,6 +241,15 @@ def test_approved_free_form_candidate_imports_purchase_line_with_original_text_e
                 },
             },
         )
+        taxonomy_decision = client.post(
+            f"/api/project-workspaces/{project['id']}/review-batches/"
+            f"{submission['review_batch']['id']}/taxonomy-decisions",
+            json={
+                "decision": "approved",
+                "suggested_top_level_category": "Plumbing",
+                "suggested_subcategory": "Pipes",
+            },
+        )
         imported = client.post(
             f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/import"
         )
@@ -249,6 +258,7 @@ def test_approved_free_form_candidate_imports_purchase_line_with_original_text_e
         )
 
     assert decision.status_code == 200
+    assert taxonomy_decision.status_code == 201
     assert imported.status_code == 200
     evidence_contents = imported_purchase_line_evidence_contents(
         client,

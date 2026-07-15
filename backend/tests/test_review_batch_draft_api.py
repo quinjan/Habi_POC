@@ -59,7 +59,7 @@ def test_review_batch_draft_saves_included_and_excluded_candidates(tmp_path):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["review_batch"]["status"] == "ready_to_import"
+    assert body["review_batch"]["status"] == "review_in_progress"
     candidates = {candidate["id"]: candidate for candidate in body["candidates"]}
     assert candidates[submission["candidates"][0]["id"]]["decision"] == "approved"
     assert candidates[submission["candidates"][0]["id"]]["status"] == "approved_for_import"
@@ -67,6 +67,18 @@ def test_review_batch_draft_saves_included_and_excluded_candidates(tmp_path):
     assert candidates[second_candidate_id]["decision"] == "rejected"
     assert candidates[second_candidate_id]["status"] == "rejected_for_import"
     assert candidates[second_candidate_id]["reviewed_payload"] is None
+
+    resolved = client.post(
+        f"/api/project-workspaces/{project['id']}/review-batches/"
+        f"{submission['review_batch']['id']}/taxonomy-decisions",
+        json={
+            "decision": "approved",
+            "suggested_top_level_category": "Plumbing",
+            "suggested_subcategory": "Pipes",
+        },
+    )
+    assert resolved.status_code == 201
+    assert resolved.json()["review_batch"]["status"] == "ready_to_import"
 
 
 def test_review_batch_draft_rejects_included_candidate_without_category_path(tmp_path):
