@@ -14,6 +14,10 @@ from backend.app.sources.models import SourceFile
 from backend.app.xlsx.artifacts import WorkbookLimitExceeded, create_worksheet_artifacts
 from backend.app.xlsx.ai import validate_worksheet_profile, validate_xlsx_candidates
 from backend.app.xlsx.config import XlsxProcessingConfig
+from backend.app.xlsx.grounding import (
+    build_explicit_row_candidates,
+    ground_profile_to_source,
+)
 
 
 def process_xlsx_source_file(
@@ -83,6 +87,8 @@ def process_xlsx_source_file(
     extraction_chunk_count = 0
     usable_region_count = 0
     unusable_region_count = 0
+    source_grounded_candidate_count = 0
+    ai_candidate_replaced_count = 0
     artifact_contents = [
         json.loads((config.storage_root / artifact.artifact_path).read_text(encoding="utf-8"))
         for artifact in artifacts
@@ -105,6 +111,8 @@ def process_xlsx_source_file(
                 source_submission_id=job.source_submission_id,
             )
             profile = validate_worksheet_profile(raw_profile, artifact_content)
+            profile = ground_profile_to_source(profile, artifact_content)
+            profile = validate_worksheet_profile(profile, artifact_content)
             artifact.profile = profile
 
             row_payloads = _artifact_rows_for_ai(artifact_content)
@@ -169,14 +177,45 @@ def process_xlsx_source_file(
                         profile=profile,
                         expected_region_id=region["region_id"],
                     )
+                    explicit_candidates = build_explicit_row_candidates(
+                        rows=chunk,
+                        region=region,
+                        source_submission_id=job.source_submission_id,
+                        source_file_id=source_file.id,
+                        worksheet_name=artifact_content["worksheet"]["name"],
+                    )
+                    explicit_row_numbers = set(explicit_candidates)
+                    ai_candidate_replaced_count += sum(
+                        payload["evidence"]["primary_body_row"] in explicit_row_numbers
+                        for payload in valid
+                    )
+                    ungrounded_ai_candidates = [
+                        payload
+                        for payload in valid
+                        if payload["evidence"]["primary_body_row"]
+                        not in explicit_row_numbers
+                    ]
+                    grounded_valid, grounded_dropped = validate_xlsx_candidates(
+                        raw_candidates=list(explicit_candidates.values()),
+                        source_submission_id=job.source_submission_id,
+                        source_file_id=source_file.id,
+                        artifact=artifact_content,
+                        profile=profile,
+                        expected_region_id=region["region_id"],
+                    )
+                    source_grounded_candidate_count += len(grounded_valid)
+                    chunk_payloads = ungrounded_ai_candidates + grounded_valid
+                    chunk_payloads.sort(
+                        key=lambda payload: payload["evidence"]["primary_body_row"]
+                    )
                     valid_payloads.extend(
                         apply_contractor_assigned_provider_default(
                             payload,
                             contractor_assigned=memory_context["contractor_assigned"],
                         )
-                        for payload in valid
+                        for payload in chunk_payloads
                     )
-                    dropped_candidate_count += dropped
+                    dropped_candidate_count += dropped + grounded_dropped
     except Exception as error:
         message = f"XLSX AI processing failed: {error}"
         diagnostics.update(
@@ -197,6 +236,8 @@ def process_xlsx_source_file(
         raw_candidate_count=raw_candidate_count,
         valid_candidate_count=len(valid_payloads),
         dropped_candidate_count=dropped_candidate_count,
+        source_grounded_candidate_count=source_grounded_candidate_count,
+        ai_candidate_replaced_count=ai_candidate_replaced_count,
     )
     if any(omitted_counts.values()):
         diagnostics["memory_context_omitted_counts"] = omitted_counts

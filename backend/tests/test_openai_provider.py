@@ -315,9 +315,24 @@ def test_openai_provider_uses_stateless_strict_xlsx_profile_and_extraction_calls
     profile_prompt = client.responses.calls[0]["input"][0]["content"].lower()
     assert "map every available extraction field" in profile_prompt
     assert "without mapped columns must be marked unusable" in profile_prompt
+    profile_column_schema = client.responses.calls[0]["text"]["format"]["schema"][
+        "properties"
+    ]["regions"]["items"]["properties"]["columns"]["properties"]
+    assert {
+        "unit_price",
+        "material_name",
+        "material_category",
+        "service_name",
+        "service_category",
+        "provider_state",
+        "provider_category",
+    }.issubset(profile_column_schema)
     extraction_prompt = client.responses.calls[1]["input"][0]["content"].lower()
     assert "case-and-whitespace normalization" in extraction_prompt
     assert "contractor assigned" in extraction_prompt
+    assert "every clearly reviewable body row" in extraction_prompt
+    assert "never replace" in extraction_prompt
+    assert "source provider name" in extraction_prompt
     for call in client.responses.calls:
         assert call["model"] == "gpt-5.4-nano"
         assert call["store"] is True

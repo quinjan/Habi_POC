@@ -1,4 +1,5 @@
 from copy import copy
+from datetime import date
 from io import BytesIO
 import json
 
@@ -191,6 +192,286 @@ class PartialFailureProvider(ValidXlsxProvider):
         if self.attempt_count == 2:
             raise RuntimeError("second extraction call failed")
         return super().extract_worksheet_chunk(**kwargs)
+
+
+class IncompleteFixtureLogProvider:
+    provider_name = "fake"
+    model = "fake-xlsx-model"
+
+    def __init__(self, *, source_file_id: int):
+        self.source_file_id = source_file_id
+
+    def profile_worksheet(self, *, worksheet: dict, source_submission_id: int):
+        return {
+            "worksheet_name": "Sheet1",
+            "title_rows": [1],
+            "header_rows": [6],
+            "regions": [
+                {
+                    "region_id": "purchase_lines_table_rows_7_plus",
+                    "usable": True,
+                    "unusable_reason": None,
+                    "header_row_numbers": [6],
+                    "body_start_row": 7,
+                    "body_end_row": 15,
+                    "columns": {
+                        "line_type": None,
+                        "name": "E",
+                        "quantity": "G",
+                        "unit": "H",
+                        "price": "I",
+                        "currency": "K",
+                        "provider_name": "S",
+                        "purchase_date": "L",
+                        "remarks_or_terms": None,
+                    },
+                }
+            ],
+        }
+
+    def extract_worksheet_chunk(
+        self,
+        *,
+        profile: dict,
+        region: dict,
+        rows: list[dict],
+        context_rows: list[dict],
+        source_submission_id: int,
+        memory_context: dict,
+    ):
+        def bundled_candidate(
+            *,
+            row: int,
+            material_name: str,
+            material_category: str,
+            service_name: str,
+            service_category: str,
+            quantity: str,
+            price: str,
+            purchase_date: str,
+        ) -> dict:
+            return {
+                "linked_concepts": [
+                    {
+                        "concept_type": "material",
+                        "name": material_name,
+                        "category_suggestion": {
+                            "top_level_category": material_category,
+                            "subcategory": material_category,
+                        },
+                    },
+                    {
+                        "concept_type": "service",
+                        "name": service_name,
+                        "category_suggestion": {
+                            "top_level_category": service_category,
+                            "subcategory": service_category,
+                        },
+                    },
+                ],
+                "quantity": quantity,
+                "unit": "m²",
+                "price": price,
+                "currency": "PHP",
+                "currency_state": "source_stated",
+                "provider_state": "internal",
+                "provider_name": "Habi Build Co.",
+                "provider_category_suggestion": None,
+                "purchase_date": purchase_date,
+                "remarks_or_terms": None,
+                "confidence": 0.6,
+                "evidence": {
+                    "source_submission_id": source_submission_id,
+                    "source_file_id": self.source_file_id,
+                    "worksheet": "Sheet1",
+                    "region_id": region["region_id"],
+                    "primary_body_row": row,
+                    "locators": [{"row": row, "role": "body"}],
+                },
+            }
+
+        return {
+            "candidates": [
+                bundled_candidate(
+                    row=7,
+                    material_name="Gypsum board ceiling",
+                    material_category="Finishes / Ceilings",
+                    service_name="Ceiling installation",
+                    service_category="Services / Installation / Ceilings",
+                    quantity="120",
+                    price="108000",
+                    purchase_date="2026-05-03",
+                ),
+                bundled_candidate(
+                    row=14,
+                    material_name="Acoustic insulation",
+                    material_category="Finishes / Insulation (new gate)",
+                    service_name="Insulation installation",
+                    service_category="Services / Installation / Insulation (new gate)",
+                    quantity="50",
+                    price="80000",
+                    purchase_date="2026-05-20",
+                ),
+            ]
+        }
+
+
+def _configure_import_fixture_workbook(workbook):
+    sheet = workbook.active
+    sheet.title = "Sheet1"
+    sheet.append(["Import Fixtures"])
+    sheet.append(
+        [
+            "Reviewer-final fields are the import truth. Apply the rows in fixture-ID order; "
+            "FX-08 is intentionally blocked until its three category paths are resolved."
+        ]
+    )
+    sheet.append([])
+    sheet.append(
+        [
+            "All quantity, price, currency, date, and evidence fields are shared Purchase Line "
+            "facts. A bundled line must never allocate combined price or quantity between its "
+            "linked concepts."
+        ]
+    )
+    sheet.append([])
+    sheet.append(
+        [
+            "Fixture ID",
+            "Project key",
+            "Source submission",
+            "Evidence record",
+            "Purchase Line description",
+            "Line kind",
+            "Quantity",
+            "Unit",
+            "Unit price",
+            "Combined price",
+            "Currency",
+            "Purchase date",
+            "Material name",
+            "Material category path",
+            "Service name",
+            "Service category path",
+            "AI Provider State",
+            "Reviewer Final State",
+            "Provider name",
+            "Provider category path",
+            "Expected display roles",
+        ]
+    )
+    rows = [
+        ["FX-01", "PRJ-A", "SS-001", "EV-001", "Supply & install gypsum ceiling", "Bundled", 120, "m²", 900, 108000, "PHP", date(2026, 5, 3), "Gypsum board ceiling", "Finishes / Ceilings", "Ceiling installation", "Services / Installation / Ceilings", "Unknown", "External", "Cebu Ceiling Works", "Providers / Specialty Contractors", "Materials | Services | Supply & install"],
+        ["FX-02", "PRJ-A", "SS-001", "EV-002", "Gypsum ceiling materials top-up", "Standard · Material", 20, "m²", 900, 18000, "PHP", date(2026, 5, 3), "Gypsum board ceiling", "Finishes / Ceilings / Acoustic (conflicting suggestion)", None, None, "External", "External", "cebu ceiling works", "Providers / General (conflicting suggestion)", "Materials"],
+        ["FX-03", "PRJ-A", "SS-002", "EV-003", "Interior paint — two rooms", "Standard · Material", 50, "L", 300, 15000, "PHP", date(2026, 5, 9), "Interior paint", "Finishes / Painting", None, None, "External", "External", "PaintPro Cebu", "Providers / General", "Materials"],
+        ["FX-04", "PRJ-A", "SS-002", "EV-004", "Interior paint — corridor", "Standard · Material", 25, "L", 300, 7500, "PHP", date(2026, 5, 9), "Interior paint", "Finishes / Painting", None, None, "External", "External", "PaintPro Cebu", "Providers / General", "Materials"],
+        ["FX-05", "PRJ-A", "SS-003", "EV-005", "Electrical testing", "Standard · Service", 1, "job", 5000, 5000, "PHP", date(2026, 5, 12), None, None, "Electrical testing", "Services / Testing", "Unknown", "External", "VoltCheck", "Providers / Testing", "Services"],
+        ["FX-06", "PRJ-A", "SS-004", "EV-006", "Self-performed wall patching materials", "Standard · Material", 10, "bags", 250, 2500, "PHP", date(2026, 5, 14), "Wall patching compound", "Finishes / Repair", None, None, "External", "Internal", "HABI   BUILD CO.", None, "Materials"],
+        ["FX-07", "PRJ-A", "SS-005", "EV-007", "Minor repair labour", "Standard · Service", 1, "job", 5500, 5500, "PHP", date(2026, 5, 16), None, None, "Minor repair", "Services / Repair", "Unknown", "Unknown", None, None, None],
+        ["FX-08", "PRJ-A", "SS-006", "EV-008", "Supply & install acoustic insulation", "Bundled", 50, "m²", 1600, 80000, "PHP", date(2026, 5, 20), "Acoustic insulation", "Finishes / Insulation (new gate)", "Insulation installation", "Services / Installation / Insulation (new gate)", "External", "External", "Insulate PH", "Providers / General (new gate)", "Materials | Services | Supply & install"],
+        ["FX-09", "PRJ-B", "SS-B001", "EV-B001", "Supply gypsum board ceiling", "Standard · Material", 10, "m²", 900, 9000, "PHP", date(2026, 5, 22), "Gypsum board ceiling", "Finishes / Ceilings", None, None, "External", "External", "Cebu Ceiling Works", "Providers / General", "Materials"],
+    ]
+    for row in rows:
+        sheet.append(row)
+
+
+def _process_incomplete_import_fixture(client, monkeypatch, tmp_path):
+    monkeypatch.setenv("HABI_STORAGE_ROOT", str(tmp_path))
+    project = client.post(
+        "/api/project-workspaces",
+        json={
+            "project_name": "Cebu Office Fit-out",
+            "project_type": "Commercial fit-out",
+            "location": "Cebu City",
+            "completion_year": 2026,
+            "contractor_assigned": "Habi Build Co.",
+        },
+    ).json()
+    submission = _upload(
+        client,
+        project["id"],
+        _workbook_bytes(_configure_import_fixture_workbook),
+    )
+    provider = IncompleteFixtureLogProvider(
+        source_file_id=submission["source_file"]["id"]
+    )
+
+    assert run_once(client.app.state.session_factory, ai_provider=provider) == 1
+
+    job = client.get(
+        f"/api/project-workspaces/{project['id']}/processing-jobs/"
+        f"{submission['processing_job']['id']}"
+    ).json()["processing_job"]
+    return project, submission, job
+
+
+def test_explicit_xlsx_purchase_rows_are_not_silently_omitted_from_review(
+    client, monkeypatch, tmp_path
+):
+    _, _, job = _process_incomplete_import_fixture(client, monkeypatch, tmp_path)
+
+    assert job["status"] == "review_ready"
+    assert job["candidate_count"] == 9
+    assert job["diagnostics"]["raw_candidate_count"] == 2
+    assert job["diagnostics"]["valid_candidate_count"] == 9
+    assert job["diagnostics"]["source_grounded_candidate_count"] == 9
+    assert job["diagnostics"]["ai_candidate_replaced_count"] == 2
+
+
+def test_explicit_xlsx_purchase_rows_override_ungrounded_ai_fields(
+    client, monkeypatch, tmp_path
+):
+    project, _, job = _process_incomplete_import_fixture(client, monkeypatch, tmp_path)
+    review = client.get(
+        f"/api/project-workspaces/{project['id']}/review-batches/"
+        f"{job['review_batch_id']}"
+    ).json()
+    candidates_by_row = {
+        candidate["proposed_payload"]["evidence"]["primary_body_row"]: candidate[
+            "proposed_payload"
+        ]
+        for candidate in review["candidates"]
+    }
+
+    assert {
+        row: [concept["concept_type"] for concept in payload["linked_concepts"]]
+        for row, payload in candidates_by_row.items()
+    } == {
+        7: ["material", "service"],
+        8: ["material"],
+        9: ["material"],
+        10: ["material"],
+        11: ["service"],
+        12: ["material"],
+        13: ["service"],
+        14: ["material", "service"],
+        15: ["material"],
+    }
+    assert (
+        candidates_by_row[7]["provider_state"],
+        candidates_by_row[7]["provider_name"],
+    ) == ("external", "Cebu Ceiling Works")
+    assert (
+        candidates_by_row[14]["provider_state"],
+        candidates_by_row[14]["provider_name"],
+    ) == ("external", "Insulate PH")
+    assert (
+        candidates_by_row[12]["provider_state"],
+        candidates_by_row[12]["provider_name"],
+    ) == ("internal", "HABI   BUILD CO.")
+    assert (
+        candidates_by_row[13]["provider_state"],
+        candidates_by_row[13]["provider_name"],
+    ) == ("unknown", None)
+    assert candidates_by_row[7]["price"] == "108000"
+    assert candidates_by_row[7]["linked_concepts"][0]["category_suggestion"] == {
+        "top_level_category": "Finishes",
+        "subcategory": "Ceilings",
+    }
+    assert candidates_by_row[7]["linked_concepts"][1]["category_suggestion"] == {
+        "top_level_category": "Services",
+        "subcategory": "Installation / Ceilings",
+    }
 
 
 def test_corrupt_xlsx_is_preserved_and_processing_fails_without_review_batch(
