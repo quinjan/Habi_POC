@@ -316,6 +316,15 @@ class IncompleteFixtureLogProvider:
         }
 
 
+class MalformedColumnFixtureLogProvider(IncompleteFixtureLogProvider):
+    def profile_worksheet(self, *, worksheet: dict, source_submission_id: int):
+        profile = super().profile_worksheet(
+            worksheet=worksheet, source_submission_id=source_submission_id
+        )
+        profile["regions"][0]["columns"]["material_name"] = "M/N"
+        return profile
+
+
 def _configure_import_fixture_workbook(workbook):
     sheet = workbook.active
     sheet.title = "Sheet1"
@@ -403,6 +412,40 @@ def _process_incomplete_import_fixture(client, monkeypatch, tmp_path):
         f"{submission['processing_job']['id']}"
     ).json()["processing_job"]
     return project, submission, job
+
+
+def test_malformed_ai_column_mapping_is_recovered_from_exact_xlsx_headers(
+    client, monkeypatch, tmp_path
+):
+    monkeypatch.setenv("HABI_STORAGE_ROOT", str(tmp_path))
+    project = client.post(
+        "/api/project-workspaces",
+        json={
+            "project_name": "Cebu Office Fit-out",
+            "project_type": "Commercial fit-out",
+            "location": "Cebu City",
+            "completion_year": 2026,
+            "contractor_assigned": "Habi Build Co.",
+        },
+    ).json()
+    submission = _upload(
+        client,
+        project["id"],
+        _workbook_bytes(_configure_import_fixture_workbook),
+    )
+    provider = MalformedColumnFixtureLogProvider(
+        source_file_id=submission["source_file"]["id"]
+    )
+
+    assert run_once(client.app.state.session_factory, ai_provider=provider) == 1
+
+    job = client.get(
+        f"/api/project-workspaces/{project['id']}/processing-jobs/"
+        f"{submission['processing_job']['id']}"
+    ).json()["processing_job"]
+    assert job["status"] == "review_ready"
+    assert job["candidate_count"] == 9
+    assert job["diagnostics"]["invalid_profile_column_mapping_count"] == 1
 
 
 def test_explicit_xlsx_purchase_rows_are_not_silently_omitted_from_review(

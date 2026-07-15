@@ -28,6 +28,30 @@ _HEADER_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
+def sanitize_profile_column_mappings(profile: dict, artifact: dict) -> tuple[dict, int]:
+    sanitized = deepcopy(profile)
+    artifact_columns = {cell["column"] for cell in artifact["cells"]}
+    invalid_count = 0
+    for region in sanitized.get("regions", []):
+        columns = region.get("columns")
+        if not isinstance(columns, dict):
+            continue
+        for field, value in columns.items():
+            if value is None:
+                continue
+            normalized = value.strip().upper() if isinstance(value, str) else ""
+            try:
+                column_index = column_index_from_string(normalized)
+            except ValueError:
+                column_index = None
+            if column_index is None or column_index not in artifact_columns:
+                columns[field] = None
+                invalid_count += 1
+                continue
+            columns[field] = get_column_letter(column_index)
+    return sanitized, invalid_count
+
+
 def ground_profile_to_source(profile: dict, artifact: dict) -> dict:
     grounded = deepcopy(profile)
     artifact_rows = {cell["row"] for cell in artifact["cells"]}

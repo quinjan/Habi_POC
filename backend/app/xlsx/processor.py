@@ -17,6 +17,7 @@ from backend.app.xlsx.config import XlsxProcessingConfig
 from backend.app.xlsx.grounding import (
     build_explicit_row_candidates,
     ground_profile_to_source,
+    sanitize_profile_column_mappings,
 )
 
 
@@ -89,6 +90,7 @@ def process_xlsx_source_file(
     unusable_region_count = 0
     source_grounded_candidate_count = 0
     ai_candidate_replaced_count = 0
+    invalid_profile_column_mapping_count = 0
     artifact_contents = [
         json.loads((config.storage_root / artifact.artifact_path).read_text(encoding="utf-8"))
         for artifact in artifacts
@@ -110,6 +112,10 @@ def process_xlsx_source_file(
                 worksheet=artifact_content,
                 source_submission_id=job.source_submission_id,
             )
+            raw_profile, invalid_mapping_count = sanitize_profile_column_mappings(
+                raw_profile, artifact_content
+            )
+            invalid_profile_column_mapping_count += invalid_mapping_count
             profile = validate_worksheet_profile(raw_profile, artifact_content)
             profile = ground_profile_to_source(profile, artifact_content)
             profile = validate_worksheet_profile(profile, artifact_content)
@@ -223,6 +229,7 @@ def process_xlsx_source_file(
             failure_summary=message,
             profile_request_count=profile_request_count,
             extraction_request_count=extraction_request_count,
+            invalid_profile_column_mapping_count=invalid_profile_column_mapping_count,
         )
         return None, [], diagnostics, "failed", message
 
@@ -238,6 +245,7 @@ def process_xlsx_source_file(
         dropped_candidate_count=dropped_candidate_count,
         source_grounded_candidate_count=source_grounded_candidate_count,
         ai_candidate_replaced_count=ai_candidate_replaced_count,
+        invalid_profile_column_mapping_count=invalid_profile_column_mapping_count,
     )
     if any(omitted_counts.values()):
         diagnostics["memory_context_omitted_counts"] = omitted_counts
