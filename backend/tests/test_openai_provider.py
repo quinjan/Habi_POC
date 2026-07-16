@@ -6,6 +6,7 @@ def create_project(client):
             "project_type": "Residential renovation",
             "location": "Makati City",
             "completion_year": 2025,
+            "contractor_assigned": "Internal",
         },
     ).json()
 
@@ -131,6 +132,7 @@ def test_worker_provider_factory_failure_does_not_claim_queued_job(client):
             "project_type": "Residential renovation",
             "location": "Makati City",
             "completion_year": 2025,
+            "contractor_assigned": "Internal",
         },
     ).json()
     submission = client.post(
@@ -247,13 +249,32 @@ def test_openai_provider_requests_strict_structured_output():
         client=client,
     )
 
-    provider.extract_purchase_lines(original_text="PVC pipe", source_submission_id=123)
+    provider.extract_purchase_lines(
+        original_text="PVC pipe",
+        source_submission_id=123,
+        memory_context={
+            "contractor_assigned": "Quinlan Construction",
+            "taxonomy_paths": ["Plumbing / Pipes"],
+            "materials": [],
+            "services": [],
+            "providers": [],
+        },
+    )
 
     call = client.responses.calls[0]
     assert call["model"] == "gpt-5.4-nano"
     assert "text" in call
     assert call["text"]["format"]["type"] == "json_schema"
     assert call["text"]["format"]["strict"] is True
+    candidate_schema = call["text"]["format"]["schema"]["properties"]["candidates"][
+        "items"
+    ]
+    assert "linked_concepts" in candidate_schema["properties"]
+    assert "provider_state" in candidate_schema["properties"]
+    assert "Quinlan Construction" in call["input"][1]["content"]
+    system_prompt = call["input"][0]["content"].lower()
+    assert "case-and-whitespace normalization" in system_prompt
+    assert "contractor assigned" in system_prompt
 
 
 def test_openai_provider_uses_stateless_strict_xlsx_profile_and_extraction_calls():
@@ -294,6 +315,24 @@ def test_openai_provider_uses_stateless_strict_xlsx_profile_and_extraction_calls
     profile_prompt = client.responses.calls[0]["input"][0]["content"].lower()
     assert "map every available extraction field" in profile_prompt
     assert "without mapped columns must be marked unusable" in profile_prompt
+    profile_column_schema = client.responses.calls[0]["text"]["format"]["schema"][
+        "properties"
+    ]["regions"]["items"]["properties"]["columns"]["properties"]
+    assert {
+        "unit_price",
+        "material_name",
+        "material_category",
+        "service_name",
+        "service_category",
+        "provider_state",
+        "provider_category",
+    }.issubset(profile_column_schema)
+    extraction_prompt = client.responses.calls[1]["input"][0]["content"].lower()
+    assert "case-and-whitespace normalization" in extraction_prompt
+    assert "contractor assigned" in extraction_prompt
+    assert "every clearly reviewable body row" in extraction_prompt
+    assert "never replace" in extraction_prompt
+    assert "source provider name" in extraction_prompt
     for call in client.responses.calls:
         assert call["model"] == "gpt-5.4-nano"
         assert call["store"] is True

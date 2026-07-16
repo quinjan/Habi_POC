@@ -6,6 +6,8 @@ export type ProjectWorkspaceListItem = components["schemas"]["ProjectWorkspaceLi
 export type ProjectWorkspacePurchaseLinesView =
   components["schemas"]["ProjectWorkspacePurchaseLinesView"];
 export type ProjectWorkspaceRead = components["schemas"]["ProjectWorkspaceRead"];
+export type EntityMemoryListView = components["schemas"]["EntityMemoryListView"];
+export type ProviderMemoryListView = components["schemas"]["ProviderMemoryListView"];
 export type CandidateDecisionRequest = components["schemas"]["CandidateDecisionRequest"];
 export type ExtractedCandidateRead = components["schemas"]["ExtractedCandidateRead"];
 export type ImportReviewBatchResponse = components["schemas"]["ImportReviewBatchResponse"];
@@ -23,6 +25,12 @@ export type ReviewBatchTaxonomyMappingRequest =
 export type ReviewedPurchaseLinePayload = components["schemas"]["ReviewedPurchaseLinePayload"];
 export type TaxonomyDecisionCreate = components["schemas"]["TaxonomyDecisionCreate"];
 export type TaxonomyNodeListRead = components["schemas"]["TaxonomyNodeListRead"];
+export type TaxonomyGateReviewerDraftSaveRequest =
+  components["schemas"]["TaxonomyGateReviewerDraftSaveRequest"];
+export type TaxonomyGateReviewerDraftSaveResponse =
+  components["schemas"]["TaxonomyGateReviewerDraftSaveResponse"];
+export type TaxonomyGateSelectionRequest =
+  components["schemas"]["TaxonomyGateSelectionRequest"];
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -44,6 +52,34 @@ export async function getProjectWorkspacePurchaseLines(
 ): Promise<ProjectWorkspacePurchaseLinesView> {
   return request<ProjectWorkspacePurchaseLinesView>(
     `/api/project-workspaces/${projectWorkspaceId}/purchase-lines`
+  );
+}
+
+export async function getProjectWorkspaceMaterials(
+  projectWorkspaceId: number
+): Promise<EntityMemoryListView> {
+  return request<EntityMemoryListView>(
+    `/api/project-workspaces/${projectWorkspaceId}/materials`
+  );
+}
+
+export async function getProjectWorkspaceServices(
+  projectWorkspaceId: number
+): Promise<EntityMemoryListView> {
+  return request<EntityMemoryListView>(
+    `/api/project-workspaces/${projectWorkspaceId}/services`
+  );
+}
+
+export async function getProjectWorkspaceProviders(
+  projectWorkspaceId: number,
+  roles: string[] = []
+): Promise<ProviderMemoryListView> {
+  const query = new URLSearchParams();
+  roles.forEach((role) => query.append("roles", role));
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return request<ProviderMemoryListView>(
+    `/api/project-workspaces/${projectWorkspaceId}/providers${suffix}`
   );
 }
 
@@ -146,6 +182,52 @@ export async function createTaxonomyDecision(
       method: "POST",
       body: JSON.stringify(payload)
     }
+  );
+}
+
+export async function saveTaxonomyGateReviewerDraft(
+  projectWorkspaceId: number,
+  reviewBatchId: number,
+  taxonomyGateId: number,
+  payload: TaxonomyGateReviewerDraftSaveRequest
+): Promise<TaxonomyGateReviewerDraftSaveResponse> {
+  return request<TaxonomyGateReviewerDraftSaveResponse>(
+    `/api/project-workspaces/${projectWorkspaceId}/review-batches/${reviewBatchId}/taxonomy-gates/${taxonomyGateId}/reviewer-draft`,
+    { method: "PUT", body: JSON.stringify(payload) }
+  );
+}
+
+export async function selectTaxonomyGateProposal(
+  projectWorkspaceId: number,
+  reviewBatchId: number,
+  taxonomyGateId: number,
+  payload: TaxonomyGateSelectionRequest
+): Promise<ReviewBatchDetail> {
+  return request<ReviewBatchDetail>(
+    `/api/project-workspaces/${projectWorkspaceId}/review-batches/${reviewBatchId}/taxonomy-gates/${taxonomyGateId}/selection`,
+    { method: "PUT", body: JSON.stringify(payload) }
+  );
+}
+
+export async function acceptTaxonomyGate(
+  projectWorkspaceId: number,
+  reviewBatchId: number,
+  taxonomyGateId: number
+): Promise<ReviewBatchDetail> {
+  return request<ReviewBatchDetail>(
+    `/api/project-workspaces/${projectWorkspaceId}/review-batches/${reviewBatchId}/taxonomy-gates/${taxonomyGateId}/accept`,
+    { method: "POST" }
+  );
+}
+
+export async function editAcceptedTaxonomyGate(
+  projectWorkspaceId: number,
+  reviewBatchId: number,
+  taxonomyGateId: number
+): Promise<ReviewBatchDetail> {
+  return request<ReviewBatchDetail>(
+    `/api/project-workspaces/${projectWorkspaceId}/review-batches/${reviewBatchId}/taxonomy-gates/${taxonomyGateId}/edit`,
+    { method: "POST" }
   );
 }
 

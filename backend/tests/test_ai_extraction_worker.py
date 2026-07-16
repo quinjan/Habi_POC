@@ -1,11 +1,17 @@
-def create_project(client):
+def create_project(
+    client,
+    *,
+    project_name="Arnaiz Residence Renovation",
+    contractor_assigned="Internal",
+):
     return client.post(
         "/api/project-workspaces",
         json={
-            "project_name": "Arnaiz Residence Renovation",
+            "project_name": project_name,
             "project_type": "Residential renovation",
             "location": "Makati City",
             "completion_year": 2025,
+            "contractor_assigned": contractor_assigned,
         },
     ).json()
 
@@ -39,6 +45,219 @@ class RaisingAiProvider:
         raise RuntimeError("provider unavailable")
 
 
+class ContextRecordingAiProvider:
+    def __init__(self):
+        self.memory_context = None
+
+    def extract_purchase_lines(
+        self,
+        *,
+        original_text: str,
+        source_submission_id: int,
+        memory_context: dict,
+    ):
+        self.memory_context = memory_context
+        return {"candidates": []}
+
+
+def seed_material_memory(client, project_workspace_id: int, *, name: str, category: str):
+    from backend.app.memory.models import Material, MemoryRecord
+    from backend.app.taxonomy.models import TaxonomyNode
+
+    top_level_name, subcategory_name = category.split(" / ")
+    with client.app.state.session_factory() as session:
+        top_level = TaxonomyNode(
+            project_workspace_id=project_workspace_id,
+            parent_id=None,
+            name=top_level_name,
+            normalized_name=top_level_name.casefold(),
+        )
+        session.add(top_level)
+        session.flush()
+        subcategory = TaxonomyNode(
+            project_workspace_id=project_workspace_id,
+            parent_id=top_level.id,
+            name=subcategory_name,
+            normalized_name=subcategory_name.casefold(),
+        )
+        session.add(subcategory)
+        session.flush()
+        record = MemoryRecord(
+            project_workspace_id=project_workspace_id,
+            record_type="material",
+            display_name=name,
+            normalized_name=" ".join(name.casefold().split()),
+            taxonomy_node_id=subcategory.id,
+            status="active",
+        )
+        session.add(record)
+        session.flush()
+        session.add(Material(memory_record_id=record.id))
+        session.commit()
+
+
+def seed_many_materials(client, project_workspace_id: int, names: list[str]):
+    from backend.app.memory.models import Material, MemoryRecord
+    from backend.app.taxonomy.models import TaxonomyNode
+
+    with client.app.state.session_factory() as session:
+        top_level = TaxonomyNode(
+            project_workspace_id=project_workspace_id,
+            parent_id=None,
+            name="Materials",
+            normalized_name="materials",
+        )
+        session.add(top_level)
+        session.flush()
+        subcategory = TaxonomyNode(
+            project_workspace_id=project_workspace_id,
+            parent_id=top_level.id,
+            name="General",
+            normalized_name="general",
+        )
+        session.add(subcategory)
+        session.flush()
+        for name in names:
+            record = MemoryRecord(
+                project_workspace_id=project_workspace_id,
+                record_type="material",
+                display_name=name,
+                normalized_name=" ".join(name.casefold().split()),
+                taxonomy_node_id=subcategory.id,
+                status="active",
+            )
+            session.add(record)
+            session.flush()
+            session.add(Material(memory_record_id=record.id))
+        session.commit()
+
+
+def test_ai_extraction_receives_only_selected_project_active_classification_memory(client):
+    from backend.app.processing.worker import run_once
+
+    selected_project = create_project(
+        client,
+        contractor_assigned="Quinlan Construction",
+    )
+    other_project = create_project(
+        client,
+        project_name="Ortigas Office Fit-Out",
+        contractor_assigned="Other Contractor",
+    )
+    seed_material_memory(
+        client,
+        selected_project["id"],
+        name="PVC pipe",
+        category="Plumbing / Pipes",
+    )
+    seed_material_memory(
+        client,
+        other_project["id"],
+        name="Copper wire",
+        category="Electrical / Wiring",
+    )
+    submission = create_free_form_submission(
+        client,
+        selected_project["id"],
+        "Need the prior PVC pipe classification; quantity 20, price PHP 1,500.",
+    )
+    provider = ContextRecordingAiProvider()
+
+    assert run_once(client.app.state.session_factory, ai_provider=provider) == 1
+
+    assert provider.memory_context == {
+        "contractor_assigned": "Quinlan Construction",
+        "taxonomy_paths": ["Plumbing / Pipes"],
+        "materials": [
+            {"name": "PVC pipe", "category_path": "Plumbing / Pipes"}
+        ],
+        "services": [],
+        "providers": [],
+    }
+    serialized_context = str(provider.memory_context)
+    assert "Copper wire" not in serialized_context
+    assert "20" not in serialized_context
+    assert "1500" not in serialized_context
+    assert "evidence" not in serialized_context.casefold()
+
+
+def test_ai_provider_matching_contractor_assigned_defaults_to_internal_before_review(client):
+    from backend.app.processing.worker import run_once
+
+    project = create_project(
+        client,
+        contractor_assigned="  Quinlan   Construction  ",
+    )
+    submission = create_free_form_submission(
+        client,
+        project["id"],
+        "Quinlan Construction installed the PVC pipe.",
+    )
+    source_submission_id = submission["source_submission"]["id"]
+    provider = FakeAiProvider(
+        [
+            {
+                "linked_concepts": [
+                    {
+                        "concept_type": "service",
+                        "name": "PVC pipe installation",
+                        "category_suggestion": {
+                            "top_level_category": "Services",
+                            "subcategory": "Pipe installation",
+                        },
+                    }
+                ],
+                "provider_state": "external",
+                "provider_name": "quinlan construction",
+                "provider_category_suggestion": {
+                    "top_level_category": "Providers",
+                    "subcategory": "General",
+                },
+                "confidence": 0.9,
+                "evidence": {
+                    "source_submission_id": source_submission_id,
+                    "locator": "manual_source_entry.original_text",
+                },
+            }
+        ]
+    )
+
+    assert run_once(client.app.state.session_factory, ai_provider=provider) == 1
+
+    job = get_job(client, project["id"], submission["processing_job"]["id"])
+    candidate = client.get(
+        f"/api/project-workspaces/{project['id']}/review-batches/{job['review_batch_id']}"
+    ).json()["candidates"][0]
+
+    assert candidate["proposed_payload"]["provider_state"] == "internal"
+
+
+def test_ai_memory_context_cap_prefers_source_token_overlap_and_reports_omissions(client):
+    from backend.app.processing.worker import run_once
+
+    project = create_project(client)
+    seed_many_materials(
+        client,
+        project["id"],
+        [f"Material {index:03d}" for index in range(101)] + ["Target pipe"],
+    )
+    submission = create_free_form_submission(client, project["id"], "Target pipe")
+    provider = ContextRecordingAiProvider()
+
+    assert run_once(client.app.state.session_factory, ai_provider=provider) == 1
+
+    material_names = [item["name"] for item in provider.memory_context["materials"]]
+    job = get_job(client, project["id"], submission["processing_job"]["id"])
+    assert len(material_names) == 100
+    assert material_names[0] == "Target pipe"
+    assert material_names[-1] == "Material 098"
+    assert job["diagnostics"]["memory_context_omitted_counts"] == {
+        "materials": 2,
+        "services": 0,
+        "providers": 0,
+    }
+
+
 def test_ai_candidate_validation_accepts_minimal_valid_purchase_line():
     from backend.app.processing.ai_extraction import validate_ai_candidates
 
@@ -66,6 +285,55 @@ def test_ai_candidate_validation_accepts_minimal_valid_purchase_line():
 
     assert len(valid) == 1
     assert dropped == 0
+
+
+def test_ai_candidate_validation_accepts_bundled_concepts_and_provider_state():
+    from backend.app.processing.ai_extraction import validate_ai_candidates
+
+    valid, dropped = validate_ai_candidates(
+        source_submission_id=10,
+        raw_candidates=[
+            {
+                "linked_concepts": [
+                    {
+                        "concept_type": "material",
+                        "name": "PVC pipe",
+                        "category_suggestion": {
+                            "top_level_category": "Plumbing",
+                            "subcategory": "Pipes",
+                        },
+                    },
+                    {
+                        "concept_type": "service",
+                        "name": "PVC pipe installation",
+                        "category_suggestion": {
+                            "top_level_category": "Trade services",
+                            "subcategory": "Pipe installation",
+                        },
+                    },
+                ],
+                "provider_state": "external",
+                "provider_name": "ABC Trading",
+                "provider_category_suggestion": {
+                    "top_level_category": "Providers",
+                    "subcategory": "General",
+                },
+                "currency_state": "unknown",
+                "confidence": 0.8,
+                "evidence": {
+                    "source_submission_id": 10,
+                    "locator": "manual_source_entry.original_text",
+                },
+            }
+        ],
+    )
+
+    assert dropped == 0
+    assert [concept["concept_type"] for concept in valid[0]["linked_concepts"]] == [
+        "material",
+        "service",
+    ]
+    assert valid[0]["provider_state"] == "external"
 
 
 def test_ai_candidate_validation_drops_candidates_without_complete_taxonomy():

@@ -1,6 +1,27 @@
 from fastapi.testclient import TestClient
 
 
+def accept_all_taxonomy_gates(
+    client: TestClient,
+    *,
+    project_workspace_id: int,
+    review_batch_id: int,
+) -> dict:
+    detail = client.get(
+        f"/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}"
+    ).json()
+    for candidate in detail["candidates"]:
+        for gate in candidate.get("taxonomy_gates", []):
+            if gate["active"] and gate["status"] != "accepted":
+                response = client.post(
+                    f"/api/project-workspaces/{project_workspace_id}/review-batches/"
+                    f"{review_batch_id}/taxonomy-gates/{gate['id']}/accept"
+                )
+                assert response.status_code == 200, response.json()
+                detail = response.json()
+    return detail
+
+
 def create_review_ready_manual_submission(
     client: TestClient,
     *,

@@ -2,7 +2,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
 from backend.tests.db import make_postgres_test_client
-from backend.tests.manual_submission_helpers import create_review_ready_manual_submission
+from backend.tests.manual_submission_helpers import (
+    accept_all_taxonomy_gates,
+    create_review_ready_manual_submission,
+)
 
 
 def make_client(_tmp_path):
@@ -19,6 +22,7 @@ def test_taxonomy_decision_is_project_scoped_and_rejects_cross_project_mapping(t
                 "project_type": "Commercial fit-out",
                 "location": "Pasig City",
                 "completion_year": 2024,
+                "contractor_assigned": "Internal",
             },
         ).json()
         other_project_node_id = create_taxonomy_path(
@@ -417,6 +421,7 @@ def test_taxonomy_leaf_listing_is_project_scoped_and_returns_two_level_paths(tmp
                 "project_type": "Commercial fit-out",
                 "location": "Pasig City",
                 "completion_year": 2024,
+                "contractor_assigned": "Internal",
             },
         ).json()
         local_leaf_id = create_taxonomy_path(
@@ -471,6 +476,11 @@ def test_rename_taxonomy_node_returns_updated_path_and_updates_live_purchase_lin
                     "provider_name": "ABC Trading",
                 },
             },
+            )
+        accept_all_taxonomy_gates(
+            client,
+            project_workspace_id=project["id"],
+            review_batch_id=submission["review_batch"]["id"],
         )
         client.post(
             f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/import"
@@ -492,7 +502,9 @@ def test_rename_taxonomy_node_returns_updated_path_and_updates_live_purchase_lin
         "parent_id": 1,
         "path": "Plumbing / Pipe Materials",
     }
-    assert purchase_lines.json()["items"][0]["category_path"] == "Plumbing / Pipe Materials"
+    assert purchase_lines.json()["items"][0]["linked_concepts"][0]["category_path"] == (
+        "Plumbing / Pipe Materials"
+    )
 
 
 def test_rename_taxonomy_node_rejects_duplicate_sibling_name_after_normalization(tmp_path):
@@ -599,6 +611,11 @@ def test_terminal_review_batch_rejects_taxonomy_decisions(tmp_path):
             candidate_id,
             top_level_category="Mechanical",
             subcategory="Pipe Materials",
+            )
+        accept_all_taxonomy_gates(
+            client,
+            project_workspace_id=project["id"],
+            review_batch_id=submission["review_batch"]["id"],
         )
         client.post(
             f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/candidates/{candidate_id}/decision",
@@ -859,6 +876,14 @@ def test_new_top_level_taxonomy_gate_stays_unready_until_category_path_is_review
                 },
             },
         )
+        before_acceptance = client.get(
+            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}"
+        )
+        accepted_gates = accept_all_taxonomy_gates(
+            client,
+            project_workspace_id=project["id"],
+            review_batch_id=submission["review_batch"]["id"],
+        )
         ready_batch = client.get(
             f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}"
         )
@@ -875,16 +900,20 @@ def test_new_top_level_taxonomy_gate_stays_unready_until_category_path_is_review
         "prior_rejection": None,
     }
     assert blocked_import.status_code == 400
-    assert blocked_import.json()["detail"] == "Approved candidates require a resolved category path"
+    assert blocked_import.json()["detail"] == (
+        "Each linked concept requires a resolved category path"
+    )
     assert taxonomy_decision.status_code == 201
     assert taxonomy_decision.json()["taxonomy_decisions"][0]["decision"] == "approved"
     assert taxonomy_decision.json()["taxonomy_decisions"][0]["resolved_taxonomy_node_id"] is not None
     assert reviewed_category.status_code == 200
+    assert before_acceptance.json()["review_batch"]["status"] == "review_in_progress"
+    assert accepted_gates["candidates"][0]["taxonomy_gates"][0]["status"] == "accepted"
     assert ready_batch.json()["review_batch"]["status"] == "ready_to_import"
     assert ready_batch.json()["candidates"][0]["taxonomy_gate"] is None
 
 
-def test_reviewer_supplied_category_path_imports_without_taxonomy_decision(tmp_path):
+def test_reviewer_supplied_category_path_requires_gate_acceptance(tmp_path):
     with make_client(tmp_path) as client:
         project, submission = create_manual_submission(client, "Arnaiz Residence Renovation")
         candidate_id = submission["candidates"][0]["id"]
@@ -911,6 +940,22 @@ def test_reviewer_supplied_category_path_imports_without_taxonomy_decision(tmp_p
                 },
             },
         )
+        blocked_import = client.post(
+            f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/import"
+        )
+        pending_gate = decision.json()["taxonomy_gates"][0]
+        client.put(
+            f"/api/project-workspaces/{project['id']}/review-batches/"
+            f"{submission['review_batch']['id']}/taxonomy-gates/{pending_gate['id']}/reviewer-draft",
+            json={
+                "top_level_category": "Plumbing",
+                "subcategory": "Pipes",
+            },
+        )
+        client.post(
+            f"/api/project-workspaces/{project['id']}/review-batches/"
+            f"{submission['review_batch']['id']}/taxonomy-gates/{pending_gate['id']}/accept",
+        )
         imported = client.post(
             f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/import"
         )
@@ -919,8 +964,12 @@ def test_reviewer_supplied_category_path_imports_without_taxonomy_decision(tmp_p
         )
 
     assert decision.status_code == 200
+    assert blocked_import.status_code == 400
+    assert blocked_import.json()["detail"] == "Approved candidates require an accepted taxonomy gate"
     assert imported.status_code == 200
-    assert purchase_lines.json()["items"][0]["category_path"] == "Plumbing / Pipes"
+    assert purchase_lines.json()["items"][0]["linked_concepts"][0]["category_path"] == (
+        "Plumbing / Pipes"
+    )
 
 
 def test_ready_to_import_requires_every_approved_candidate_to_satisfy_import_gates(tmp_path):
@@ -984,7 +1033,7 @@ def test_ready_to_import_requires_every_approved_candidate_to_satisfy_import_gat
     assert second_decision.status_code == 200
     assert batch.json()["review_batch"]["status"] == "review_in_progress"
     assert imported.status_code == 400
-    assert imported.json()["detail"] == "Approved candidates require a resolved category path"
+    assert imported.json()["detail"] == "Approved candidates require an accepted taxonomy gate"
 
 
 def create_manual_submission(client: TestClient, project_name: str):
@@ -995,6 +1044,7 @@ def create_manual_submission(client: TestClient, project_name: str):
             "project_type": "Residential renovation",
             "location": "Makati City",
             "completion_year": 2025,
+            "contractor_assigned": "Internal",
         },
     ).json()
     submission = create_review_ready_manual_submission(

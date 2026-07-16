@@ -1,7 +1,10 @@
 from fastapi.testclient import TestClient
 
 from backend.tests.db import make_postgres_test_client
-from backend.tests.manual_submission_helpers import create_review_ready_manual_submission
+from backend.tests.manual_submission_helpers import (
+    accept_all_taxonomy_gates,
+    create_review_ready_manual_submission,
+)
 
 
 def make_client(_tmp_path):
@@ -261,6 +264,12 @@ def test_imports_approved_survivor_once_and_promotes_merged_candidate_evidence(t
             },
         )
 
+        accept_all_taxonomy_gates(
+            client,
+            project_workspace_id=project["id"],
+            review_batch_id=submission["review_batch"]["id"],
+        )
+
         imported = client.post(
             f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/import"
         )
@@ -289,6 +298,7 @@ def create_project(client: TestClient):
             "project_type": "Residential renovation",
             "location": "Makati City",
             "completion_year": 2025,
+            "contractor_assigned": "Internal",
         },
     ).json()
 

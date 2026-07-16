@@ -11,6 +11,7 @@ class ProjectWorkspaceBase(BaseModel):
     completion_year: int | None = Field(default=None, ge=1900, le=2100)
     floor_area: str | None = Field(default=None, max_length=100)
     trade_scopes: list[str] = Field(default_factory=list)
+    contractor_assigned: str = Field(min_length=1, max_length=255)
     client_or_owner: str | None = Field(default=None, max_length=255)
     notes: str | None = Field(default=None, max_length=2000)
 
@@ -40,13 +41,21 @@ class ProjectWorkspaceList(BaseModel):
     items: list[ProjectWorkspaceListItem]
 
 
+class PurchaseLineConceptRead(BaseModel):
+    memory_record_id: int
+    concept_type: str
+    name: str
+    category_path: str
+
+
 class PurchaseLineRow(BaseModel):
     id: int
-    item_or_service_name: str
     line_type: str
+    linked_concepts: list[PurchaseLineConceptRead]
+    provider_state: str
     provider_name: str | None
-    provider_type: str
-    provider_role: str | None
+    provider_category_path: str | None
+    provider_roles: list[str]
     quantity: str | None
     unit: str | None
     unit_state: str
@@ -55,7 +64,6 @@ class PurchaseLineRow(BaseModel):
     price_state: str
     purchase_date: date | None
     date_state: str
-    category_path: str
     has_evidence: bool
     source_label: str
 
@@ -63,3 +71,25 @@ class PurchaseLineRow(BaseModel):
 class ProjectWorkspacePurchaseLinesView(BaseModel):
     project_workspace: ProjectWorkspaceListItem
     items: list[PurchaseLineRow]
+
+
+class EntityMemoryRow(BaseModel):
+    memory_record_id: int
+    name: str
+    category_path: str
+    linked_purchase_line_count: int
+    source_submission_count: int
+
+
+class ProviderMemoryRow(EntityMemoryRow):
+    roles: list[str]
+
+
+class EntityMemoryListView(BaseModel):
+    project_workspace: ProjectWorkspaceListItem
+    items: list[EntityMemoryRow]
+
+
+class ProviderMemoryListView(BaseModel):
+    project_workspace: ProjectWorkspaceListItem
+    items: list[ProviderMemoryRow]

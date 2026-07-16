@@ -59,7 +59,7 @@ def test_review_batch_draft_saves_included_and_excluded_candidates(tmp_path):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["review_batch"]["status"] == "ready_to_import"
+    assert body["review_batch"]["status"] == "review_in_progress"
     candidates = {candidate["id"]: candidate for candidate in body["candidates"]}
     assert candidates[submission["candidates"][0]["id"]]["decision"] == "approved"
     assert candidates[submission["candidates"][0]["id"]]["status"] == "approved_for_import"
@@ -67,6 +67,18 @@ def test_review_batch_draft_saves_included_and_excluded_candidates(tmp_path):
     assert candidates[second_candidate_id]["decision"] == "rejected"
     assert candidates[second_candidate_id]["status"] == "rejected_for_import"
     assert candidates[second_candidate_id]["reviewed_payload"] is None
+
+    resolved = client.post(
+        f"/api/project-workspaces/{project['id']}/review-batches/"
+        f"{submission['review_batch']['id']}/taxonomy-decisions",
+        json={
+            "decision": "approved",
+            "suggested_top_level_category": "Plumbing",
+            "suggested_subcategory": "Pipes",
+        },
+    )
+    assert resolved.status_code == 201
+    assert resolved.json()["review_batch"]["status"] == "ready_to_import"
 
 
 def test_review_batch_draft_rejects_included_candidate_without_category_path(tmp_path):
@@ -95,7 +107,9 @@ def test_review_batch_draft_rejects_included_candidate_without_category_path(tmp
         ).json()
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Included candidates require a resolved category path"
+    assert response.json()["detail"] == (
+        "Included candidates require valid linked concepts and resolved category paths"
+    )
     assert batch["candidates"][0]["decision"] is None
     assert batch["review_batch"]["status"] == "review_pending"
 
@@ -136,6 +150,7 @@ def create_manual_submission(client: TestClient):
             "project_type": "Residential renovation",
             "location": "Makati City",
             "completion_year": 2025,
+            "contractor_assigned": "Internal",
         },
     ).json()
     submission = create_review_ready_manual_submission(

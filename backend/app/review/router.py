@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,6 +16,7 @@ from backend.app.memory.models import (
     MemoryRecord,
     Provider,
     PurchaseLine,
+    PurchaseLineConceptLink,
     Service,
 )
 from backend.app.processing.models import ProcessingJob
@@ -39,9 +42,11 @@ from backend.app.review.models import (
 )
 from backend.app.review.schemas import (
     CandidateDecisionRequest,
+    CandidateTaxonomyGateRead,
     DuplicateCandidateGroupCreate,
     DuplicateCandidateGroupMembersRequest,
     DuplicateCandidateGroupRead,
+    ExistingMemoryMatchRead,
     ExtractedCandidateRead,
     ImportedPurchaseLine,
     ImportReviewBatchResponse,
@@ -51,14 +56,23 @@ from backend.app.review.schemas import (
     ReviewBatchTaxonomyMappingRequest,
     ReviewedPurchaseLinePayload,
     TaxonomyDecisionCreate,
+    TaxonomyDecisionRead,
     TaxonomyDefaultRead,
     TaxonomyGateRead,
+    TaxonomyGateReviewerDraftSaveRequest,
+    TaxonomyGateReviewerDraftSaveResponse,
+    TaxonomyGateSelectionRequest,
     TaxonomyNodeListRead,
     TaxonomyNodePathRead,
     TaxonomyNodeUpdate,
 )
 from backend.app.sources.models import SourceFile
-from backend.app.taxonomy.models import TaxonomyDecision, TaxonomyNode, normalize_taxonomy_name
+from backend.app.taxonomy.models import (
+    TaxonomyDecision,
+    TaxonomyGate,
+    TaxonomyNode,
+    normalize_taxonomy_name,
+)
 
 
 router = APIRouter(tags=["review-batches"])
@@ -131,7 +145,6 @@ def update_taxonomy_node(
     taxonomy_node.name = cleaned_name
     taxonomy_node.normalized_name = normalize_taxonomy_name(cleaned_name)
     session.flush()
-    _refresh_purchase_line_category_paths(session, project_workspace_id)
     session.commit()
     session.refresh(taxonomy_node)
     path = _taxonomy_node_path(session, taxonomy_node.id)
@@ -155,6 +168,9 @@ def get_review_batch(
     session: Session = Depends(get_session),
 ) -> ReviewBatchDetail:
     review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
+    for candidate in _get_batch_candidates(session, review_batch.id):
+        _ensure_candidate_taxonomy_gates(session, candidate)
+    session.commit()
     return _review_batch_detail(session, review_batch)
 
 
@@ -180,6 +196,8 @@ def decide_candidate(
     if candidate is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found")
 
+    _ensure_candidate_taxonomy_gates(session, candidate)
+
     try:
         apply_candidate_decision(
             session=session,
@@ -191,6 +209,7 @@ def decide_candidate(
             else None,
             merged_into_candidate_id=payload.merged_into_candidate_id,
         )
+        _ensure_candidate_taxonomy_gates(session, candidate)
     except TerminalReviewBatchError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -205,6 +224,251 @@ def decide_candidate(
     session.commit()
     session.refresh(candidate)
     return _candidate_read(session, candidate)
+
+
+@router.post(
+    "/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-gates/{taxonomy_gate_id}/accept",
+    response_model=ReviewBatchDetail,
+)
+def accept_taxonomy_gate(
+    project_workspace_id: int,
+    review_batch_id: int,
+    taxonomy_gate_id: int,
+    session: Session = Depends(get_session),
+) -> ReviewBatchDetail:
+    review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
+    _ensure_review_batch_editable_or_conflict(review_batch)
+    taxonomy_gate = session.scalar(
+        select(TaxonomyGate).where(
+            TaxonomyGate.id == taxonomy_gate_id,
+            TaxonomyGate.project_workspace_id == project_workspace_id,
+            TaxonomyGate.review_batch_id == review_batch_id,
+        )
+    )
+    if taxonomy_gate is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Taxonomy gate not found")
+    if not taxonomy_gate.active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Inactive taxonomy gates cannot be accepted",
+        )
+    if taxonomy_gate.status == "accepted":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Taxonomy gate is already accepted",
+        )
+
+    if taxonomy_gate.selected_proposal == "reviewer_draft":
+        top_level_category = taxonomy_gate.reviewer_draft_top_level_category
+        subcategory = taxonomy_gate.reviewer_draft_subcategory
+    else:
+        top_level_category = taxonomy_gate.original_top_level_category
+        subcategory = taxonomy_gate.original_subcategory
+    if not _present(top_level_category) or not _present(subcategory):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Taxonomy gate acceptance requires a selected two-level category path",
+        )
+
+    resolved_leaf = _approve_taxonomy_path(
+        session=session,
+        project_workspace_id=project_workspace_id,
+        top_level_category=top_level_category or "",
+        subcategory=subcategory or "",
+    )
+    decision = TaxonomyDecision(
+        project_workspace_id=project_workspace_id,
+        review_batch_id=review_batch_id,
+        suggested_top_level_category=taxonomy_gate.original_top_level_category,
+        suggested_subcategory=taxonomy_gate.original_subcategory,
+        normalized_suggested_path_key=taxonomy_gate.normalized_original_path_key,
+        decision=(
+            "approved" if taxonomy_gate.selected_proposal == "ai_suggestion" else "mapped"
+        ),
+        resolved_taxonomy_node_id=resolved_leaf.id,
+        taxonomy_gate_id=taxonomy_gate.id,
+        candidate_id=taxonomy_gate.candidate_id,
+        subject_type=taxonomy_gate.subject_type,
+        subject_name=taxonomy_gate.subject_name,
+        accepted_source=taxonomy_gate.selected_proposal,
+    )
+    session.add(decision)
+    taxonomy_gate.status = "accepted"
+    _apply_accepted_gate_category(
+        session=session,
+        taxonomy_gate=taxonomy_gate,
+        top_level_category=top_level_category or "",
+        subcategory=subcategory or "",
+    )
+    session.flush()
+    recalculate_review_batch_status(session=session, review_batch=review_batch)
+    session.commit()
+    session.refresh(review_batch)
+    return _review_batch_detail(session, review_batch)
+
+
+@router.put(
+    "/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-gates/{taxonomy_gate_id}/reviewer-draft",
+    response_model=TaxonomyGateReviewerDraftSaveResponse,
+)
+def save_taxonomy_gate_reviewer_draft(
+    project_workspace_id: int,
+    review_batch_id: int,
+    taxonomy_gate_id: int,
+    payload: TaxonomyGateReviewerDraftSaveRequest,
+    session: Session = Depends(get_session),
+) -> TaxonomyGateReviewerDraftSaveResponse:
+    review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
+    _ensure_review_batch_editable_or_conflict(review_batch)
+    taxonomy_gate = session.scalar(
+        select(TaxonomyGate).where(
+            TaxonomyGate.id == taxonomy_gate_id,
+            TaxonomyGate.project_workspace_id == project_workspace_id,
+            TaxonomyGate.review_batch_id == review_batch_id,
+        )
+    )
+    if taxonomy_gate is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Taxonomy gate not found")
+    if not taxonomy_gate.active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Inactive taxonomy gates cannot be changed",
+        )
+    if taxonomy_gate.status == "accepted":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Accepted taxonomy gates must be edited before saving a draft",
+        )
+
+    taxonomy_gate.reviewer_draft_top_level_category = payload.top_level_category.strip()
+    taxonomy_gate.reviewer_draft_subcategory = payload.subcategory.strip()
+    taxonomy_gate.selected_proposal = "reviewer_draft"
+    taxonomy_gate.status = "needs_decision"
+    affected_count = 0
+    if payload.apply_to_similar:
+        similar_pending_gates = list(
+            session.scalars(
+                select(TaxonomyGate).where(
+                    TaxonomyGate.review_batch_id == review_batch_id,
+                    TaxonomyGate.id != taxonomy_gate.id,
+                    TaxonomyGate.subject_type == taxonomy_gate.subject_type,
+                    TaxonomyGate.normalized_original_path_key
+                    == taxonomy_gate.normalized_original_path_key,
+                    TaxonomyGate.status == "needs_decision",
+                    TaxonomyGate.active.is_(True),
+                )
+            )
+        )
+        for similar_gate in similar_pending_gates:
+            similar_gate.reviewer_draft_top_level_category = payload.top_level_category.strip()
+            similar_gate.reviewer_draft_subcategory = payload.subcategory.strip()
+            similar_gate.selected_proposal = "reviewer_draft"
+        affected_count = len(similar_pending_gates)
+    recalculate_review_batch_status(session=session, review_batch=review_batch)
+    session.commit()
+    session.refresh(review_batch)
+    return TaxonomyGateReviewerDraftSaveResponse(
+        review_batch=_review_batch_detail(session, review_batch),
+        affected_count=affected_count,
+    )
+
+
+@router.put(
+    "/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-gates/{taxonomy_gate_id}/selection",
+    response_model=ReviewBatchDetail,
+)
+def select_taxonomy_gate_proposal(
+    project_workspace_id: int,
+    review_batch_id: int,
+    taxonomy_gate_id: int,
+    payload: TaxonomyGateSelectionRequest,
+    session: Session = Depends(get_session),
+) -> ReviewBatchDetail:
+    review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
+    _ensure_review_batch_editable_or_conflict(review_batch)
+    taxonomy_gate = session.scalar(
+        select(TaxonomyGate).where(
+            TaxonomyGate.id == taxonomy_gate_id,
+            TaxonomyGate.project_workspace_id == project_workspace_id,
+            TaxonomyGate.review_batch_id == review_batch_id,
+        )
+    )
+    if taxonomy_gate is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Taxonomy gate not found")
+    if not taxonomy_gate.active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Inactive taxonomy gates cannot be changed",
+        )
+    if taxonomy_gate.status == "accepted":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Accepted taxonomy gates must be edited before changing selection",
+        )
+    if payload.selected_proposal == "reviewer_draft" and not _present(
+        taxonomy_gate.reviewer_draft_top_level_category
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Taxonomy gate has no reviewer draft to select",
+        )
+
+    taxonomy_gate.selected_proposal = payload.selected_proposal
+    taxonomy_gate.status = "needs_decision"
+    recalculate_review_batch_status(session=session, review_batch=review_batch)
+    session.commit()
+    session.refresh(review_batch)
+    return _review_batch_detail(session, review_batch)
+
+
+@router.post(
+    "/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-gates/{taxonomy_gate_id}/edit",
+    response_model=ReviewBatchDetail,
+)
+def edit_accepted_taxonomy_gate(
+    project_workspace_id: int,
+    review_batch_id: int,
+    taxonomy_gate_id: int,
+    session: Session = Depends(get_session),
+) -> ReviewBatchDetail:
+    review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
+    _ensure_review_batch_editable_or_conflict(review_batch)
+    taxonomy_gate = session.scalar(
+        select(TaxonomyGate).where(
+            TaxonomyGate.id == taxonomy_gate_id,
+            TaxonomyGate.project_workspace_id == project_workspace_id,
+            TaxonomyGate.review_batch_id == review_batch_id,
+        )
+    )
+    if taxonomy_gate is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Taxonomy gate not found")
+    if not taxonomy_gate.active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Inactive taxonomy gates cannot be changed",
+        )
+    if taxonomy_gate.status != "accepted":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only accepted taxonomy gates can be edited",
+        )
+
+    active_decisions = list(
+        session.scalars(
+            select(TaxonomyDecision).where(
+                TaxonomyDecision.taxonomy_gate_id == taxonomy_gate.id,
+                TaxonomyDecision.superseded.is_(False),
+            )
+        )
+    )
+    for decision in active_decisions:
+        decision.superseded = True
+        decision.superseded_at = datetime.now(timezone.utc)
+    taxonomy_gate.status = "needs_decision"
+    recalculate_review_batch_status(session=session, review_batch=review_batch)
+    session.commit()
+    session.refresh(review_batch)
+    return _review_batch_detail(session, review_batch)
 
 
 @router.put(
@@ -625,7 +889,7 @@ def import_review_batch(
         if approved_candidate_has_unresolved_taxonomy_gate(session, candidate):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Approved candidates require a resolved taxonomy gate",
+                detail="Approved candidates require an accepted taxonomy gate",
             )
         purchase_line = _import_purchase_line(
             session=session,
@@ -711,13 +975,14 @@ def _review_batch_detail(session: Session, review_batch: ReviewBatch) -> ReviewB
             session=session,
             review_batch=review_batch,
         ),
-        taxonomy_decisions=list(
-            session.scalars(
+        taxonomy_decisions=[
+            _taxonomy_decision_read(session, decision)
+            for decision in session.scalars(
                 select(TaxonomyDecision)
                 .where(TaxonomyDecision.review_batch_id == review_batch.id)
                 .order_by(TaxonomyDecision.id)
             )
-        ),
+        ],
     )
 
 
@@ -731,19 +996,17 @@ def _batch_has_taxonomy_suggestion(
     for candidate in _get_batch_candidates(session, review_batch_id):
         if candidate.project_workspace_id != project_workspace_id:
             continue
-        suggestion = candidate.proposed_payload.get("category_suggestion")
-        if not isinstance(suggestion, dict):
-            continue
-        top_level_category = suggestion.get("top_level_category")
-        subcategory = suggestion.get("subcategory")
-        if not isinstance(top_level_category, str) or not _present(top_level_category):
-            continue
-        candidate_path_key = normalized_taxonomy_path_key(
-            top_level_category,
-            subcategory if isinstance(subcategory, str) else None,
-        )
-        if candidate_path_key == normalized_suggested_path_key:
-            return True
+        for _, _, suggestion in _candidate_taxonomy_subjects(candidate):
+            top_level_category = suggestion.get("top_level_category")
+            subcategory = suggestion.get("subcategory")
+            if not isinstance(top_level_category, str) or not _present(top_level_category):
+                continue
+            candidate_path_key = normalized_taxonomy_path_key(
+                top_level_category,
+                subcategory if isinstance(subcategory, str) else None,
+            )
+            if candidate_path_key == normalized_suggested_path_key:
+                return True
     return False
 
 
@@ -806,6 +1069,8 @@ def _candidate_read(session: Session, candidate: ExtractedCandidate) -> Extracte
         update={
             "source_file": source_file_summary,
             "taxonomy_gate": _taxonomy_gate_for_candidate(session, candidate),
+            "taxonomy_gates": _taxonomy_gates_for_candidate(session, candidate),
+            "existing_memory_matches": _existing_memory_matches(session, candidate),
             "taxonomy_default": _taxonomy_default_for_candidate(session, candidate),
         }
     )
@@ -907,20 +1172,53 @@ def _ensure_review_batch_editable_or_conflict(review_batch: ReviewBatch) -> None
 
 
 def _validate_importable_payload(payload: ReviewedPurchaseLinePayload) -> None:
-    if payload.line_type not in {"material", "service"}:
+    concepts = payload.concepts()
+    concept_types = {concept.concept_type for concept in concepts}
+    if len(concepts) not in {1, 2} or len(concept_types) != len(concepts):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Approved candidates require a Material or Service line type",
+            detail="Approved candidates require one Material or Service, or one of each",
         )
-    if not _present(payload.name):
+    if len(concepts) == 2 and concept_types != {"material", "service"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Approved candidates require an item or service name",
+            detail="Bundled Purchase Lines require exactly one Material and one Service",
         )
-    if not _present(payload.top_level_category) or not _present(payload.subcategory):
+    for concept in concepts:
+        if not _present(concept.name):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Approved candidates require a linked concept name",
+            )
+        if not _present(concept.top_level_category) or not _present(concept.subcategory):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Each linked concept requires a resolved category path",
+            )
+    if payload.provider_state == "external":
+        if not _present(payload.provider_name):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="External Provider State requires a Provider name",
+            )
+        if not _present(payload.provider_top_level_category) or not _present(
+            payload.provider_subcategory
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="External Providers require their own resolved category path",
+            )
+    if payload.provider_state == "unknown" and any(
+        _present(value)
+        for value in (
+            payload.provider_name,
+            payload.provider_top_level_category,
+            payload.provider_subcategory,
+        )
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Approved candidates require a resolved category path",
+            detail="Unknown Provider State cannot include Provider details",
         )
 
 
@@ -931,50 +1229,73 @@ def _import_purchase_line(
     source_evidence: CandidateSourceEvidence,
     payload: ReviewedPurchaseLinePayload,
 ) -> PurchaseLine:
-    top_level = _get_or_create_taxonomy_node(
-        session=session,
-        project_workspace_id=project_workspace_id,
-        name=payload.top_level_category or "",
-        parent_id=None,
-    )
-    subcategory = _get_or_create_taxonomy_node(
-        session=session,
-        project_workspace_id=project_workspace_id,
-        name=payload.subcategory or "",
-        parent_id=top_level.id,
-    )
-    category_path = f"{top_level.name} / {subcategory.name}"
-
-    item_record = _get_or_create_entity_record(
-        session=session,
-        project_workspace_id=project_workspace_id,
-        record_type=payload.line_type or "material",
-        display_name=payload.name or "",
-        taxonomy_node_id=subcategory.id,
-    )
-    if payload.line_type == "material":
-        _ensure_type_record(session, Material, item_record.id)
-    else:
-        _ensure_type_record(session, Service, item_record.id)
+    concept_records: list[tuple[str, MemoryRecord]] = []
+    for concept in payload.concepts():
+        top_level = _get_or_create_taxonomy_node(
+            session=session,
+            project_workspace_id=project_workspace_id,
+            name=concept.top_level_category or "",
+            parent_id=None,
+        )
+        subcategory = _get_or_create_taxonomy_node(
+            session=session,
+            project_workspace_id=project_workspace_id,
+            name=concept.subcategory or "",
+            parent_id=top_level.id,
+        )
+        concept_record = _get_or_create_entity_record(
+            session=session,
+            project_workspace_id=project_workspace_id,
+            record_type=concept.concept_type,
+            display_name=concept.name or "",
+            taxonomy_node_id=subcategory.id,
+        )
+        _ensure_type_record(
+            session,
+            Material if concept.concept_type == "material" else Service,
+            concept_record.id,
+        )
+        concept_records.append((concept.concept_type, concept_record))
 
     provider_record = None
-    provider_name = _clean(payload.provider_name)
-    if provider_name is not None:
+    provider_state = _resolved_provider_state(
+        session=session,
+        project_workspace_id=project_workspace_id,
+        payload=payload,
+    )
+    provider_name = _clean(payload.provider_name) if provider_state == "external" else None
+    if provider_state == "external" and provider_name is not None:
+        provider_top_level_name = payload.provider_top_level_category or "Providers"
+        provider_subcategory_name = payload.provider_subcategory or "General"
+        provider_top_level = _get_or_create_taxonomy_node(
+            session=session,
+            project_workspace_id=project_workspace_id,
+            name=provider_top_level_name,
+            parent_id=None,
+        )
+        provider_subcategory = _get_or_create_taxonomy_node(
+            session=session,
+            project_workspace_id=project_workspace_id,
+            name=provider_subcategory_name,
+            parent_id=provider_top_level.id,
+        )
         provider_record = _get_or_create_entity_record(
             session=session,
             project_workspace_id=project_workspace_id,
             record_type="provider",
             display_name=provider_name,
-            taxonomy_node_id=subcategory.id,
+            taxonomy_node_id=provider_subcategory.id,
         )
         _ensure_type_record(session, Provider, provider_record.id)
 
+    primary_record = concept_records[0][1]
+    purchase_display_name = " + ".join(record.display_name for _, record in concept_records)
     purchase_record = MemoryRecord(
         project_workspace_id=project_workspace_id,
         record_type="purchase_line",
-        display_name=payload.name or "",
-        normalized_name=_normalize(payload.name or ""),
-        taxonomy_node_id=subcategory.id,
+        display_name=purchase_display_name,
+        normalized_name=_normalize(purchase_display_name),
+        taxonomy_node_id=primary_record.taxonomy_node_id,
         status="active",
     )
     session.add(purchase_record)
@@ -990,7 +1311,10 @@ def _import_purchase_line(
     session.add(evidence)
     session.flush()
 
-    for record_id in [purchase_record.id, item_record.id, provider_record.id if provider_record else None]:
+    evidence_record_ids = [record.id for _, record in concept_records]
+    if provider_record is not None:
+        evidence_record_ids.append(provider_record.id)
+    for record_id in [purchase_record.id, *evidence_record_ids]:
         if record_id is not None:
             session.add(
                 MemoryRecordEvidenceLink(
@@ -1015,13 +1339,8 @@ def _import_purchase_line(
     purchase_line = PurchaseLine(
         project_workspace_id=project_workspace_id,
         memory_record_id=purchase_record.id,
-        item_memory_record_id=item_record.id,
         provider_memory_record_id=provider_record.id if provider_record else None,
-        item_or_service_name=payload.name or "",
-        line_type=payload.line_type or "material",
-        provider_name=provider_name,
-        provider_type="external" if provider_name is not None else "unknown",
-        provider_role=_provider_role(payload.line_type, provider_name),
+        provider_state=provider_state,
         quantity=_clean(payload.quantity),
         unit=_clean(payload.unit),
         unit_state="known" if _present(payload.unit) else "unknown",
@@ -1030,11 +1349,37 @@ def _import_purchase_line(
         price_state="known" if price is not None else "unknown",
         purchase_date=payload.purchase_date,
         date_state="known" if payload.purchase_date is not None else "unknown",
-        category_path=category_path,
     )
     session.add(purchase_line)
     session.flush()
+    for concept_type, concept_record in concept_records:
+        session.add(
+            PurchaseLineConceptLink(
+                purchase_line_id=purchase_line.id,
+                concept_memory_record_id=concept_record.id,
+                concept_type=concept_type,
+            )
+        )
+    session.flush()
     return purchase_line
+
+
+def _resolved_provider_state(
+    *,
+    session: Session,
+    project_workspace_id: int,
+    payload: ReviewedPurchaseLinePayload,
+) -> str:
+    if payload.provider_state is not None:
+        return payload.provider_state
+    provider_name = _clean(payload.provider_name)
+    if provider_name is None:
+        return "unknown"
+    project = session.get(ProjectWorkspace, project_workspace_id)
+    contractor = _normalize(project.contractor_assigned) if project is not None else "internal"
+    if contractor != "internal" and _normalize(provider_name) == contractor:
+        return "internal"
+    return "external"
 
 
 def _promote_merged_candidate_evidence(
@@ -1070,11 +1415,14 @@ def _promote_merged_candidate_evidence(
         session.add(evidence)
         session.flush()
 
-        record_ids = [
-            purchase_line.memory_record_id,
-            purchase_line.item_memory_record_id,
-            purchase_line.provider_memory_record_id,
-        ]
+        record_ids = [purchase_line.memory_record_id, purchase_line.provider_memory_record_id]
+        record_ids.extend(
+            session.scalars(
+                select(PurchaseLineConceptLink.concept_memory_record_id).where(
+                    PurchaseLineConceptLink.purchase_line_id == purchase_line.id
+                )
+            )
+        )
         for record_id in record_ids:
             if record_id is not None:
                 session.add(
@@ -1226,12 +1574,6 @@ def _ensure_type_record(session: Session, model: type[Material] | type[Service] 
         session.flush()
 
 
-def _provider_role(line_type: str | None, provider_name: str | None) -> str | None:
-    if provider_name is None:
-        return None
-    return "material_supplier" if line_type == "material" else "service_provider"
-
-
 def _present(value: str | None) -> bool:
     return value is not None and value.strip() != ""
 
@@ -1253,10 +1595,410 @@ def _taxonomy_gate_for_candidate(
 ) -> TaxonomyGateRead | None:
     if _candidate_reviewed_category_path(candidate) is not None:
         return None
+    subjects = _candidate_taxonomy_subjects(candidate)
+    if len(subjects) != 1 or candidate.proposed_payload.get("linked_concepts"):
+        return None
+    return _taxonomy_gate_for_suggestion(session, candidate, subjects[0][2])
+
+
+def _taxonomy_gates_for_candidate(
+    session: Session,
+    candidate: ExtractedCandidate,
+) -> list[CandidateTaxonomyGateRead]:
+    _ensure_candidate_taxonomy_gates(session, candidate)
+    persisted_gates = list(
+        session.scalars(
+            select(TaxonomyGate)
+            .where(
+                TaxonomyGate.candidate_id == candidate.id,
+                TaxonomyGate.active.is_(True),
+            )
+            .order_by(TaxonomyGate.id)
+        )
+    )
+    if persisted_gates:
+        return [_persisted_taxonomy_gate_read(session, gate) for gate in persisted_gates]
+
+    reviewed_subjects = _reviewed_taxonomy_subjects(candidate)
+    gates: list[CandidateTaxonomyGateRead] = []
+    for subject_type, subject_name, suggestion in _candidate_taxonomy_subjects(candidate):
+        reviewed_subject = reviewed_subjects.get(subject_type)
+        if reviewed_subject is not None:
+            subject_name, reviewed_path_key = reviewed_subject
+            suggestion_path_key = normalized_taxonomy_path_key(
+                str(suggestion.get("top_level_category") or ""),
+                suggestion.get("subcategory")
+                if isinstance(suggestion.get("subcategory"), str)
+                else None,
+            )
+            if reviewed_path_key != suggestion_path_key:
+                continue
+        if _existing_memory_record(
+            session,
+            candidate.project_workspace_id,
+            subject_type,
+            subject_name,
+        ) is not None:
+            continue
+        gate = _taxonomy_gate_for_suggestion(session, candidate, suggestion)
+        if gate is not None:
+            gates.append(
+                CandidateTaxonomyGateRead(
+                    subject_type=subject_type,
+                    subject_name=subject_name,
+                    **gate.model_dump(),
+                )
+            )
+    return gates
+
+
+def _ensure_candidate_taxonomy_gates(
+    session: Session,
+    candidate: ExtractedCandidate,
+) -> None:
+    existing_gates = {
+        gate.subject_type: gate
+        for gate in session.scalars(
+            select(TaxonomyGate).where(TaxonomyGate.candidate_id == candidate.id)
+        )
+    }
+    relevant_subject_types: set[str] = set()
+    for subject_type, subject_name, suggestion in _active_candidate_taxonomy_subjects(candidate):
+        relevant_subject_types.add(subject_type)
+        existing_gate = existing_gates.get(subject_type)
+        if existing_gate is not None:
+            existing_gate.active = True
+            existing_gate.subject_name = subject_name
+            existing_gate.normalized_subject_name = _normalize(subject_name)
+            suggestion_top_level = suggestion.get("top_level_category")
+            suggestion_subcategory = suggestion.get("subcategory")
+            if (
+                existing_gate.original_subcategory is None
+                and isinstance(suggestion_top_level, str)
+                and _present(suggestion_top_level)
+                and isinstance(suggestion_subcategory, str)
+                and _present(suggestion_subcategory)
+            ):
+                existing_gate.original_top_level_category = suggestion_top_level.strip()
+                existing_gate.original_subcategory = suggestion_subcategory.strip()
+                existing_gate.normalized_original_path_key = normalized_taxonomy_path_key(
+                    suggestion_top_level, suggestion_subcategory
+                )
+            continue
+        top_level_category = suggestion.get("top_level_category")
+        subcategory = suggestion.get("subcategory")
+        if not isinstance(top_level_category, str) or not _present(top_level_category):
+            continue
+        session.add(
+            TaxonomyGate(
+                project_workspace_id=candidate.project_workspace_id,
+                review_batch_id=candidate.review_batch_id,
+                candidate_id=candidate.id,
+                subject_type=subject_type,
+                subject_name=subject_name,
+                normalized_subject_name=_normalize(subject_name),
+                original_top_level_category=top_level_category.strip(),
+                original_subcategory=(
+                    subcategory.strip()
+                    if isinstance(subcategory, str) and _present(subcategory)
+                    else None
+                ),
+                normalized_original_path_key=normalized_taxonomy_path_key(
+                    top_level_category,
+                    subcategory if isinstance(subcategory, str) else None,
+                ),
+                selected_proposal="ai_suggestion",
+                status="needs_decision",
+                active=True,
+            )
+        )
+    for subject_type, existing_gate in existing_gates.items():
+        if subject_type not in relevant_subject_types:
+            existing_gate.active = False
+    session.flush()
+
+
+def _active_candidate_taxonomy_subjects(
+    candidate: ExtractedCandidate,
+) -> list[tuple[str, str, dict]]:
+    proposed_subjects = {
+        subject_type: (subject_name, suggestion)
+        for subject_type, subject_name, suggestion in _candidate_taxonomy_subjects(candidate)
+    }
+    if candidate.decision != "approved" or candidate.reviewed_payload is None:
+        return [
+            (subject_type, subject_name, suggestion)
+            for subject_type, (subject_name, suggestion) in proposed_subjects.items()
+        ]
+
+    payload = ReviewedPurchaseLinePayload.model_validate(candidate.reviewed_payload)
+    subjects: list[tuple[str, str, dict]] = []
+    for concept in payload.concepts():
+        if not _present(concept.name):
+            continue
+        proposed = proposed_subjects.get(concept.concept_type)
+        suggestion = (
+            proposed[1]
+            if proposed is not None
+            else {
+                "top_level_category": concept.top_level_category,
+                "subcategory": concept.subcategory,
+            }
+        )
+        subjects.append((concept.concept_type, concept.name or "", suggestion))
+    if payload.provider_state == "external" and _present(payload.provider_name):
+        proposed = proposed_subjects.get("provider")
+        suggestion = (
+            proposed[1]
+            if proposed is not None
+            else {
+                "top_level_category": payload.provider_top_level_category,
+                "subcategory": payload.provider_subcategory,
+            }
+        )
+        subjects.append(("provider", payload.provider_name or "", suggestion))
+    return subjects
+
+
+def _apply_accepted_gate_category(
+    *,
+    session: Session,
+    taxonomy_gate: TaxonomyGate,
+    top_level_category: str,
+    subcategory: str,
+) -> None:
+    candidate = session.get(ExtractedCandidate, taxonomy_gate.candidate_id)
+    if candidate is None or candidate.reviewed_payload is None:
+        return
+    payload = {**candidate.reviewed_payload}
+    if taxonomy_gate.subject_type in {"material", "service"}:
+        linked_concepts = payload.get("linked_concepts")
+        if isinstance(linked_concepts, list) and linked_concepts:
+            payload["linked_concepts"] = [
+                {
+                    **concept,
+                    **(
+                        {
+                            "top_level_category": top_level_category.strip(),
+                            "subcategory": subcategory.strip(),
+                        }
+                        if isinstance(concept, dict)
+                        and concept.get("concept_type") == taxonomy_gate.subject_type
+                        else {}
+                    ),
+                }
+                if isinstance(concept, dict)
+                else concept
+                for concept in linked_concepts
+            ]
+        elif payload.get("line_type") == taxonomy_gate.subject_type:
+            payload["top_level_category"] = top_level_category.strip()
+            payload["subcategory"] = subcategory.strip()
+    elif taxonomy_gate.subject_type == "provider":
+        payload["provider_top_level_category"] = top_level_category.strip()
+        payload["provider_subcategory"] = subcategory.strip()
+    candidate.reviewed_payload = ReviewedPurchaseLinePayload.model_validate(payload).model_dump(
+        mode="json"
+    )
+
+
+def _persisted_taxonomy_gate_read(
+    session: Session,
+    gate: TaxonomyGate,
+) -> CandidateTaxonomyGateRead:
+    original_path = _display_taxonomy_path(
+        gate.original_top_level_category, gate.original_subcategory
+    )
+    reviewer_draft_path = (
+        _display_taxonomy_path(
+            gate.reviewer_draft_top_level_category,
+            gate.reviewer_draft_subcategory,
+        )
+        if _present(gate.reviewer_draft_top_level_category)
+        else None
+    )
+    selected_path = (
+        reviewer_draft_path
+        if gate.selected_proposal == "reviewer_draft" and reviewer_draft_path is not None
+        else original_path
+    )
+    history = list(
+        session.scalars(
+            select(TaxonomyDecision)
+            .where(TaxonomyDecision.taxonomy_gate_id == gate.id)
+            .order_by(TaxonomyDecision.id)
+        )
+    )
+    active_decision = next((decision for decision in reversed(history) if not decision.superseded), None)
+    accepted_path = (
+        _taxonomy_node_path(session, active_decision.resolved_taxonomy_node_id)
+        if active_decision is not None and active_decision.resolved_taxonomy_node_id is not None
+        else None
+    )
+    return CandidateTaxonomyGateRead(
+        id=gate.id,
+        active=gate.active,
+        subject_type=gate.subject_type,
+        subject_name=gate.subject_name,
+        status=gate.status,
+        reason="candidate_acceptance_required" if gate.status == "needs_decision" else None,
+        suggested_category_path=original_path,
+        original_ai_category_path=original_path,
+        reviewer_draft_category_path=reviewer_draft_path,
+        selected_proposal=gate.selected_proposal,
+        selected_category_path=selected_path,
+        resolved_category_path=accepted_path,
+        accepted_category_path=accepted_path,
+        decision=active_decision.decision if active_decision is not None else None,
+        taxonomy_decision_id=active_decision.id if active_decision is not None else None,
+        accepted_source=active_decision.accepted_source if active_decision is not None else None,
+        decision_history=[_taxonomy_decision_read(session, item) for item in history],
+    )
+
+
+def _taxonomy_decision_read(
+    session: Session,
+    decision: TaxonomyDecision,
+) -> TaxonomyDecisionRead:
+    return TaxonomyDecisionRead.model_validate(decision).model_copy(
+        update={
+            "accepted_category_path": (
+                _taxonomy_node_path(session, decision.resolved_taxonomy_node_id)
+                if decision.resolved_taxonomy_node_id is not None
+                else None
+            )
+        }
+    )
+
+
+def _existing_memory_matches(
+    session: Session,
+    candidate: ExtractedCandidate,
+) -> list[ExistingMemoryMatchRead]:
+    matches: list[ExistingMemoryMatchRead] = []
+    seen: set[tuple[str, int]] = set()
+    for subject_type, subject_name, _suggestion in _candidate_taxonomy_subjects(candidate):
+        record = _existing_memory_record(
+            session,
+            candidate.project_workspace_id,
+            subject_type,
+            subject_name,
+        )
+        if record is None or (subject_type, record.id) in seen:
+            continue
+        seen.add((subject_type, record.id))
+        category_path = _taxonomy_node_path(session, record.taxonomy_node_id)
+        if category_path is None:
+            continue
+        matches.append(
+            ExistingMemoryMatchRead(
+                subject_type=subject_type,
+                subject_name=record.display_name,
+                category_path=category_path,
+            )
+        )
+    return matches
+
+
+def _existing_memory_record(
+    session: Session,
+    project_workspace_id: int,
+    subject_type: str,
+    subject_name: str,
+) -> MemoryRecord | None:
+    return session.scalar(
+        select(MemoryRecord).where(
+            MemoryRecord.project_workspace_id == project_workspace_id,
+            MemoryRecord.record_type == subject_type,
+            MemoryRecord.normalized_name == _normalize(subject_name),
+            MemoryRecord.status == "active",
+        )
+    )
+
+
+def _candidate_taxonomy_subjects(
+    candidate: ExtractedCandidate,
+) -> list[tuple[str, str, dict]]:
+    subjects: list[tuple[str, str, dict]] = []
+    linked_concepts = candidate.proposed_payload.get("linked_concepts")
+    if isinstance(linked_concepts, list):
+        for concept in linked_concepts:
+            if not isinstance(concept, dict):
+                continue
+            concept_type = concept.get("concept_type")
+            name = concept.get("name")
+            suggestion = concept.get("category_suggestion")
+            if (
+                concept_type in {"material", "service"}
+                and isinstance(name, str)
+                and _present(name)
+                and isinstance(suggestion, dict)
+            ):
+                subjects.append((concept_type, name.strip(), suggestion))
+        if candidate.proposed_payload.get("provider_state") == "external":
+            provider_name = candidate.proposed_payload.get("provider_name")
+            provider_suggestion = candidate.proposed_payload.get(
+                "provider_category_suggestion"
+            )
+            if (
+                isinstance(provider_name, str)
+                and _present(provider_name)
+                and isinstance(provider_suggestion, dict)
+            ):
+                subjects.append(("provider", provider_name.strip(), provider_suggestion))
+        return subjects
 
     suggestion = candidate.proposed_payload.get("category_suggestion")
-    if not isinstance(suggestion, dict):
-        return None
+    line_type = candidate.proposed_payload.get("line_type")
+    name = candidate.proposed_payload.get("name")
+    if (
+        line_type in {"material", "service"}
+        and isinstance(name, str)
+        and _present(name)
+        and isinstance(suggestion, dict)
+    ):
+        subjects.append((line_type, name.strip(), suggestion))
+    return subjects
+
+
+def _reviewed_taxonomy_subjects(candidate: ExtractedCandidate) -> dict[str, tuple[str, str]]:
+    if candidate.reviewed_payload is None:
+        return {}
+    payload = ReviewedPurchaseLinePayload.model_validate(candidate.reviewed_payload)
+    subjects = {
+        concept.concept_type: (
+            concept.name or "",
+            normalized_taxonomy_path_key(
+                concept.top_level_category or "",
+                concept.subcategory,
+            ),
+        )
+        for concept in payload.concepts()
+        if _present(concept.name)
+        and _present(concept.top_level_category)
+        and _present(concept.subcategory)
+    }
+    if (
+        payload.provider_state == "external"
+        and _present(payload.provider_name)
+        and _present(payload.provider_top_level_category)
+        and _present(payload.provider_subcategory)
+    ):
+        subjects["provider"] = (
+            payload.provider_name or "",
+            normalized_taxonomy_path_key(
+                payload.provider_top_level_category or "",
+                payload.provider_subcategory,
+            ),
+        )
+    return subjects
+
+
+def _taxonomy_gate_for_suggestion(
+    session: Session,
+    candidate: ExtractedCandidate,
+    suggestion: dict,
+) -> TaxonomyGateRead | None:
 
     top_level_category = suggestion.get("top_level_category")
     subcategory = suggestion.get("subcategory")
@@ -1411,18 +2153,6 @@ def _taxonomy_node_path(session: Session, taxonomy_node_id: int) -> str | None:
     if parent is None:
         return taxonomy_node.name
     return f"{parent.name} / {taxonomy_node.name}"
-
-
-def _refresh_purchase_line_category_paths(session: Session, project_workspace_id: int) -> None:
-    for purchase_line in session.scalars(
-        select(PurchaseLine).where(PurchaseLine.project_workspace_id == project_workspace_id)
-    ):
-        memory_record = session.get(MemoryRecord, purchase_line.memory_record_id)
-        if memory_record is None:
-            continue
-        category_path = _taxonomy_node_path(session, memory_record.taxonomy_node_id)
-        if category_path is not None:
-            purchase_line.category_path = category_path
 
 
 def _candidate_reviewed_category_path(candidate: ExtractedCandidate) -> str | None:

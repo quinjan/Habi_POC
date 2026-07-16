@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from backend.tests.db import make_postgres_test_client
+from backend.tests.manual_submission_helpers import accept_all_taxonomy_gates
 
 
 def make_client(_tmp_path):
@@ -16,6 +17,7 @@ def test_structured_manual_source_entry_returns_queued_job_without_review_work(t
                 "project_type": "Residential renovation",
                 "location": "Makati City",
                 "completion_year": 2025,
+                "contractor_assigned": "Internal",
             },
         ).json()
 
@@ -65,6 +67,7 @@ def test_approved_manual_candidate_imports_active_purchase_line_with_evidence(tm
                 "project_type": "Residential renovation",
                 "location": "Makati City",
                 "completion_year": 2025,
+                "contractor_assigned": "Internal",
             },
         ).json()
         submission = create_review_ready_manual_submission(
@@ -102,6 +105,11 @@ def test_approved_manual_candidate_imports_active_purchase_line_with_evidence(tm
                 },
             },
         )
+        accept_all_taxonomy_gates(
+            client,
+            project_workspace_id=project["id"],
+            review_batch_id=submission["review_batch"]["id"],
+        )
         imported = client.post(
             f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/import"
         )
@@ -114,11 +122,19 @@ def test_approved_manual_candidate_imports_active_purchase_line_with_evidence(tm
     assert purchase_lines.json()["items"] == [
         {
             "id": imported.json()["imported_purchase_lines"][0]["id"],
-            "item_or_service_name": "PVC pipe",
             "line_type": "material",
+            "linked_concepts": [
+                {
+                    "memory_record_id": 1,
+                    "concept_type": "material",
+                    "name": "PVC pipe",
+                    "category_path": "Plumbing / Pipes",
+                }
+            ],
+            "provider_state": "external",
             "provider_name": "ABC Trading",
-            "provider_type": "external",
-            "provider_role": "material_supplier",
+            "provider_category_path": "Providers / General",
+            "provider_roles": ["material_supplier"],
             "quantity": "20",
             "unit": "pcs",
             "unit_state": "known",
@@ -127,7 +143,6 @@ def test_approved_manual_candidate_imports_active_purchase_line_with_evidence(tm
             "price_state": "known",
             "purchase_date": "2025-07-12",
             "date_state": "known",
-            "category_path": "Plumbing / Pipes",
             "has_evidence": True,
             "source_label": "Manual Source Entry",
         }
@@ -143,6 +158,7 @@ def test_free_form_manual_source_entry_returns_queued_job_without_review_work(tm
                 "project_type": "Residential renovation",
                 "location": "Makati City",
                 "completion_year": 2025,
+                "contractor_assigned": "Internal",
             },
         ).json()
 
@@ -179,6 +195,7 @@ def test_approved_free_form_candidate_imports_purchase_line_with_original_text_e
                 "project_type": "Residential renovation",
                 "location": "Makati City",
                 "completion_year": 2025,
+                "contractor_assigned": "Internal",
             },
         ).json()
         submission = create_review_ready_manual_submission(
@@ -230,6 +247,11 @@ def test_approved_free_form_candidate_imports_purchase_line_with_original_text_e
                 },
             },
         )
+        accepted_gates = accept_all_taxonomy_gates(
+            client,
+            project_workspace_id=project["id"],
+            review_batch_id=submission["review_batch"]["id"],
+        )
         imported = client.post(
             f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/import"
         )
@@ -238,12 +260,13 @@ def test_approved_free_form_candidate_imports_purchase_line_with_original_text_e
         )
 
     assert decision.status_code == 200
+    assert accepted_gates["candidates"][0]["taxonomy_gates"][0]["status"] == "accepted"
     assert imported.status_code == 200
     evidence_contents = imported_purchase_line_evidence_contents(
         client,
         imported.json()["imported_purchase_lines"][0]["id"],
     )
-    assert purchase_lines.json()["items"][0]["item_or_service_name"] == "PVC pipe"
+    assert purchase_lines.json()["items"][0]["linked_concepts"][0]["name"] == "PVC pipe"
     assert purchase_lines.json()["items"][0]["has_evidence"] is True
     assert evidence_contents == [{"original_text": original_text}]
 
@@ -257,6 +280,7 @@ def test_free_form_manual_source_entry_notes_are_queued_for_processing(tmp_path)
                 "project_type": "Residential renovation",
                 "location": "Makati City",
                 "completion_year": 2025,
+                "contractor_assigned": "Internal",
             },
         ).json()
 
@@ -288,6 +312,7 @@ def test_blank_free_form_manual_source_entry_is_rejected_before_source_submissio
                 "project_type": "Residential renovation",
                 "location": "Makati City",
                 "completion_year": 2025,
+                "contractor_assigned": "Internal",
             },
         ).json()
 
@@ -317,6 +342,7 @@ def test_invalid_manual_source_entries_are_rejected_before_job_creation(tmp_path
                 "project_type": "Residential renovation",
                 "location": "Makati City",
                 "completion_year": 2025,
+                "contractor_assigned": "Internal",
             },
         ).json()
 
@@ -348,6 +374,7 @@ def test_overlong_free_form_manual_source_entry_is_rejected_before_source_submis
                 "project_type": "Residential renovation",
                 "location": "Makati City",
                 "completion_year": 2025,
+                "contractor_assigned": "Internal",
             },
         ).json()
 
@@ -377,6 +404,7 @@ def test_processing_job_status_endpoint_returns_project_scoped_job_detail(tmp_pa
                 "project_type": "Residential renovation",
                 "location": "Makati City",
                 "completion_year": 2025,
+                "contractor_assigned": "Internal",
             },
         ).json()
         other_project = client.post(
@@ -386,6 +414,7 @@ def test_processing_job_status_endpoint_returns_project_scoped_job_detail(tmp_pa
                 "project_type": "Commercial fit-out",
                 "location": "Pasig City",
                 "completion_year": 2024,
+                "contractor_assigned": "Internal",
             },
         ).json()
         submission = client.post(
@@ -424,6 +453,7 @@ def test_review_batch_status_reaches_ready_only_after_complete_importable_review
                 "project_type": "Residential renovation",
                 "location": "Makati City",
                 "completion_year": 2025,
+                "contractor_assigned": "Internal",
             },
         ).json()
         submission = create_review_ready_manual_submission(
@@ -502,6 +532,11 @@ def test_review_batch_status_reaches_ready_only_after_complete_importable_review
                 },
             },
         )
+        accept_all_taxonomy_gates(
+            client,
+            project_workspace_id=project["id"],
+            review_batch_id=submission["review_batch"]["id"],
+        )
         after_correction = client.get(
             f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}"
         )
@@ -523,6 +558,7 @@ def test_manual_import_preserves_unknown_states_and_project_scope(tmp_path):
                 "project_type": "Residential renovation",
                 "location": "Makati City",
                 "completion_year": 2025,
+                "contractor_assigned": "Internal",
             },
         ).json()
         other_project = client.post(
@@ -532,6 +568,7 @@ def test_manual_import_preserves_unknown_states_and_project_scope(tmp_path):
                 "project_type": "Commercial fit-out",
                 "location": "Pasig City",
                 "completion_year": 2024,
+                "contractor_assigned": "Internal",
             },
         ).json()
         submission = create_review_ready_manual_submission(
@@ -568,6 +605,11 @@ def test_manual_import_preserves_unknown_states_and_project_scope(tmp_path):
                 },
             },
         )
+        accept_all_taxonomy_gates(
+            client,
+            project_workspace_id=project["id"],
+            review_batch_id=submission["review_batch"]["id"],
+        )
         client.post(
             f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/import"
         )
@@ -581,11 +623,19 @@ def test_manual_import_preserves_unknown_states_and_project_scope(tmp_path):
     assert purchase_lines.status_code == 200
     assert purchase_lines.json()["items"][0] == {
         "id": purchase_lines.json()["items"][0]["id"],
-        "item_or_service_name": "Concrete coring",
         "line_type": "service",
+        "linked_concepts": [
+            {
+                "memory_record_id": 1,
+                "concept_type": "service",
+                "name": "Concrete coring",
+                "category_path": "Civil / Coring",
+            }
+        ],
+        "provider_state": "unknown",
         "provider_name": None,
-        "provider_type": "unknown",
-        "provider_role": None,
+        "provider_category_path": None,
+        "provider_roles": [],
         "quantity": "1",
         "unit": None,
         "unit_state": "unknown",
@@ -594,7 +644,6 @@ def test_manual_import_preserves_unknown_states_and_project_scope(tmp_path):
         "price_state": "unknown",
         "purchase_date": None,
         "date_state": "unknown",
-        "category_path": "Civil / Coring",
         "has_evidence": True,
         "source_label": "Manual Source Entry",
     }

@@ -77,12 +77,17 @@ Habi's estimate of how reliable an AI-proposed extraction, classification, or ma
 _Avoid_: Approval, truth
 
 **Taxonomy Gate**:
-A required reviewer decision for AI-suggested taxonomy changes before affected records can be imported into project memory.
+A candidate- and subject-specific reviewer decision between an AI-suggested category path and any Reviewer Taxonomy Draft. It must be explicitly accepted before the affected record can be imported into project memory.
+Candidate Detail summarizes all active gates as `Needs decision` while any gate remains pending and as `Accepted` only after every active gate is accepted.
 _Avoid_: Separate category import
 
 **Taxonomy Decision**:
-A retained project-scoped reviewer judgment on an AI-suggested category path: approving a new node, mapping it to an existing node, or rejecting it as wrong.
+A retained project-scoped record of an explicitly accepted Taxonomy Gate, including its original AI path, accepted path, and accepted source. A later edit supersedes the decision but never deletes it from review history.
 _Avoid_: Candidate outcome, import decision
+
+**Reviewer Taxonomy Draft**:
+A pending reviewer-proposed category path for one Taxonomy Gate that preserves its original AI suggestion. It may be copied only to matching pending gates, but each affected gate still requires its own explicit acceptance; it neither creates taxonomy nodes nor changes future defaults.
+_Avoid_: Taxonomy Decision, bulk approval
 
 **Top-Level Category**:
 A broad taxonomy group used to organize project memory, such as Civil, Electrical, Plumbing, Services, or Suppliers/Providers.
