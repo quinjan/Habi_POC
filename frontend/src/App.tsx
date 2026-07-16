@@ -1,4 +1,4 @@
-import { FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import { FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Check, FolderOpen, GitBranch, Plus, Upload, X } from "lucide-react";
 
 import {
@@ -3297,6 +3297,7 @@ function HighlightedSourceText({
   annotations: EvidenceAnnotationView[];
   text: string;
 }) {
+  const firstHighlightRef = useRef<HTMLElement | null>(null);
   const spans = annotations
     .map((annotation) => annotation.source_locator)
     .filter(
@@ -3306,6 +3307,10 @@ function HighlightedSourceText({
         typeof locator.end === "number"
     )
     .sort((left, right) => left.start - right.start);
+  const spanKey = spans.map((span) => `${span.start}:${span.end}`).join("|");
+  useEffect(() => {
+    firstHighlightRef.current?.scrollIntoView({ block: "center" });
+  }, [text, spanKey]);
   if (spans.length === 0) {
     return <pre className="source-content">{text}</pre>;
   }
@@ -3314,7 +3319,14 @@ function HighlightedSourceText({
   spans.forEach((span, index) => {
     if (span.start < cursor || span.start < 0 || span.end > text.length) return;
     content.push(text.slice(cursor, span.start));
-    content.push(<mark key={`${span.start}:${span.end}:${index}`}>{text.slice(span.start, span.end)}</mark>);
+    content.push(
+      <mark
+        key={`${span.start}:${span.end}:${index}`}
+        ref={index === 0 ? firstHighlightRef : undefined}
+      >
+        {text.slice(span.start, span.end)}
+      </mark>
+    );
     cursor = span.end;
   });
   content.push(text.slice(cursor));
