@@ -240,6 +240,60 @@ def test_structured_workflow_noise_is_rejected_before_submission_creation(client
     assert jobs.json()["items"] == []
 
 
+def test_structured_purchasing_qualifiers_are_not_mistaken_for_workflow_tasks(client):
+    from backend.app.processing.worker import run_once
+
+    project = client.post(
+        "/api/project-workspaces",
+        json={
+            "project_name": "Arnaiz Residence Renovation",
+            "project_type": "Residential renovation",
+            "location": "Makati City",
+            "completion_year": 2025,
+            "contractor_assigned": "Internal",
+        },
+    ).json()
+    response = client.post(
+        f"/api/project-workspaces/{project['id']}/manual-source-entries",
+        json={
+            "entry_type": "structured_row",
+            "structured_payload": {
+                "line_type": "material",
+                "name": "PVC pipe",
+                "annotations": [
+                    {
+                        "text": "Call-off deliveries allowed every Friday",
+                        "annotation_type": "delivery_terms",
+                        "target": "purchase_line",
+                    },
+                    {
+                        "text": "Contact ABC Trading for warranty claims",
+                        "annotation_type": "warranty_terms",
+                        "target": "material",
+                    },
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == 201, response.json()
+    assert run_once(client.app.state.session_factory) == 1
+    job = client.get(
+        f"/api/project-workspaces/{project['id']}/processing-jobs/"
+        f"{response.json()['processing_job']['id']}"
+    ).json()["processing_job"]
+    review = client.get(
+        f"/api/project-workspaces/{project['id']}/review-batches/{job['review_batch_id']}"
+    ).json()
+    assert [
+        annotation["text"]
+        for annotation in review["candidates"][0]["proposed_payload"]["annotation_proposals"]
+    ] == [
+        "Call-off deliveries allowed every Friday",
+        "Contact ABC Trading for warranty claims",
+    ]
+
+
 def test_legacy_structured_remarks_become_a_general_qualifier_proposal(client):
     from backend.app.processing.worker import run_once
 
