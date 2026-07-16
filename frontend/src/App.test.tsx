@@ -244,7 +244,7 @@ describe("Project Workspace app shell", () => {
             review_batch: {
               id: 61,
               status: "imported",
-              href: `/projects/${projectId}/upload-review/review-batches/61`
+              href: `/projects/${projectId}/review-batches/61`
             },
             imported_evidence: [
               {
@@ -600,6 +600,21 @@ describe("Project Workspace app shell", () => {
               buildCandidate(20, "PVC pipe", "material", "Plumbing", "Pipes"),
               buildCandidate(21, "PVC elbow", "material", "Plumbing", "Pipes")
             ],
+            duplicate_groups: [],
+            duplicate_conflicts: [],
+            taxonomy_decisions: []
+          });
+        }
+
+        if (url === "/api/project-workspaces/1/review-batches/61" && method === "GET") {
+          return jsonResponse({
+            review_batch: {
+              id: 61,
+              project_workspace_id: 1,
+              source_submission_id: 31,
+              status: "imported"
+            },
+            candidates: [buildCandidate(20, "PVC pipe", "material", "Plumbing", "Pipes")],
             duplicate_groups: [],
             duplicate_conflicts: [],
             taxonomy_decisions: []
@@ -1187,7 +1202,7 @@ describe("Project Workspace app shell", () => {
     expect(screen.getByText("structured_manual_row_v1")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Review Batch #61" })).toHaveAttribute(
       "href",
-      "/projects/1/upload-review/review-batches/61"
+      "/projects/1/review-batches/61"
     );
     expect(screen.getByRole("heading", { name: "Imported evidence" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Purchase Line #1" })).toHaveAttribute(
@@ -1195,6 +1210,29 @@ describe("Project Workspace app shell", () => {
       "/projects/1/purchase-lines/1"
     );
     expect(screen.getAllByText("Delivery included").length).toBeGreaterThan(0);
+  });
+
+  test("reviewer opens the linked Review Batch from Source Submission Detail", async () => {
+    window.history.pushState({}, "", "/projects/1/sources/31");
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("link", { name: "Review Batch #61" }));
+
+    expect(window.location.pathname).toBe("/projects/1/review-batches/61");
+    expect(await screen.findByRole("heading", { name: "Review Batch #61" })).toBeInTheDocument();
+  });
+
+  test("Review Batch survives refresh through its stable URL", async () => {
+    window.history.pushState({}, "", "/projects/1/review-batches/61");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Review Batch #61" })).toBeInTheDocument();
+    expect(
+      vi.mocked(fetch).mock.calls.some(
+        ([input]) => input.toString() === "/api/project-workspaces/1/review-batches/61"
+      )
+    ).toBe(true);
   });
 
   test("Purchase Line Detail survives refresh and Browser Back restores the list", async () => {
