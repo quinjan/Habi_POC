@@ -3191,6 +3191,7 @@ function EvidenceInspection({
   const rowSnapshot = Array.isArray(supportingContent.row_snapshot)
     ? supportingContent.row_snapshot
     : [];
+  const annotationGroups = groupAnnotationsByTarget(annotations);
   return (
     <div className="evidence-inspection">
       {locator ? <code>{formatLocator(locator)}</code> : <p>Precise locator unavailable</p>}
@@ -3215,18 +3216,42 @@ function EvidenceInspection({
           proposals were retained. Review the source and add any omitted qualifiers that matter.
         </p>
       ) : null}
-      {annotations.map((annotation) => (
-        <div className="annotation-card" key={annotation.id}>
-          <span className="annotation-type">{formatLabel(annotation.annotation_type)}</span>
-          <strong>{annotation.text}</strong>
-          <p>
-            Target: {formatLabel(annotation.target.record_type)} · {annotation.target.name}
-          </p>
-          <blockquote>{annotation.source_excerpt}</blockquote>
-        </div>
+      {annotationGroups.map((group) => (
+        <section className="annotation-target-group" key={group.key}>
+          <h4>{formatLabel(group.target.record_type)} · {group.target.name}</h4>
+          {group.annotations.map((annotation) => (
+            <div className="annotation-card" key={annotation.id}>
+              <span className="annotation-type">{formatLabel(annotation.annotation_type)}</span>
+              <strong>{annotation.text}</strong>
+              <blockquote>{annotation.source_excerpt}</blockquote>
+              <p className="source-locator">{formatLocator(annotation.source_locator)}</p>
+            </div>
+          ))}
+        </section>
       ))}
     </div>
   );
+}
+
+function groupAnnotationsByTarget(annotations: EvidenceAnnotationView[]) {
+  const groups = new Map<
+    string,
+    {
+      key: string;
+      target: EvidenceAnnotationView["target"];
+      annotations: EvidenceAnnotationView[];
+    }
+  >();
+  annotations.forEach((annotation) => {
+    const key = `${annotation.target.record_type}:${annotation.target.memory_record_id}`;
+    const group = groups.get(key);
+    if (group) {
+      group.annotations.push(annotation);
+    } else {
+      groups.set(key, { key, target: annotation.target, annotations: [annotation] });
+    }
+  });
+  return Array.from(groups.values());
 }
 
 function HighlightedEvidenceContent({
