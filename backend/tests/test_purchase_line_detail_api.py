@@ -1,6 +1,6 @@
 from sqlalchemy import select
 
-from backend.app.evidence.models import EvidenceAnnotation
+from backend.app.evidence.models import EvidenceAnnotation, EvidenceRecord
 from backend.app.processing.worker import run_once
 from backend.tests.manual_submission_helpers import (
     accept_all_taxonomy_gates,
@@ -288,6 +288,65 @@ def test_reviewed_annotation_imports_and_appears_in_purchase_line_detail(client)
     assert damaged_locator_detail.status_code == 200
     assert damaged_locator_detail.json()["evidence_records"][0]["locator"] == {
         "kind": "structured_manual"
+    }
+
+    with client.app.state.session_factory() as session, session.begin():
+        evidence_record = session.get(EvidenceRecord, evidence["id"])
+        annotations = list(
+            session.scalars(select(EvidenceAnnotation).order_by(EvidenceAnnotation.id))
+        )
+        evidence_record.content = {"original_text": "Short source text"}
+        annotations[0].source_locator = {
+            "kind": "text_span",
+            "start": 900,
+            "end": 950,
+        }
+        annotations[1].source_locator = {
+            "kind": "structured_field",
+            "field_path": "structured_payload.not_a_real_source_path",
+        }
+
+    missing_text_and_field_detail = client.get(
+        f"/api/project-workspaces/{project['id']}/purchase-lines/{purchase_line_id}"
+    )
+    assert missing_text_and_field_detail.status_code == 200
+    assert missing_text_and_field_detail.json()["evidence_records"][0]["locator"] == {
+        "kind": "manual_text",
+        "field_path": "original_text",
+    }
+
+    with client.app.state.session_factory() as session, session.begin():
+        evidence_record = session.get(EvidenceRecord, evidence["id"])
+        evidence_record.content = {
+            "worksheet": "Purchases",
+            "locators": [{"row": 2, "role": "body"}],
+            "row_snapshot": [
+                {
+                    "column": 1,
+                    "coordinate": "A2",
+                    "header": "Item",
+                    "value": "PVC pipe",
+                    "annotation": False,
+                }
+            ],
+        }
+        annotations = list(
+            session.scalars(select(EvidenceAnnotation).order_by(EvidenceAnnotation.id))
+        )
+        annotations[0].source_locator = {
+            "kind": "xlsx_cell",
+            "worksheet": "Purchases",
+            "coordinate": "Z999",
+        }
+
+    missing_cell_detail = client.get(
+        f"/api/project-workspaces/{project['id']}/purchase-lines/{purchase_line_id}"
+    )
+    assert missing_cell_detail.status_code == 200
+    assert missing_cell_detail.json()["evidence_records"][0]["locator"] == {
+        "kind": "xlsx_rows",
+        "worksheet": "Purchases",
+        "rows": [{"row": 2, "role": "body"}],
     }
 
     from backend.app.memory.models import MemoryRecord, PurchaseLine
