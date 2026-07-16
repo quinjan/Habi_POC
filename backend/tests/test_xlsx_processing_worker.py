@@ -184,6 +184,94 @@ def test_explicit_xlsx_annotation_columns_create_exact_cell_grounded_proposals(
     ]
 
 
+def test_deterministic_xlsx_annotations_are_capped_and_diagnosed(client, monkeypatch, tmp_path):
+    monkeypatch.setenv("HABI_STORAGE_ROOT", str(tmp_path))
+    annotation_headers = [
+        "Delivery Terms",
+        "Payment Terms",
+        "Validity Terms",
+        "Validity",
+        "Warranty Terms",
+        "Warranty",
+        "Availability Terms",
+        "Availability",
+        "Condition or Exclusion",
+        "Conditions",
+        "Exclusions",
+        "Remarks or Terms",
+        "Remarks",
+        "Terms",
+        "Notes",
+        "Material Delivery Terms",
+        "Material Payment Terms",
+        "Material Validity",
+        "Material Warranty",
+        "Material Availability",
+        "Material Conditions",
+    ]
+
+    def configure(workbook):
+        sheet = workbook.active
+        sheet.title = "Purchases"
+        sheet.append(
+            [
+                "Line kind",
+                "Material name",
+                "Material category path",
+                "Provider State",
+                "Provider name",
+                *annotation_headers,
+                "Provider Notes",
+            ]
+        )
+        sheet.append(
+            [
+                "Material",
+                "PVC pipe",
+                "Plumbing / Pipes",
+                "External",
+                "ABC Trading",
+                *[f"Qualifier {index}" for index in range(1, 22)],
+                "Call site supervisor tomorrow",
+            ]
+        )
+        sheet.append(["Not a purchase line"])
+
+    project = _create_project(client)
+    submission = _upload(client, project["id"], _workbook_bytes(configure))
+
+    assert run_once(
+        client.app.state.session_factory,
+        ai_provider=ExplicitAnnotationColumnsProvider(),
+    ) == 1
+    job = client.get(
+        f"/api/project-workspaces/{project['id']}/processing-jobs/"
+        f"{submission['processing_job']['id']}"
+    ).json()["processing_job"]
+    assert job["status"] == "review_ready", job
+    review = client.get(
+        f"/api/project-workspaces/{project['id']}/review-batches/{job['review_batch_id']}"
+    ).json()
+    candidate = review["candidates"][0]["proposed_payload"]
+
+    assert len(candidate["annotation_proposals"]) == 20
+    assert candidate["annotation_omitted_count"] == 1
+    assert candidate["annotation_detected_count"] == 21
+    assert all(
+        proposal["source_excerpt"] != "Call site supervisor tomorrow"
+        for proposal in candidate["annotation_proposals"]
+    )
+    assert job["diagnostics"]["dropped_annotation_count"] == 2
+    assert job["diagnostics"]["dropped_annotation_reasons"] == {
+        "annotation_limit": 1,
+        "workflow_noise": 1,
+    }
+    assert job["diagnostics"]["warning_summary"] == (
+        "Annotation extraction limit reached — 20 of 21 source-grounded annotation "
+        "proposals were retained. Review the source and add any omitted qualifiers that matter."
+    )
+
+
 class ValidXlsxProvider:
     provider_name = "fake"
     model = "fake-xlsx-model"
