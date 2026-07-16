@@ -196,6 +196,36 @@ def test_structured_annotations_and_legacy_remarks_share_the_twenty_item_cap(cli
     assert jobs.json()["items"] == []
 
 
+def test_structured_workflow_noise_is_rejected_before_submission_creation(client):
+    project = client.post(
+        "/api/project-workspaces",
+        json={
+            "project_name": "Arnaiz Residence Renovation",
+            "project_type": "Residential renovation",
+            "location": "Makati City",
+            "completion_year": 2025,
+            "contractor_assigned": "Internal",
+        },
+    ).json()
+
+    response = client.post(
+        f"/api/project-workspaces/{project['id']}/manual-source-entries",
+        json={
+            "entry_type": "structured_row",
+            "structured_payload": {
+                "line_type": "material",
+                "name": "PVC pipe",
+                "remarks_or_terms": "Payment received",
+            },
+        },
+    )
+    jobs = client.get(f"/api/project-workspaces/{project['id']}/processing-jobs")
+
+    assert response.status_code == 422
+    assert "Workflow and status noise" in response.text
+    assert jobs.json()["items"] == []
+
+
 def test_legacy_structured_remarks_become_a_general_qualifier_proposal(client):
     from backend.app.processing.worker import run_once
 
