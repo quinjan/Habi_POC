@@ -1,3 +1,5 @@
+import re
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -106,23 +108,42 @@ def evidence_locator(content: dict) -> dict | None:
 
 
 def strongest_evidence_locator(*locators: dict | None) -> dict | None:
-    available = [locator for locator in locators if isinstance(locator, dict) and locator]
+    available = [
+        locator
+        for locator in locators
+        if isinstance(locator, dict) and locator and _locator_strength(locator) > 0
+    ]
     return max(available, key=_locator_strength, default=None)
 
 
 def _locator_strength(locator: dict) -> int:
     kind = locator.get("kind")
-    if kind == "text_span" and all(
-        isinstance(locator.get(field), int) for field in ("start", "end")
+    if kind == "text_span":
+        start = locator.get("start")
+        end = locator.get("end")
+        if type(start) is int and type(end) is int and start >= 0 and end > start:
+            return 40
+        return 0
+    if kind == "xlsx_cell":
+        worksheet = locator.get("worksheet")
+        coordinate = locator.get("coordinate")
+        if (
+            isinstance(worksheet, str)
+            and worksheet.strip()
+            and isinstance(coordinate, str)
+            and re.fullmatch(r"\$?[A-Z]{1,3}\$?[1-9]\d*", coordinate.strip(), re.IGNORECASE)
+        ):
+            return 40
+        return 0
+    if (
+        kind == "structured_field"
+        and isinstance(locator.get("field_path"), str)
+        and locator["field_path"].strip()
     ):
-        return 40
-    if kind == "xlsx_cell" and isinstance(locator.get("coordinate"), str):
-        return 40
-    if kind == "structured_field" and isinstance(locator.get("field_path"), str):
         return 40
     if kind in {"pdf_region", "image_region"}:
         return 40
-    if kind == "xlsx_rows":
+    if kind == "xlsx_rows" and isinstance(locator.get("rows"), list) and locator["rows"]:
         return 20
     if kind in {"manual_text", "structured_manual"}:
         return 10
