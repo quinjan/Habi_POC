@@ -1,3 +1,6 @@
+from sqlalchemy import select
+
+from backend.app.evidence.models import EvidenceAnnotation
 from backend.app.processing.worker import run_once
 from backend.tests.manual_submission_helpers import accept_all_taxonomy_gates
 
@@ -158,6 +161,12 @@ def test_reviewed_annotation_imports_and_appears_in_purchase_line_detail(client)
     assert imported.status_code == 200, imported.json()
     purchase_line_id = imported.json()["imported_purchase_lines"][0]["id"]
 
+    with client.app.state.session_factory() as session, session.begin():
+        first_annotation = session.scalars(
+            select(EvidenceAnnotation).order_by(EvidenceAnnotation.id)
+        ).first()
+        first_annotation.source_locator = {"kind": "manual_text"}
+
     detail = client.get(
         f"/api/project-workspaces/{project['id']}/purchase-lines/{purchase_line_id}"
     )
@@ -184,6 +193,10 @@ def test_reviewed_annotation_imports_and_appears_in_purchase_line_detail(client)
     assert evidence["source_submission_href"] == (
         f"/projects/{project['id']}/sources/{submission['source_submission']['id']}"
     )
+    assert evidence["locator"] == {
+        "kind": "structured_field",
+        "field_path": "structured_payload.annotations[0].text",
+    }
     assert evidence["annotations"] == [
         {
             "id": evidence["annotations"][0]["id"],
@@ -197,8 +210,7 @@ def test_reviewed_annotation_imports_and_appears_in_purchase_line_detail(client)
             },
             "source_excerpt": "Delivery included",
             "source_locator": {
-                "kind": "structured_field",
-                "field_path": "structured_payload.annotations[0].text",
+                "kind": "manual_text",
             },
             "provenance": "source_field",
         },
