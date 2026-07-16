@@ -1289,7 +1289,11 @@ describe("Project Workspace app shell", () => {
       }
     ]);
     let scrollY = 0;
-    const scrollTo = vi.fn();
+    let listWasRenderedWhenScrollRestored = false;
+    const scrollTo = vi.fn(() => {
+      listWasRenderedWhenScrollRestored =
+        screen.queryByRole("heading", { name: "Purchase Lines" }) !== null;
+    });
     Object.defineProperty(window, "scrollY", { configurable: true, get: () => scrollY });
     Object.defineProperty(window, "scrollTo", { configurable: true, value: scrollTo });
     const user = userEvent.setup();
@@ -1309,6 +1313,7 @@ describe("Project Workspace app shell", () => {
 
     await waitFor(() => expect(window.location.pathname).toBe("/projects/1/purchase-lines"));
     expect(scrollTo).toHaveBeenCalledWith({ behavior: "auto", top: 640 });
+    expect(listWasRenderedWhenScrollRestored).toBe(true);
   });
 
   test("free-text source inspection scrolls the exact highlighted span into view", async () => {
