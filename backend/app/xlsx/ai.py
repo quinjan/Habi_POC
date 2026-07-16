@@ -4,6 +4,8 @@ from typing import Literal
 from openpyxl.utils import column_index_from_string
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from backend.app.evidence.annotation_policy import is_workflow_noise
+
 from backend.app.processing.ai_extraction import (
     AiAnnotationProposal,
     AiCategorySuggestion,
@@ -207,8 +209,20 @@ def validate_xlsx_candidates(
         profile["title_rows"] + profile["header_rows"] + region["header_row_numbers"]
     )
     for raw_candidate in raw_candidates:
+        annotation_metadata: dict = {}
+        candidate_input = raw_candidate
+        if not ground_ai_annotations and isinstance(raw_candidate, dict):
+            candidate_input = dict(raw_candidate)
+            for field in (
+                "dropped_annotation_count",
+                "dropped_annotation_reasons",
+                "annotation_omitted_count",
+                "annotation_detected_count",
+            ):
+                if field in candidate_input:
+                    annotation_metadata[field] = candidate_input.pop(field)
         try:
-            candidate = XlsxPurchaseLineCandidate.model_validate(raw_candidate)
+            candidate = XlsxPurchaseLineCandidate.model_validate(candidate_input)
         except ValidationError:
             dropped += 1
             continue
@@ -235,6 +249,8 @@ def validate_xlsx_candidates(
         payload = candidate.model_dump(mode="json")
         if ground_ai_annotations:
             payload.update(_ground_xlsx_annotations(candidate, artifact))
+        else:
+            payload.update(annotation_metadata)
         valid.append(payload)
     return valid, dropped
 
@@ -260,6 +276,9 @@ def _ground_xlsx_annotations(
             proposal = AiAnnotationProposal.model_validate(raw_proposal)
         except ValidationError:
             _count_annotation_drop(dropped_reasons, "invalid_shape")
+            continue
+        if is_workflow_noise(proposal.text) or is_workflow_noise(proposal.source_excerpt):
+            _count_annotation_drop(dropped_reasons, "workflow_noise")
             continue
         if not _xlsx_annotation_target_available(candidate, proposal.target):
             _count_annotation_drop(dropped_reasons, "target_unavailable")

@@ -3,6 +3,8 @@ from typing import Literal
 
 from openpyxl.utils import column_index_from_string, get_column_letter
 
+from backend.app.evidence.annotation_policy import is_workflow_noise
+
 
 _HEADER_ALIASES: dict[str, tuple[str, ...]] = {
     "line_type": ("line kind", "line type"),
@@ -207,7 +209,7 @@ def _candidate_from_explicit_row(
         provider_name = None
 
     row_number = row["row"]
-    annotation_proposals = _annotation_proposals(
+    annotation_result = _annotation_proposals(
         cells=cells,
         columns=columns,
         worksheet_name=worksheet_name,
@@ -225,7 +227,7 @@ def _candidate_from_explicit_row(
         "provider_category_suggestion": provider_category,
         "purchase_date": _cell_text(cells, columns.get("purchase_date")),
         "remarks_or_terms": _cell_text(cells, columns.get("remarks_or_terms")),
-        "annotation_proposals": annotation_proposals,
+        **annotation_result,
         "confidence": 1.0,
         "evidence": {
             "source_submission_id": source_submission_id,
@@ -254,7 +256,7 @@ def _annotation_proposals(
     columns: dict,
     worksheet_name: str,
     row_number: int,
-) -> list[dict]:
+) -> dict:
     mappings: list[tuple[int, str, str, str]] = []
     for field, column in columns.items():
         if not field.startswith("annotation__") or not isinstance(column, str):
@@ -265,9 +267,18 @@ def _annotation_proposals(
         )
 
     proposals: list[dict] = []
+    dropped_reasons: dict[str, int] = {}
+    detected_count = 0
     for _, column, target, annotation_type in sorted(mappings):
         text = _cell_text(cells, column)
         if text is None:
+            continue
+        if is_workflow_noise(text):
+            dropped_reasons["workflow_noise"] = dropped_reasons.get("workflow_noise", 0) + 1
+            continue
+        detected_count += 1
+        if len(proposals) >= 20:
+            dropped_reasons["annotation_limit"] = dropped_reasons.get("annotation_limit", 0) + 1
             continue
         coordinate = f"{column}{row_number}"
         proposals.append(
@@ -287,7 +298,15 @@ def _annotation_proposals(
                 "provenance": "source_field",
             }
         )
-    return proposals
+    result = {"annotation_proposals": proposals}
+    if dropped_reasons:
+        result["dropped_annotation_count"] = sum(dropped_reasons.values())
+        result["dropped_annotation_reasons"] = dropped_reasons
+    omitted_count = dropped_reasons.get("annotation_limit", 0)
+    if omitted_count:
+        result["annotation_omitted_count"] = omitted_count
+        result["annotation_detected_count"] = detected_count
+    return result
 
 
 def _cells_by_row_and_column(artifact: dict) -> dict[int, dict[int, dict]]:

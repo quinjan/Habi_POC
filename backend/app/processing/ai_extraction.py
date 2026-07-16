@@ -3,6 +3,8 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from backend.app.evidence.annotation_policy import is_workflow_noise
+
 
 CurrencyState = Literal["source_stated", "defaulted", "unknown"]
 LineType = Literal["material", "service"]
@@ -192,7 +194,7 @@ def ground_free_form_annotation_proposals(
         except ValidationError:
             _count_reason(dropped_reasons, "invalid_shape")
             continue
-        if _is_workflow_noise(proposal.text) or _is_workflow_noise(
+        if is_workflow_noise(proposal.text) or is_workflow_noise(
             proposal.source_excerpt
         ):
             _count_reason(dropped_reasons, "workflow_noise")
@@ -241,25 +243,6 @@ def ground_free_form_annotation_proposals(
         result["annotation_omitted_count"] = omitted_count
         result["annotation_detected_count"] = len(grounded) + omitted_count
     return result, sum(dropped_reasons.values()), dropped_reasons
-
-
-def _is_workflow_noise(value: str) -> bool:
-    normalized = " ".join(value.casefold().strip(" .!?:;-").split())
-    noise_phrases = {
-        "paid",
-        "paid already",
-        "already paid",
-        "for approval",
-        "pending approval",
-        "approved",
-        "rejected",
-        "call tomorrow",
-        "follow up",
-        "follow up tomorrow",
-        "follow-up",
-        "follow-up tomorrow",
-    }
-    return normalized in noise_phrases
 
 
 def _annotation_target_available(payload: dict, target: str) -> bool:

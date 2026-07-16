@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from backend.app.evidence.annotation_policy import is_workflow_noise
 from backend.app.processing.schemas import ProcessingJobRead
 from backend.app.projects.schemas import EvidenceAnnotationRead
 
@@ -30,6 +31,8 @@ class StructuredEvidenceAnnotationInput(BaseModel):
     def require_nonblank_text(self) -> "StructuredEvidenceAnnotationInput":
         if self.text.strip() == "":
             raise ValueError("Annotation text must not be blank")
+        if is_workflow_noise(self.text):
+            raise ValueError("Workflow and status noise cannot be submitted as an annotation")
         return self
 
 
