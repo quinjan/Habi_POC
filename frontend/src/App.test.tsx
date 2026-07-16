@@ -1220,6 +1220,59 @@ describe("Project Workspace app shell", () => {
     expect(window.location.pathname).toBe("/projects/1/purchase-lines");
   });
 
+  test("Browser Back restores the actual Purchase Lines list scroll position", async () => {
+    purchaseLinesByProject.set(1, [
+      {
+        id: 1,
+        line_type: "material",
+        linked_concepts: [
+          {
+            memory_record_id: 11,
+            concept_type: "material",
+            name: "PVC pipe",
+            category_path: "Plumbing / Pipes"
+          }
+        ],
+        provider_state: "unknown",
+        provider_name: null,
+        provider_category_path: null,
+        provider_roles: [],
+        quantity: "20",
+        unit: "pcs",
+        unit_state: "known",
+        price: "1500",
+        currency: "PHP",
+        price_state: "known",
+        purchase_date: null,
+        date_state: "unknown",
+        has_evidence: true,
+        evidence_count: 1,
+        source_label: "Manual Source Entry"
+      }
+    ]);
+    let scrollY = 0;
+    const scrollTo = vi.fn();
+    Object.defineProperty(window, "scrollY", { configurable: true, get: () => scrollY });
+    Object.defineProperty(window, "scrollTo", { configurable: true, value: scrollTo });
+    const user = userEvent.setup();
+    render(<App />);
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+    scrollY = 640;
+    await user.click(screen.getByRole("link", { name: "View details" }));
+    expect(await screen.findByRole("heading", { name: "Purchase Line Detail" })).toBeInTheDocument();
+    scrollY = 0;
+
+    window.history.back();
+
+    await waitFor(() => expect(window.location.pathname).toBe("/projects/1/purchase-lines"));
+    expect(scrollTo).toHaveBeenCalledWith({ behavior: "auto", top: 640 });
+  });
+
   test("free-text source inspection scrolls the exact highlighted span into view", async () => {
     const scrollIntoView = vi.fn();
     Object.defineProperty(Element.prototype, "scrollIntoView", {
