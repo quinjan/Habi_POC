@@ -9,8 +9,10 @@ from sqlalchemy.orm import Session
 from backend.app.processing.ai_extraction import apply_contractor_assigned_provider_default
 from backend.app.processing.memory_context import build_project_memory_context
 from backend.app.processing.models import ProcessingJob
+from backend.app.memory.models import MemoryRecord
 from backend.app.review.models import ExtractedCandidate, ReviewBatch
 from backend.app.sources.models import SourceFile
+from backend.app.taxonomy.models import TaxonomyNode
 from backend.app.xlsx.artifacts import WorkbookLimitExceeded, create_worksheet_artifacts
 from backend.app.xlsx.ai import validate_worksheet_profile, validate_xlsx_candidates
 from backend.app.xlsx.config import XlsxProcessingConfig
@@ -216,7 +218,9 @@ def process_xlsx_source_file(
                         key=lambda payload: payload["evidence"]["primary_body_row"]
                     )
                     valid_payloads.extend(
-                        apply_contractor_assigned_provider_default(
+                        _prepare_xlsx_review_payload(
+                            session,
+                            job.project_workspace_id,
                             payload,
                             contractor_assigned=memory_context["contractor_assigned"],
                         )
@@ -315,3 +319,85 @@ def _artifact_rows_for_ai(artifact: dict) -> list[dict]:
 def _chunks(rows: list[dict], size: int):
     for index in range(0, len(rows), size):
         yield rows[index : index + size]
+
+
+def _prepare_xlsx_review_payload(
+    session: Session,
+    project_workspace_id: int,
+    payload: dict,
+    *,
+    contractor_assigned: str,
+) -> dict:
+    prepared = apply_contractor_assigned_provider_default(
+        payload,
+        contractor_assigned=contractor_assigned,
+    )
+    for concept in prepared.get("linked_concepts", []):
+        if not isinstance(concept, dict):
+            continue
+        concept.setdefault("observed_name_text", concept.get("name"))
+        record = _exact_memory_record(
+            session,
+            project_workspace_id,
+            str(concept.get("concept_type") or ""),
+            concept.get("name"),
+        )
+        if record is not None:
+            concept["project_memory_record_id"] = record.id
+            concept["name"] = record.display_name
+            concept["category_suggestion"] = _record_category(session, record)
+        else:
+            concept["project_memory_record_id"] = None
+
+    provider_state = prepared.get("provider_state")
+    if provider_state == "external":
+        prepared.setdefault("observed_provider_text", prepared.get("provider_name"))
+        record = _exact_memory_record(
+            session,
+            project_workspace_id,
+            "provider",
+            prepared.get("provider_name"),
+        )
+        if record is not None:
+            prepared["provider_memory_record_id"] = record.id
+            prepared["provider_name"] = record.display_name
+            prepared["provider_category_suggestion"] = _record_category(session, record)
+        else:
+            prepared["provider_memory_record_id"] = None
+    else:
+        prepared["provider_memory_record_id"] = None
+        if provider_state == "internal":
+            prepared.setdefault("observed_provider_text", prepared.get("provider_name"))
+        else:
+            prepared["observed_provider_text"] = None
+    return prepared
+
+
+def _exact_memory_record(
+    session: Session,
+    project_workspace_id: int,
+    record_type: str,
+    name: object,
+) -> MemoryRecord | None:
+    if not isinstance(name, str) or not name.strip():
+        return None
+    normalized_name = " ".join(name.casefold().split())
+    return session.scalar(
+        select(MemoryRecord).where(
+            MemoryRecord.project_workspace_id == project_workspace_id,
+            MemoryRecord.record_type == record_type,
+            MemoryRecord.normalized_name == normalized_name,
+            MemoryRecord.status == "active",
+        )
+    )
+
+
+def _record_category(session: Session, record: MemoryRecord) -> dict:
+    leaf = session.get(TaxonomyNode, record.taxonomy_node_id)
+    if leaf is None:
+        raise ValueError("Memory Record references missing taxonomy")
+    parent = session.get(TaxonomyNode, leaf.parent_id) if leaf.parent_id is not None else None
+    return {
+        "top_level_category": parent.name if parent is not None else leaf.name,
+        "subcategory": leaf.name if parent is not None else "General",
+    }

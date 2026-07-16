@@ -15,3 +15,4 @@ coverage/
 .env
 .worktrees/
 .habi-data/
+.habi-evals/

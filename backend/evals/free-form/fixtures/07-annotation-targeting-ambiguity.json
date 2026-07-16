@@ -1,0 +1,11 @@
+{
+  "fixture_id": "annotation-targeting-ambiguity",
+  "fixture_version": 1,
+  "family": "Annotation targeting and ambiguity",
+  "source_text": "COMPLETED WATERPROOFING PACKAGE\nSealRight supplied membrane rolls and completed roof-deck waterproofing for PHP 210,000. Delivery to site and cranage included. 30% mobilization, 70% after flood testing. Material warranty ten years; workmanship warranty three years. SealRight is an accredited applicator.\n\nBoth the membrane and waterproofing work are subject to the manufacturer's dry-weather application requirement. 'Subject to standard conditions' appeared alone with no identifiable target and must not be guessed. Invoice settled; ask accounts to archive the receipt.",
+  "contractor_assigned": "Internal",
+  "project_memory": [],
+  "taxonomy_vocabulary": ["Waterproofing / Membranes", "Services / Waterproofing Application", "Providers / Waterproofing Contractors"],
+  "expected_result": {"candidates": [{"shape": "bundled", "concept_names": ["Waterproofing membrane", "Roof-deck waterproofing"], "provider_state": "external", "provider_name": "SealRight", "price": "210000", "installation_relationship_count": 1, "annotation_count": 8}], "required_omissions": ["Subject to standard conditions", "Invoice settled", "archive the receipt"]},
+  "human_approval": {"status": "pending", "reviewer": "pending domain reviewer", "approval_date": null, "fixture_version": 1, "rationale": "Grouped, split, replicated, provider-specific, and ambiguous-target annotation draft awaiting human review."}
+}

@@ -165,6 +165,17 @@ export async function decideCandidate(
   );
 }
 
+export async function resetCandidate(
+  projectWorkspaceId: number,
+  reviewBatchId: number,
+  candidateId: number
+): Promise<ExtractedCandidateRead> {
+  return request<ExtractedCandidateRead>(
+    `/api/project-workspaces/${projectWorkspaceId}/review-batches/${reviewBatchId}/candidates/${candidateId}/reset`,
+    { method: "POST" }
+  );
+}
+
 export async function getReviewBatch(
   projectWorkspaceId: number,
   reviewBatchId: number

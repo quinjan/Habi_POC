@@ -8,7 +8,12 @@ from backend.app.evidence.inspection import (
     source_submitted_at,
 )
 from backend.app.evidence.models import EvidenceRecord, MemoryRecordEvidenceLink
-from backend.app.memory.models import MemoryRecord, PurchaseLine, PurchaseLineConceptLink
+from backend.app.memory.models import (
+    MemoryRecord,
+    PurchaseLine,
+    PurchaseLineConceptLink,
+    PurchaseLineInstallationRelationship,
+)
 from backend.app.projects.models import ProjectWorkspace
 from backend.app.projects.schemas import (
     ProjectWorkspaceCreate,
@@ -17,6 +22,7 @@ from backend.app.projects.schemas import (
     ProjectWorkspaceList,
     ProjectWorkspaceListItem,
     PurchaseLineConceptRead,
+    InstallationRelationshipRead,
     PurchaseLineRow,
     ProviderMemoryListView,
     ProviderMemoryRow,
@@ -123,6 +129,7 @@ def get_purchase_line_detail(
         _concept_read(session, link)
         for link in sorted(links, key=lambda item: 0 if item.concept_type == "material" else 1)
     ]
+    installation_relationships = _installation_relationship_reads(session, purchase_line.id)
     provider_record = (
         session.get(MemoryRecord, purchase_line.provider_memory_record_id)
         if purchase_line.provider_memory_record_id is not None
@@ -151,8 +158,9 @@ def get_purchase_line_detail(
     return PurchaseLineDetail(
         id=purchase_line.id,
         status=purchase_record.status,
-        line_type="bundled" if len(linked_concepts) == 2 else linked_concepts[0].concept_type,
+        line_type="bundled" if len(linked_concepts) > 1 else linked_concepts[0].concept_type,
         linked_concepts=linked_concepts,
+        installation_relationships=installation_relationships,
         provider=PurchaseLineProviderRead(
             state=purchase_line.provider_state,
             record=(
@@ -164,7 +172,11 @@ def get_purchase_line_detail(
                 if provider_record is not None
                 else None
             ),
-            roles=_provider_roles(purchase_line.provider_state, linked_concepts),
+            roles=_provider_roles(
+                purchase_line.provider_state,
+                linked_concepts,
+                has_installation_relationship=bool(installation_relationships),
+            ),
         ),
         quantity=purchase_line.quantity,
         unit=purchase_line.unit,
@@ -193,6 +205,7 @@ def _purchase_line_row(session: Session, purchase_line: PurchaseLine) -> Purchas
         _concept_read(session, link)
         for link in sorted(links, key=lambda link: 0 if link.concept_type == "material" else 1)
     ]
+    installation_relationships = _installation_relationship_reads(session, purchase_line.id)
     provider_record = (
         session.get(MemoryRecord, purchase_line.provider_memory_record_id)
         if purchase_line.provider_memory_record_id is not None
@@ -200,8 +213,9 @@ def _purchase_line_row(session: Session, purchase_line: PurchaseLine) -> Purchas
     )
     return PurchaseLineRow(
         id=purchase_line.id,
-        line_type="bundled" if len(linked_concepts) == 2 else linked_concepts[0].concept_type,
+        line_type="bundled" if len(linked_concepts) > 1 else linked_concepts[0].concept_type,
         linked_concepts=linked_concepts,
+        installation_relationships=installation_relationships,
         provider_state=purchase_line.provider_state,
         provider_name=(
             provider_record.display_name
@@ -213,7 +227,11 @@ def _purchase_line_row(session: Session, purchase_line: PurchaseLine) -> Purchas
             if provider_record is not None
             else None
         ),
-        provider_roles=_provider_roles(purchase_line.provider_state, linked_concepts),
+        provider_roles=_provider_roles(
+            purchase_line.provider_state,
+            linked_concepts,
+            has_installation_relationship=bool(installation_relationships),
+        ),
         quantity=purchase_line.quantity,
         unit=purchase_line.unit,
         unit_state=purchase_line.unit_state,
@@ -380,7 +398,14 @@ def _aggregate_provider_roles(
             roles.add("material_supplier")
         if "service" in concept_types:
             roles.add("service_provider")
-        if concept_types == {"material", "service"}:
+        has_installation_relationship = session.scalar(
+            select(PurchaseLineInstallationRelationship.id)
+            .where(
+                PurchaseLineInstallationRelationship.purchase_line_id == line.id
+            )
+            .limit(1)
+        ) is not None
+        if has_installation_relationship:
             roles.add("supply_and_install_provider")
     return [role for role in role_order if role in roles]
 
@@ -419,12 +444,57 @@ def _concept_read(
         concept_type=link.concept_type,
         name=memory_record.display_name,
         category_path=_taxonomy_path(session, memory_record.taxonomy_node_id),
+        concept_key=link.concept_key,
+        quantity=link.quantity,
+        unit=link.unit,
+        component_unit_price=link.component_unit_price,
     )
+
+
+def _installation_relationship_reads(
+    session: Session,
+    purchase_line_id: int,
+) -> list[InstallationRelationshipRead]:
+    relationships = list(
+        session.scalars(
+            select(PurchaseLineInstallationRelationship)
+            .where(
+                PurchaseLineInstallationRelationship.purchase_line_id == purchase_line_id
+            )
+            .order_by(PurchaseLineInstallationRelationship.id)
+        )
+    )
+    result: list[InstallationRelationshipRead] = []
+    for relationship in relationships:
+        service_link = session.get(
+            PurchaseLineConceptLink, relationship.service_concept_link_id
+        )
+        material_link = session.get(
+            PurchaseLineConceptLink, relationship.material_concept_link_id
+        )
+        if (
+            service_link is None
+            or material_link is None
+            or service_link.concept_key is None
+            or material_link.concept_key is None
+        ):
+            continue
+        result.append(
+            InstallationRelationshipRead(
+                service_concept_key=service_link.concept_key,
+                material_concept_key=material_link.concept_key,
+                source_excerpt=relationship.source_excerpt,
+                source_locator=relationship.source_locator,
+            )
+        )
+    return result
 
 
 def _provider_roles(
     provider_state: str,
     linked_concepts: list[PurchaseLineConceptRead],
+    *,
+    has_installation_relationship: bool = False,
 ) -> list[str]:
     if provider_state == "unknown":
         return []
@@ -434,7 +504,7 @@ def _provider_roles(
         roles.append("material_supplier")
     if "service" in concept_types:
         roles.append("service_provider")
-    if concept_types == {"material", "service"}:
+    if has_installation_relationship:
         roles.append("supply_and_install_provider")
     return roles
 

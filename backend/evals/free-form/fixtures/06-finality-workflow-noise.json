@@ -1,0 +1,11 @@
+{
+  "fixture_id": "finality-workflow-noise",
+  "fixture_version": 1,
+  "family": "Finality and workflow noise",
+  "source_text": "FINAL SITE LOG\nPaid cash: two wheelbarrows from ToolTown, PHP 7,600. Our mason completed the stair nosing repair yesterday.\n\nEstimate only: repaint lobby PHP 45,000. Alternative tile still under review. Install handrail next Monday. Waterproofing was cancelled. Pending delivery of sand.\n\nReceiving copy checked by Liza. For closeout approval. Call Ben about the placeholder supplier.",
+  "contractor_assigned": "Internal",
+  "project_memory": [],
+  "taxonomy_vocabulary": ["Tools / Site Equipment", "Services / Masonry Repair"],
+  "expected_result": {"candidates": [{"shape": "material", "concept_names": ["Wheelbarrow"], "provider_state": "external", "provider_name": "ToolTown", "price": "7600"}, {"shape": "service", "concept_names": ["Stair nosing repair"], "provider_state": "internal", "provider_name": null, "price": null}], "required_omissions": ["repaint lobby", "Alternative tile", "Install handrail", "Waterproofing", "sand", "Receiving copy", "closeout approval", "placeholder supplier"]},
+  "human_approval": {"status": "pending", "reviewer": "pending domain reviewer", "approval_date": null, "fixture_version": 1, "rationale": "Final shorthand versus explicit non-final and workflow-noise draft awaiting human review."}
+}

@@ -74,6 +74,25 @@ def test_openai_provider_config_defaults_model_to_nano(monkeypatch):
     assert config.model == "gpt-5.4-nano"
 
 
+def test_openai_provider_config_separates_free_form_model_and_reasoning(monkeypatch):
+    from backend.app.processing.openai_provider import OpenAiProviderConfig
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_MODEL", "xlsx-model")
+    monkeypatch.delenv("OPENAI_FREE_FORM_MODEL", raising=False)
+    monkeypatch.delenv("OPENAI_FREE_FORM_REASONING_EFFORT", raising=False)
+    monkeypatch.delenv("OPENAI_FREE_FORM_RETRY_REASONING_EFFORT", raising=False)
+    monkeypatch.delenv("OPENAI_FREE_FORM_RETRIES_ENABLED", raising=False)
+
+    config = OpenAiProviderConfig.from_env()
+
+    assert config.model == "xlsx-model"
+    assert config.free_form_model == "gpt-5.5-2026-04-23"
+    assert config.free_form_reasoning_effort == "high"
+    assert config.free_form_retry_reasoning_effort == "xhigh"
+    assert config.free_form_retries_enabled is True
+
+
 def test_openai_provider_config_stores_responses_by_default_and_allows_disabling(
     monkeypatch,
 ):
@@ -87,6 +106,15 @@ def test_openai_provider_config_stores_responses_by_default_and_allows_disabling
     monkeypatch.setenv("HABI_OPENAI_STORE_RESPONSES", "false")
 
     assert OpenAiProviderConfig.from_env().store_responses is False
+
+
+def test_openai_provider_config_can_disable_client_transport_retries(monkeypatch):
+    from backend.app.processing.openai_provider import OpenAiProviderConfig
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_CLIENT_MAX_RETRIES", "0")
+
+    assert OpenAiProviderConfig.from_env().client_max_retries == 0
 
 
 def test_openai_provider_config_ignores_blank_base_url(monkeypatch):
@@ -120,6 +148,7 @@ def test_openai_provider_uses_default_base_url_when_env_base_url_is_blank(monkey
     OpenAiExtractionProvider(OpenAiProviderConfig(api_key="test-key", base_url=None))
 
     assert calls["kwargs"]["base_url"] == "https://api.openai.com/v1"
+    assert calls["kwargs"]["max_retries"] == 2
 
 
 def test_worker_provider_factory_failure_does_not_claim_queued_job(client):
@@ -262,7 +291,8 @@ def test_openai_provider_requests_strict_structured_output():
     )
 
     call = client.responses.calls[0]
-    assert call["model"] == "gpt-5.4-nano"
+    assert call["model"] == "gpt-5.5-2026-04-23"
+    assert call["reasoning"] == {"effort": "high"}
     assert "text" in call
     assert call["text"]["format"]["type"] == "json_schema"
     assert call["text"]["format"]["strict"] is True
@@ -292,6 +322,72 @@ def test_openai_provider_requests_strict_structured_output():
     assert "case-and-whitespace normalization" in system_prompt
     assert "contractor assigned" in system_prompt
     assert "exact quote" in system_prompt
+
+
+def test_free_form_openai_request_uses_gpt55_grounded_multi_concept_contract():
+    from backend.app.processing.openai_provider import (
+        OpenAiExtractionProvider,
+        OpenAiProviderConfig,
+    )
+
+    client = FakeOpenAiClient()
+    provider = OpenAiExtractionProvider(
+        config=OpenAiProviderConfig(
+            api_key="test-key",
+            model="xlsx-model",
+            free_form_model="gpt-5.5-2026-04-23",
+        ),
+        client=client,
+    )
+
+    provider.extract_purchase_lines(
+        original_text="Completed works: Acme supplied and installed steel doors.",
+        source_submission_id=123,
+        memory_context={
+            "contractor_assigned": "Quinlan Construction",
+            "taxonomy_paths": ["Architectural / Doors"],
+            "materials": [],
+            "services": [],
+            "providers": [],
+        },
+        reasoning_effort="xhigh",
+    )
+
+    call = client.responses.calls[0]
+    candidate_schema = call["text"]["format"]["schema"]["properties"]["candidates"][
+        "items"
+    ]
+    concept_schema = candidate_schema["properties"]["linked_concepts"]
+    concept_properties = concept_schema["items"]["properties"]
+    candidate_properties = candidate_schema["properties"]
+    system_prompt = call["input"][0]["content"].lower()
+
+    assert call["model"] == "gpt-5.5-2026-04-23"
+    assert call["reasoning"] == {"effort": "xhigh"}
+    assert "maxItems" not in concept_schema
+    assert {
+        "concept_id",
+        "observed_name_text",
+        "project_memory_record_id",
+        "quantity",
+        "unit",
+        "component_unit_price",
+    }.issubset(concept_properties)
+    assert {
+        "observed_provider_text",
+        "provider_memory_record_id",
+        "bundle_quantity",
+        "bundle_unit",
+        "source_stated_line_total",
+        "primary_evidence_excerpt",
+        "supporting_evidence_excerpts",
+        "installation_relationships",
+    }.issubset(candidate_properties)
+    assert "line_type" not in candidate_properties
+    assert "candidate-local non-final" in system_prompt
+    assert "worked-on object" in system_prompt
+    assert "ambiguous target" in system_prompt
+    assert "workflow" in system_prompt
 
 
 def test_openai_provider_uses_stateless_strict_xlsx_profile_and_extraction_calls():

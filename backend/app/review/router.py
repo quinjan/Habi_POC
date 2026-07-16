@@ -17,8 +17,10 @@ from backend.app.memory.models import (
     Provider,
     PurchaseLine,
     PurchaseLineConceptLink,
+    PurchaseLineInstallationRelationship,
     Service,
 )
+from backend.app.processing.memory_context import provider_roles
 from backend.app.processing.models import ProcessingJob
 from backend.app.processing.schemas import SourceFileSummary
 from backend.app.projects.models import ProjectWorkspace
@@ -52,10 +54,12 @@ from backend.app.review.schemas import (
     ExtractedCandidateRead,
     ImportedPurchaseLine,
     ImportReviewBatchResponse,
+    MemoryOptionRead,
     ReviewBatchDraftSaveRequest,
     ReviewBatchDetail,
     ReviewBatchRead,
     ReviewBatchTaxonomyMappingRequest,
+    ReviewedConceptPayload,
     ReviewedPurchaseLinePayload,
     TaxonomyDecisionCreate,
     TaxonomyDecisionRead,
@@ -206,6 +210,10 @@ def decide_candidate(
             if payload.reviewed_payload
             else None
         )
+        _validate_immutable_candidate_provenance(
+            candidate=candidate,
+            reviewed_payload=reviewed_payload,
+        )
         validate_annotation_source_grounding(
             session=session,
             candidate=candidate,
@@ -231,6 +239,55 @@ def decide_candidate(
             detail=str(error),
         ) from error
 
+    session.commit()
+    session.refresh(candidate)
+    return _candidate_read(session, candidate)
+
+
+@router.post(
+    "/{project_workspace_id}/review-batches/{review_batch_id}/candidates/{candidate_id}/reset",
+    response_model=ExtractedCandidateRead,
+)
+def reset_candidate(
+    project_workspace_id: int,
+    review_batch_id: int,
+    candidate_id: int,
+    session: Session = Depends(get_session),
+) -> ExtractedCandidateRead:
+    review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
+    _ensure_review_batch_editable_or_conflict(review_batch)
+    candidate = session.scalar(
+        select(ExtractedCandidate).where(
+            ExtractedCandidate.id == candidate_id,
+            ExtractedCandidate.review_batch_id == review_batch.id,
+            ExtractedCandidate.project_workspace_id == project_workspace_id,
+        )
+    )
+    if candidate is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found")
+
+    candidate.reviewed_payload = None
+    now = datetime.now(timezone.utc)
+    gates = list(
+        session.scalars(select(TaxonomyGate).where(TaxonomyGate.candidate_id == candidate.id))
+    )
+    for gate in gates:
+        if gate.status == "accepted":
+            for decision in session.scalars(
+                select(TaxonomyDecision).where(
+                    TaxonomyDecision.taxonomy_gate_id == gate.id,
+                    TaxonomyDecision.superseded.is_(False),
+                )
+            ):
+                decision.superseded = True
+                decision.superseded_at = now
+        gate.reviewer_draft_top_level_category = None
+        gate.reviewer_draft_subcategory = None
+        gate.selected_proposal = "ai_suggestion"
+        gate.status = "needs_decision"
+        gate.active = False
+    _ensure_candidate_taxonomy_gates(session, candidate)
+    recalculate_review_batch_status(session=session, review_batch=review_batch)
     session.commit()
     session.refresh(candidate)
     return _candidate_read(session, candidate)
@@ -1087,6 +1144,7 @@ def _candidate_read(session: Session, candidate: ExtractedCandidate) -> Extracte
             "taxonomy_gate": _taxonomy_gate_for_candidate(session, candidate),
             "taxonomy_gates": _taxonomy_gates_for_candidate(session, candidate),
             "existing_memory_matches": _existing_memory_matches(session, candidate),
+            "memory_options": _memory_options(session, candidate),
             "taxonomy_default": _taxonomy_default_for_candidate(session, candidate),
         }
     )
@@ -1247,18 +1305,57 @@ def _ensure_review_batch_editable_or_conflict(review_batch: ReviewBatch) -> None
         )
 
 
+def _validate_immutable_candidate_provenance(
+    *,
+    candidate: ExtractedCandidate,
+    reviewed_payload: dict | None,
+) -> None:
+    if reviewed_payload is None:
+        return
+    proposed_payload = candidate.proposed_payload
+    proposed_concepts = proposed_payload.get("linked_concepts")
+    if isinstance(proposed_concepts, list) and any(
+        isinstance(concept, dict) and concept.get("observed_name_text") is not None
+        for concept in proposed_concepts
+    ):
+        reviewed_concepts = reviewed_payload.get("linked_concepts")
+        if not isinstance(reviewed_concepts, list):
+            raise ValueError("Reviewed linked concepts must preserve observed source text")
+        reviewed_by_id = {
+            concept.get("concept_id"): concept
+            for concept in reviewed_concepts
+            if isinstance(concept, dict)
+        }
+        for proposed_concept in proposed_concepts:
+            if not isinstance(proposed_concept, dict):
+                continue
+            concept_id = proposed_concept.get("concept_id")
+            reviewed_concept = reviewed_by_id.get(concept_id)
+            if reviewed_concept is None:
+                raise ValueError("Reviewed linked concepts must preserve concept identity")
+            if reviewed_concept.get("observed_name_text") != proposed_concept.get(
+                "observed_name_text"
+            ):
+                raise ValueError("Observed Name Text is immutable source provenance")
+
+    if "observed_provider_text" in proposed_payload and reviewed_payload.get(
+        "observed_provider_text"
+    ) != proposed_payload.get("observed_provider_text"):
+        raise ValueError("Observed Provider Text is immutable source provenance")
+    for field, label in (
+        ("primary_evidence_span", "Primary Evidence Span"),
+        ("supporting_evidence_spans", "Supporting Evidence Spans"),
+    ):
+        if field in proposed_payload and reviewed_payload.get(field) != proposed_payload.get(field):
+            raise ValueError(f"{label} is immutable source provenance")
+
+
 def _validate_importable_payload(payload: ReviewedPurchaseLinePayload) -> None:
     concepts = payload.concepts()
-    concept_types = {concept.concept_type for concept in concepts}
-    if len(concepts) not in {1, 2} or len(concept_types) != len(concepts):
+    if not concepts:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Approved candidates require one Material or Service, or one of each",
-        )
-    if len(concepts) == 2 and concept_types != {"material", "service"}:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Bundled Purchase Lines require exactly one Material and one Service",
+            detail="Approved candidates require at least one linked Material or Service",
         )
     for concept in concepts:
         if not _present(concept.name):
@@ -1305,7 +1402,7 @@ def _import_purchase_line(
     source_evidence: CandidateSourceEvidence,
     payload: ReviewedPurchaseLinePayload,
 ) -> PurchaseLine:
-    concept_records: list[tuple[str, MemoryRecord]] = []
+    concept_records: list[tuple[ReviewedConceptPayload, MemoryRecord]] = []
     for concept in payload.concepts():
         top_level = _get_or_create_taxonomy_node(
             session=session,
@@ -1331,7 +1428,7 @@ def _import_purchase_line(
             Material if concept.concept_type == "material" else Service,
             concept_record.id,
         )
-        concept_records.append((concept.concept_type, concept_record))
+        concept_records.append((concept, concept_record))
 
     provider_record = None
     provider_state = _resolved_provider_state(
@@ -1401,12 +1498,27 @@ def _import_purchase_line(
 
     annotation_targets = {
         "purchase_line": purchase_record,
-        **{concept_type: record for concept_type, record in concept_records},
     }
+    concept_annotation_targets = {
+        concept.concept_id: record
+        for concept, record in concept_records
+        if concept.concept_id is not None
+    }
+    for concept, record in concept_records:
+        same_type_count = sum(
+            candidate_concept.concept_type == concept.concept_type
+            for candidate_concept, _candidate_record in concept_records
+        )
+        if same_type_count == 1:
+            annotation_targets[concept.concept_type] = record
     if provider_record is not None:
         annotation_targets["provider"] = provider_record
     for annotation in payload.annotation_proposals:
-        target_record = annotation_targets.get(annotation.target)
+        target_record = (
+            concept_annotation_targets.get(annotation.target_concept_id)
+            if annotation.target_concept_id is not None
+            else annotation_targets.get(annotation.target)
+        )
         if target_record is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1445,30 +1557,64 @@ def _import_purchase_line(
 
     price = _clean(payload.price)
     currency = _clean(payload.currency) if price is not None else None
+    concepts = payload.concepts()
+    line_quantity = (
+        (payload.bundle_quantity or payload.quantity)
+        if len(concepts) > 1
+        else payload.quantity
+    )
+    line_unit = (
+        (payload.bundle_unit or payload.unit)
+        if len(concepts) > 1
+        else payload.unit
+    )
+    if len(concepts) == 1:
+        line_quantity = line_quantity or concepts[0].quantity
+        line_unit = line_unit or concepts[0].unit
     purchase_line = PurchaseLine(
         project_workspace_id=project_workspace_id,
         memory_record_id=purchase_record.id,
         provider_memory_record_id=provider_record.id if provider_record else None,
         provider_state=provider_state,
-        quantity=_clean(payload.quantity),
-        unit=_clean(payload.unit),
-        unit_state="known" if _present(payload.unit) else "unknown",
+        quantity=_clean(line_quantity),
+        unit=_clean(line_unit),
+        unit_state="known" if _present(line_unit) else "unknown",
         price=price,
         currency=currency or ("PHP" if price is not None else None),
-        price_state="known" if price is not None else "unknown",
+        price_state=(payload.price_state or ("known" if price is not None else "unknown")),
         purchase_date=payload.purchase_date,
         date_state="known" if payload.purchase_date is not None else "unknown",
     )
     session.add(purchase_line)
     session.flush()
-    for concept_type, concept_record in concept_records:
-        session.add(
-            PurchaseLineConceptLink(
-                purchase_line_id=purchase_line.id,
-                concept_memory_record_id=concept_record.id,
-                concept_type=concept_type,
-            )
+    concept_links_by_key: dict[str, PurchaseLineConceptLink] = {}
+    for concept, concept_record in concept_records:
+        link = PurchaseLineConceptLink(
+            purchase_line_id=purchase_line.id,
+            concept_memory_record_id=concept_record.id,
+            concept_type=concept.concept_type,
+            concept_key=concept.concept_id,
+            quantity=_clean(concept.quantity),
+            unit=_clean(concept.unit),
+            component_unit_price=_clean(concept.component_unit_price),
         )
+        session.add(link)
+        session.flush()
+        if concept.concept_id:
+            concept_links_by_key[concept.concept_id] = link
+    for relationship in payload.installation_relationships:
+        service_link = concept_links_by_key[relationship.service_concept_id]
+        for material_concept_id in relationship.material_concept_ids:
+            material_link = concept_links_by_key[material_concept_id]
+            session.add(
+                PurchaseLineInstallationRelationship(
+                    purchase_line_id=purchase_line.id,
+                    service_concept_link_id=service_link.id,
+                    material_concept_link_id=material_link.id,
+                    source_excerpt=relationship.source_excerpt,
+                    source_locator=relationship.source_locator,
+                )
+            )
     session.flush()
     return purchase_line
 
@@ -1559,8 +1705,21 @@ def _promote_merged_candidate_evidence(
             )
             if record is not None
         }
+        concept_target_records = {
+            link.concept_key: session.get(MemoryRecord, link.concept_memory_record_id)
+            for link in session.scalars(
+                select(PurchaseLineConceptLink).where(
+                    PurchaseLineConceptLink.purchase_line_id == purchase_line.id
+                )
+            )
+            if link.concept_key is not None
+        }
         for annotation in merged_payload.annotation_proposals:
-            target_record = target_records.get(annotation.target)
+            target_record = (
+                concept_target_records.get(annotation.target_concept_id)
+                if annotation.target_concept_id is not None
+                else target_records.get(annotation.target)
+            )
             if target_record is None:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -1806,15 +1965,16 @@ def _ensure_candidate_taxonomy_gates(
     candidate: ExtractedCandidate,
 ) -> None:
     existing_gates = {
-        gate.subject_type: gate
+        (gate.subject_type, gate.normalized_subject_name): gate
         for gate in session.scalars(
             select(TaxonomyGate).where(TaxonomyGate.candidate_id == candidate.id)
         )
     }
-    relevant_subject_types: set[str] = set()
+    relevant_subjects: set[tuple[str, str]] = set()
     for subject_type, subject_name, suggestion in _active_candidate_taxonomy_subjects(candidate):
-        relevant_subject_types.add(subject_type)
-        existing_gate = existing_gates.get(subject_type)
+        subject_key = (subject_type, _normalize(subject_name))
+        relevant_subjects.add(subject_key)
+        existing_gate = existing_gates.get(subject_key)
         if existing_gate is not None:
             existing_gate.active = True
             existing_gate.subject_name = subject_name
@@ -1861,8 +2021,8 @@ def _ensure_candidate_taxonomy_gates(
                 active=True,
             )
         )
-    for subject_type, existing_gate in existing_gates.items():
-        if subject_type not in relevant_subject_types:
+    for subject_key, existing_gate in existing_gates.items():
+        if subject_key not in relevant_subjects:
             existing_gate.active = False
     session.flush()
 
@@ -1871,13 +2031,18 @@ def _active_candidate_taxonomy_subjects(
     candidate: ExtractedCandidate,
 ) -> list[tuple[str, str, dict]]:
     proposed_subjects = {
-        subject_type: (subject_name, suggestion)
+        (subject_type, _normalize(subject_name)): (subject_name, suggestion)
         for subject_type, subject_name, suggestion in _candidate_taxonomy_subjects(candidate)
     }
     if candidate.decision != "approved" or candidate.reviewed_payload is None:
         return [
             (subject_type, subject_name, suggestion)
-            for subject_type, (subject_name, suggestion) in proposed_subjects.items()
+            for (subject_type, _normalized_name), (subject_name, suggestion) in proposed_subjects.items()
+            if not _proposed_subject_has_memory_match(
+                candidate,
+                subject_type=subject_type,
+                subject_name=subject_name,
+            )
         ]
 
     payload = ReviewedPurchaseLinePayload.model_validate(candidate.reviewed_payload)
@@ -1885,7 +2050,11 @@ def _active_candidate_taxonomy_subjects(
     for concept in payload.concepts():
         if not _present(concept.name):
             continue
-        proposed = proposed_subjects.get(concept.concept_type)
+        if concept.project_memory_record_id is not None:
+            continue
+        proposed = proposed_subjects.get(
+            (concept.concept_type, _normalize(concept.name or ""))
+        )
         suggestion = (
             proposed[1]
             if proposed is not None
@@ -1896,7 +2065,9 @@ def _active_candidate_taxonomy_subjects(
         )
         subjects.append((concept.concept_type, concept.name or "", suggestion))
     if payload.provider_state == "external" and _present(payload.provider_name):
-        proposed = proposed_subjects.get("provider")
+        if payload.provider_memory_record_id is not None:
+            return subjects
+        proposed = proposed_subjects.get(("provider", _normalize(payload.provider_name or "")))
         suggestion = (
             proposed[1]
             if proposed is not None
@@ -1907,6 +2078,26 @@ def _active_candidate_taxonomy_subjects(
         )
         subjects.append(("provider", payload.provider_name or "", suggestion))
     return subjects
+
+
+def _proposed_subject_has_memory_match(
+    candidate: ExtractedCandidate,
+    *,
+    subject_type: str,
+    subject_name: str,
+) -> bool:
+    if subject_type == "provider":
+        return candidate.proposed_payload.get("provider_memory_record_id") is not None
+    linked_concepts = candidate.proposed_payload.get("linked_concepts")
+    if not isinstance(linked_concepts, list):
+        return False
+    return any(
+        isinstance(concept, dict)
+        and concept.get("concept_type") == subject_type
+        and concept.get("name") == subject_name
+        and concept.get("project_memory_record_id") is not None
+        for concept in linked_concepts
+    )
 
 
 def _apply_accepted_gate_category(
@@ -1933,6 +2124,8 @@ def _apply_accepted_gate_category(
                         }
                         if isinstance(concept, dict)
                         and concept.get("concept_type") == taxonomy_gate.subject_type
+                        and _normalize(str(concept.get("name") or ""))
+                        == taxonomy_gate.normalized_subject_name
                         else {}
                     ),
                 }
@@ -2047,6 +2240,47 @@ def _existing_memory_matches(
             )
         )
     return matches
+
+
+def _memory_options(
+    session: Session,
+    candidate: ExtractedCandidate,
+) -> list[MemoryOptionRead]:
+    subject_types = {
+        subject_type
+        for subject_type, _subject_name, _suggestion in _candidate_taxonomy_subjects(candidate)
+    }
+    if not subject_types:
+        return []
+    records = list(
+        session.scalars(
+            select(MemoryRecord).where(
+                MemoryRecord.project_workspace_id == candidate.project_workspace_id,
+                MemoryRecord.record_type.in_(subject_types),
+                MemoryRecord.status == "active",
+            )
+        )
+    )
+    records.sort(key=lambda record: (record.record_type, record.normalized_name, record.id))
+    options: list[MemoryOptionRead] = []
+    for record in records:
+        category_path = _taxonomy_node_path(session, record.taxonomy_node_id)
+        if category_path is None:
+            continue
+        options.append(
+            MemoryOptionRead(
+                record_id=record.id,
+                subject_type=record.record_type,
+                subject_name=record.display_name,
+                category_path=category_path,
+                provider_roles=(
+                    provider_roles(session, record.id)
+                    if record.record_type == "provider"
+                    else []
+                ),
+            )
+        )
+    return options
 
 
 def _existing_memory_record(

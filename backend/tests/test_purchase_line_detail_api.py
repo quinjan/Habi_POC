@@ -148,8 +148,8 @@ def test_reviewed_annotation_imports_and_appears_in_purchase_line_detail(client)
     )
     assert saved.status_code == 200, saved.json()
     assert saved.json()["candidates"][0]["reviewed_payload"]["annotation_proposals"] == [
-        reviewed_annotation,
-        grounded_reviewer_annotation,
+        {**reviewed_annotation, "target_concept_id": None},
+        {**grounded_reviewer_annotation, "target_concept_id": None},
     ]
 
     accept_all_taxonomy_gates(
@@ -184,6 +184,10 @@ def test_reviewed_annotation_imports_and_appears_in_purchase_line_detail(client)
             "concept_type": "material",
             "name": "PVC pipe",
             "category_path": "Plumbing / Pipes",
+            "concept_key": None,
+            "quantity": None,
+            "unit": None,
+            "component_unit_price": None,
         }
     ]
     assert body["provider"] == {"state": "unknown", "record": None, "roles": []}
@@ -513,7 +517,7 @@ def test_all_annotation_types_and_valid_targets_import_on_their_original_evidenc
     }
 
 
-def test_free_form_annotation_limit_warning_persists_through_import_and_detail(client):
+def test_free_form_annotations_have_no_count_cap_through_import_and_detail(client):
     class TwentyOneAnnotationProvider:
         def extract_purchase_lines(self, *, original_text, source_submission_id):
             return {
@@ -565,10 +569,9 @@ def test_free_form_annotation_limit_warning_persists_through_import_and_detail(c
         f"/api/project-workspaces/{project['id']}/review-batches/{job['review_batch_id']}"
     ).json()
     candidate = review["candidates"][0]
-    assert len(candidate["proposed_payload"]["annotation_proposals"]) == 20
-    assert candidate["proposed_payload"]["annotation_omitted_count"] == 1
-    assert candidate["proposed_payload"]["annotation_detected_count"] == 21
-    assert "Annotation extraction limit reached" in job["diagnostics"]["warning_summary"]
+    assert len(candidate["proposed_payload"]["annotation_proposals"]) == 21
+    assert "annotation_omitted_count" not in candidate["proposed_payload"]
+    assert "warning_summary" not in job["diagnostics"]
 
     saved = client.put(
         f"/api/project-workspaces/{project['id']}/review-batches/"
@@ -607,13 +610,13 @@ def test_free_form_annotation_limit_warning_persists_through_import_and_detail(c
         f"/api/project-workspaces/{project['id']}/purchase-lines/{purchase_line_id}"
     ).json()
     evidence = detail["evidence_records"][0]
-    assert evidence["annotation_omitted_count"] == 1
-    assert evidence["annotation_detected_count"] == 21
-    assert len(evidence["annotations"]) == 20
+    assert evidence["annotation_omitted_count"] == 0
+    assert evidence["annotation_detected_count"] == 0
+    assert len(evidence["annotations"]) == 21
 
     source_detail = client.get(
         f"/api/project-workspaces/{project['id']}/source-submissions/"
         f"{submission['source_submission']['id']}"
     ).json()
-    assert source_detail["imported_evidence"][0]["annotation_omitted_count"] == 1
-    assert source_detail["imported_evidence"][0]["annotation_detected_count"] == 21
+    assert source_detail["imported_evidence"][0]["annotation_omitted_count"] == 0
+    assert source_detail["imported_evidence"][0]["annotation_detected_count"] == 0

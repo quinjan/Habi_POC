@@ -478,6 +478,13 @@ describe("Project Workspace app shell", () => {
           });
         }
 
+        if (
+          url === "/api/project-workspaces/1/review-batches/12/candidates/42/reset" &&
+          method === "POST"
+        ) {
+          return jsonResponse(buildBundledCandidate(new Set<number>()));
+        }
+
         const batch12GateAcceptMatch = url.match(
           /^\/api\/project-workspaces\/1\/review-batches\/12\/taxonomy-gates\/(\d+)\/accept$/
         );
@@ -1393,7 +1400,11 @@ describe("Project Workspace app shell", () => {
     const detail = await screen.findByRole("dialog", { name: "Candidate Detail" });
     expect(within(detail).getByRole("heading", { name: "Linked Concepts" })).toBeInTheDocument();
     expect(within(detail).getByText("PVC pipe installation")).toBeInTheDocument();
+    expect(within(detail).getByText("Observed source: PVC pipe")).toBeInTheDocument();
+    expect(within(detail).getByText("Observed source: installed PVC pipe")).toBeInTheDocument();
+    expect(within(detail).getByRole("combobox", { name: "Material name" })).toBeInTheDocument();
     expect(within(detail).getByRole("heading", { name: "Provider" })).toBeInTheDocument();
+    expect(within(detail).getByText("Observed source: ABC Trading")).toBeInTheDocument();
     expect(within(detail).getByLabelText("Provider State")).toHaveValue("external");
     expect(within(detail).getByRole("heading", { name: "Purchase Details" })).toBeInTheDocument();
     expect(within(detail).getByText("PHP 1500")).toBeInTheDocument();
@@ -1403,6 +1414,20 @@ describe("Project Workspace app shell", () => {
     expect(within(detail).queryByLabelText("Provider top-level category")).not.toBeInTheDocument();
     expect(within(detail).queryByLabelText("Provider subcategory")).not.toBeInTheDocument();
     expect(within(detail).queryByRole("button", { name: "Change Taxonomy" })).not.toBeInTheDocument();
+    expect(within(detail).getByRole("button", { name: "Reset candidate" })).toBeInTheDocument();
+    const confirmReset = vi.spyOn(window, "confirm").mockReturnValue(true);
+    await user.click(within(detail).getByRole("button", { name: "Reset candidate" }));
+    await waitFor(() =>
+      expect(
+        vi.mocked(fetch).mock.calls.find(([input]) =>
+          input.toString().includes("/review-batches/12/candidates/42/reset")
+        )
+      ).toBeDefined()
+    );
+    expect(confirmReset).toHaveBeenCalledWith(
+      "Reset this candidate to the original extraction proposal?"
+    );
+    expect(within(detail).getByText("Observed source: PVC pipe")).toBeInTheDocument();
     expect(within(detail).getByText("AI suggestion: Trade services / Pipe installation")).toBeInTheDocument();
     expect(within(detail).getByText("Taxonomy Status").parentElement).toHaveTextContent(
       "Needs decision"
@@ -1831,11 +1856,7 @@ describe("Project Workspace app shell", () => {
     expect(within(detail).getByText("Purchase Details")).toBeInTheDocument();
     expect(within(detail).getAllByText("PVC elbow").length).toBeGreaterThan(1);
     expect(within(detail).getByText("AI Confidence").parentElement).toHaveTextContent("84%");
-    expect(
-      within(detail).getByText(
-        "Annotation extraction limit reached — 20 of 21 source-grounded annotation proposals were retained. Review the source and add any omitted qualifiers that matter."
-      )
-    ).toBeInTheDocument();
+    expect(within(detail).queryByText(/Annotation extraction limit reached/)).not.toBeInTheDocument();
     expect(within(detail).getByText("AI suggested")).toBeInTheDocument();
     await user.selectOptions(
       within(detail).getByLabelText("Annotation type 1"),
@@ -2027,16 +2048,22 @@ function buildBundledCandidate(acceptedGateIds: ReadonlySet<number>) {
     proposed_payload: {
       linked_concepts: [
         {
+          concept_id: "material-pvc",
           concept_type: "material",
           name: "PVC pipe",
+          observed_name_text: "PVC pipe",
+          project_memory_record_id: 81,
           category_suggestion: {
             top_level_category: "Plumbing",
             subcategory: "Pipes"
           }
         },
         {
+          concept_id: "service-installation",
           concept_type: "service",
           name: "PVC pipe installation",
+          observed_name_text: "installed PVC pipe",
+          project_memory_record_id: null,
           category_suggestion: {
             top_level_category: "Trade services",
             subcategory: "Pipe installation"
@@ -2045,6 +2072,8 @@ function buildBundledCandidate(acceptedGateIds: ReadonlySet<number>) {
       ],
       provider_state: "external",
       provider_name: "ABC Trading",
+      observed_provider_text: "ABC Trading",
+      provider_memory_record_id: 82,
       provider_category_suggestion: {
         top_level_category: "Providers",
         subcategory: "General"
@@ -2075,6 +2104,22 @@ function buildBundledCandidate(acceptedGateIds: ReadonlySet<number>) {
         subject_type: "provider",
         subject_name: "ABC Trading",
         category_path: "Providers / General"
+      }
+    ],
+    memory_options: [
+      {
+        record_id: 81,
+        subject_type: "material",
+        subject_name: "PVC pipe",
+        category_path: "Plumbing / Pipes",
+        provider_roles: []
+      },
+      {
+        record_id: 82,
+        subject_type: "provider",
+        subject_name: "ABC Trading",
+        category_path: "Providers / General",
+        provider_roles: ["material_supplier"]
       }
     ],
     taxonomy_default: null

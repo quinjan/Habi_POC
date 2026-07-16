@@ -85,6 +85,101 @@ class ExplicitAnnotationColumnsProvider:
         return {"candidates": []}
 
 
+def _seed_memory_record(client, project_id: int, record_type: str, name: str, path: str):
+    from backend.app.memory.models import Material, MemoryRecord, Provider
+    from backend.app.taxonomy.models import TaxonomyNode
+
+    top_name, sub_name = path.split(" / ", 1)
+    with client.app.state.session_factory() as session:
+        top = TaxonomyNode(project_workspace_id=project_id, parent_id=None, name=top_name)
+        session.add(top)
+        session.flush()
+        leaf = TaxonomyNode(project_workspace_id=project_id, parent_id=top.id, name=sub_name)
+        session.add(leaf)
+        session.flush()
+        record = MemoryRecord(
+            project_workspace_id=project_id,
+            record_type=record_type,
+            display_name=name,
+            normalized_name=" ".join(name.casefold().split()),
+            taxonomy_node_id=leaf.id,
+            status="active",
+        )
+        session.add(record)
+        session.flush()
+        session.add(
+            Material(memory_record_id=record.id)
+            if record_type == "material"
+            else Provider(memory_record_id=record.id)
+        )
+        session.commit()
+        return record.id
+
+
+def test_xlsx_candidate_review_has_observed_text_and_exact_memory_identity(
+    client, monkeypatch, tmp_path
+):
+    monkeypatch.setenv("HABI_STORAGE_ROOT", str(tmp_path))
+
+    def configure(workbook):
+        sheet = workbook.active
+        sheet.title = "Purchases"
+        sheet.append(
+            [
+                "Line kind",
+                "Material name",
+                "Material category path",
+                "Provider State",
+                "Provider name",
+                "Provider category path",
+            ]
+        )
+        sheet.append(
+            [
+                "Material",
+                "PVC pipe",
+                "Wrong / Suggestion",
+                "External",
+                "ABC Trading",
+                "Wrong / Provider",
+            ]
+        )
+        sheet.append(["Not a purchase line"])
+
+    project = _create_project(client)
+    material_id = _seed_memory_record(
+        client, project["id"], "material", "PVC pipe", "Plumbing / Pipes"
+    )
+    provider_id = _seed_memory_record(
+        client, project["id"], "provider", "ABC Trading", "Providers / General"
+    )
+    submission = _upload(client, project["id"], _workbook_bytes(configure))
+
+    assert run_once(
+        client.app.state.session_factory,
+        ai_provider=ExplicitAnnotationColumnsProvider(),
+    ) == 1
+    job = client.get(
+        f"/api/project-workspaces/{project['id']}/processing-jobs/"
+        f"{submission['processing_job']['id']}"
+    ).json()["processing_job"]
+    review = client.get(
+        f"/api/project-workspaces/{project['id']}/review-batches/{job['review_batch_id']}"
+    ).json()
+
+    candidate = review["candidates"][0]
+    concept = candidate["proposed_payload"]["linked_concepts"][0]
+    assert concept["observed_name_text"] == "PVC pipe"
+    assert concept["project_memory_record_id"] == material_id
+    assert concept["category_suggestion"] == {
+        "top_level_category": "Plumbing",
+        "subcategory": "Pipes",
+    }
+    assert candidate["proposed_payload"]["observed_provider_text"] == "ABC Trading"
+    assert candidate["proposed_payload"]["provider_memory_record_id"] == provider_id
+    assert candidate["taxonomy_gates"] == []
+
+
 def test_explicit_xlsx_annotation_columns_create_exact_cell_grounded_proposals(
     client, monkeypatch, tmp_path
 ):
@@ -736,7 +831,8 @@ def test_explicit_xlsx_purchase_rows_override_ungrounded_ai_fields(
     assert (
         candidates_by_row[12]["provider_state"],
         candidates_by_row[12]["provider_name"],
-    ) == ("internal", "HABI   BUILD CO.")
+        candidates_by_row[12]["observed_provider_text"],
+    ) == ("internal", None, "Internal")
     assert (
         candidates_by_row[13]["provider_state"],
         candidates_by_row[13]["provider_name"],

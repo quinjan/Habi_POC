@@ -1,6 +1,6 @@
 from datetime import date
 
-from sqlalchemy import Date, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Date, ForeignKey, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.database import Base
@@ -68,11 +68,6 @@ class PurchaseLineConceptLink(Base):
     __table_args__ = (
         UniqueConstraint(
             "purchase_line_id",
-            "concept_type",
-            name="uq_purchase_line_concept_type",
-        ),
-        UniqueConstraint(
-            "purchase_line_id",
             "concept_memory_record_id",
             name="uq_purchase_line_concept_record",
         ),
@@ -86,3 +81,31 @@ class PurchaseLineConceptLink(Base):
         ForeignKey("memory_records.id"), nullable=False, index=True
     )
     concept_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    concept_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    quantity: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    unit: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    component_unit_price: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+
+class PurchaseLineInstallationRelationship(Base):
+    __tablename__ = "purchase_line_installation_relationships"
+    __table_args__ = (
+        UniqueConstraint(
+            "service_concept_link_id",
+            "material_concept_link_id",
+            name="uq_purchase_line_installation_pair",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    purchase_line_id: Mapped[int] = mapped_column(
+        ForeignKey("purchase_lines.id"), nullable=False, index=True
+    )
+    service_concept_link_id: Mapped[int] = mapped_column(
+        ForeignKey("purchase_line_concept_links.id"), nullable=False
+    )
+    material_concept_link_id: Mapped[int] = mapped_column(
+        ForeignKey("purchase_line_concept_links.id"), nullable=False
+    )
+    source_excerpt: Mapped[str] = mapped_column(String(2000), nullable=False)
+    source_locator: Mapped[dict] = mapped_column(JSON, nullable=False)

@@ -277,6 +277,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/candidates/{candidate_id}/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reset Candidate */
+        post: operations["reset_candidate_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__candidates__candidate_id__reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-gates/{taxonomy_gate_id}/accept": {
         parameters: {
             query?: never;
@@ -663,6 +680,8 @@ export interface components {
             taxonomy_gates?: components["schemas"]["CandidateTaxonomyGateRead"][];
             /** Existing Memory Matches */
             existing_memory_matches?: components["schemas"]["ExistingMemoryMatchRead"][];
+            /** Memory Options */
+            memory_options?: components["schemas"]["MemoryOptionRead"][];
             taxonomy_default?: components["schemas"]["TaxonomyDefaultRead"] | null;
         };
         /** HTTPValidationError */
@@ -679,6 +698,19 @@ export interface components {
         ImportedPurchaseLine: {
             /** Id */
             id: number;
+        };
+        /** InstallationRelationshipRead */
+        InstallationRelationshipRead: {
+            /** Service Concept Key */
+            service_concept_key: string;
+            /** Material Concept Key */
+            material_concept_key: string;
+            /** Source Excerpt */
+            source_excerpt: string;
+            /** Source Locator */
+            source_locator: {
+                [key: string]: unknown;
+            };
         };
         /** ManualSourceEntryCreate */
         ManualSourceEntryCreate: {
@@ -713,6 +745,22 @@ export interface components {
             } | null;
             /** Original Text */
             original_text: string | null;
+        };
+        /** MemoryOptionRead */
+        MemoryOptionRead: {
+            /** Record Id */
+            record_id: number;
+            /**
+             * Subject Type
+             * @enum {string}
+             */
+            subject_type: "material" | "service" | "provider";
+            /** Subject Name */
+            subject_name: string;
+            /** Category Path */
+            category_path: string;
+            /** Provider Roles */
+            provider_roles?: string[];
         };
         /** ProcessingJobDetail */
         ProcessingJobDetail: {
@@ -866,6 +914,14 @@ export interface components {
             name: string;
             /** Category Path */
             category_path: string;
+            /** Concept Key */
+            concept_key?: string | null;
+            /** Quantity */
+            quantity?: string | null;
+            /** Unit */
+            unit?: string | null;
+            /** Component Unit Price */
+            component_unit_price?: string | null;
         };
         /** PurchaseLineDetail */
         PurchaseLineDetail: {
@@ -877,6 +933,8 @@ export interface components {
             line_type: string;
             /** Linked Concepts */
             linked_concepts: components["schemas"]["PurchaseLineConceptRead"][];
+            /** Installation Relationships */
+            installation_relationships?: components["schemas"]["InstallationRelationshipRead"][];
             provider: components["schemas"]["PurchaseLineProviderRead"];
             /** Quantity */
             quantity: string | null;
@@ -960,6 +1018,8 @@ export interface components {
             line_type: string;
             /** Linked Concepts */
             linked_concepts: components["schemas"]["PurchaseLineConceptRead"][];
+            /** Installation Relationships */
+            installation_relationships?: components["schemas"]["InstallationRelationshipRead"][];
             /** Provider State */
             provider_state: string;
             /** Provider Name */
@@ -1057,6 +1117,8 @@ export interface components {
              * @enum {string}
              */
             target: "purchase_line" | "material" | "service" | "provider";
+            /** Target Concept Id */
+            target_concept_id?: string | null;
             /** Source Excerpt */
             source_excerpt: string;
             /** Source Locator */
@@ -1071,6 +1133,8 @@ export interface components {
         };
         /** ReviewedConceptPayload */
         ReviewedConceptPayload: {
+            /** Concept Id */
+            concept_id?: string | null;
             /**
              * Concept Type
              * @enum {string}
@@ -1078,10 +1142,33 @@ export interface components {
             concept_type: "material" | "service";
             /** Name */
             name?: string | null;
+            /** Observed Name Text */
+            observed_name_text?: string | null;
+            /** Project Memory Record Id */
+            project_memory_record_id?: number | null;
             /** Top Level Category */
             top_level_category?: string | null;
             /** Subcategory */
             subcategory?: string | null;
+            /** Quantity */
+            quantity?: string | null;
+            /** Unit */
+            unit?: string | null;
+            /** Component Unit Price */
+            component_unit_price?: string | null;
+        };
+        /** ReviewedInstallationRelationship */
+        ReviewedInstallationRelationship: {
+            /** Service Concept Id */
+            service_concept_id: string;
+            /** Material Concept Ids */
+            material_concept_ids: string[];
+            /** Source Excerpt */
+            source_excerpt: string;
+            /** Source Locator */
+            source_locator: {
+                [key: string]: unknown;
+            };
         };
         /** ReviewedPurchaseLinePayload */
         ReviewedPurchaseLinePayload: {
@@ -1089,10 +1176,28 @@ export interface components {
             linked_concepts?: components["schemas"]["ReviewedConceptPayload"][];
             /** Provider State */
             provider_state?: ("external" | "internal" | "unknown") | null;
+            /** Observed Provider Text */
+            observed_provider_text?: string | null;
+            /** Provider Memory Record Id */
+            provider_memory_record_id?: number | null;
             /** Provider Top Level Category */
             provider_top_level_category?: string | null;
             /** Provider Subcategory */
             provider_subcategory?: string | null;
+            /** Bundle Quantity */
+            bundle_quantity?: string | null;
+            /** Bundle Unit */
+            bundle_unit?: string | null;
+            /** Installation Relationships */
+            installation_relationships?: components["schemas"]["ReviewedInstallationRelationship"][];
+            /** Primary Evidence Span */
+            primary_evidence_span?: {
+                [key: string]: unknown;
+            } | null;
+            /** Supporting Evidence Spans */
+            supporting_evidence_spans?: {
+                [key: string]: unknown;
+            }[];
             /** Line Type */
             line_type?: ("material" | "service") | null;
             /** Name */
@@ -1107,6 +1212,16 @@ export interface components {
             unit?: string | null;
             /** Price */
             price?: string | null;
+            /** Price State */
+            price_state?: ("source_stated" | "calculated" | "defaulted" | "unknown") | null;
+            /** Calculation */
+            calculation?: {
+                [key: string]: unknown;
+            } | null;
+            /** Variance Warning */
+            variance_warning?: {
+                [key: string]: unknown;
+            } | null;
             /** Currency */
             currency?: string | null;
             /** Provider Name */
@@ -2029,6 +2144,39 @@ export interface operations {
                 "application/json": components["schemas"]["CandidateDecisionRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractedCandidateRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_candidate_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__candidates__candidate_id__reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+                review_batch_id: number;
+                candidate_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

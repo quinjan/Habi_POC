@@ -1,5 +1,24 @@
 # Free-Form GPT-5.5 Real-Model Evaluation Suite
 
+Implementation status: the eight versioned manifests are checked in under
+`backend/evals/free-form/fixtures/` as review drafts. The paid command refuses to run until
+every `human_approval.status` is `approved` with complete reviewer metadata. After approval,
+run the qualifying suite explicitly (never from ordinary CI):
+
+```powershell
+$env:HABI_EVAL_DATABASE_URL = "postgresql+psycopg://.../habi_eval_free_form"
+$env:OPENAI_FREE_FORM_MODEL = "gpt-5.5-2026-04-23"
+$env:OPENAI_FREE_FORM_REASONING_EFFORT = "high"
+$env:OPENAI_FREE_FORM_RETRIES_ENABLED = "false"
+$env:OPENAI_CLIENT_MAX_RETRIES = "0"
+python backend/scripts/run_free_form_promotion.py
+```
+
+The command loads `OPENAI_API_KEY` only from the environment, resets only the explicitly
+named eval/test database, uses the production submission/worker/provider boundary, keeps
+verbose sanitized artifacts in ignored `.habi-evals/`, and writes a compact checked-in
+record only after all ten strict comparisons pass.
+
 This suite measures whether the pinned free-form model, prompt, and structured schema reliably produce grounded candidates across the domain decisions in ADR 0121 through ADR 0150. It is an explicit OpenAI-backed evaluation and is not part of the ordinary offline test command.
 
 ## Primary Profile
