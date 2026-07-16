@@ -204,7 +204,11 @@ def _source_imported_evidence_read(
     project_workspace_id: int,
     evidence: EvidenceRecord,
 ) -> SourceImportedEvidenceRead:
-    annotations = evidence_annotation_reads(session, evidence.id)
+    annotations = evidence_annotation_reads(
+        session,
+        evidence.id,
+        source_content=evidence.content,
+    )
     locator = strongest_evidence_locator(
         evidence.content,
         evidence_locator(evidence.content),

@@ -135,10 +135,13 @@ describe("Project Workspace app shell", () => {
                       name: "PVC pipe"
                     },
                     source_excerpt: "Delivery included",
-                    source_locator: {
-                      kind: "structured_field",
-                      field_path: "structured_payload.annotations[0].text"
-                    },
+                    source_locator:
+                      purchaseLineId === 2
+                        ? null
+                        : {
+                            kind: "structured_field",
+                            field_path: "structured_payload.annotations[0].text"
+                          },
                     provenance: "source_field"
                   },
                   {
@@ -1151,6 +1154,21 @@ describe("Project Workspace app shell", () => {
       "href",
       "/projects/1/sources/31"
     );
+  });
+
+  test("Purchase Line Detail degrades an unavailable annotation locator visibly", async () => {
+    window.history.pushState({}, "", "/projects/1/purchase-lines/2");
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Purchase Line Detail" })
+    ).toBeInTheDocument();
+    const annotationCard = screen.getByText("Delivery terms").closest(".annotation-card");
+    expect(annotationCard).not.toBeNull();
+    expect(
+      within(annotationCard as HTMLElement).getByText("Precise locator unavailable")
+    ).toBeInTheDocument();
   });
 
   test("reviewer follows Purchase Line evidence into Source Submission Detail", async () => {

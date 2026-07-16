@@ -20,7 +20,11 @@ def build_purchase_line_evidence_read(
     evidence: EvidenceRecord,
 ) -> PurchaseLineEvidenceRead:
     source_submission_id, source_type = evidence_source_info(session, evidence)
-    annotations = evidence_annotation_reads(session, evidence.id)
+    annotations = evidence_annotation_reads(
+        session,
+        evidence.id,
+        source_content=evidence.content,
+    )
     locator = strongest_evidence_locator(
         evidence.content,
         evidence_locator(evidence.content),
@@ -45,6 +49,8 @@ def build_purchase_line_evidence_read(
 def evidence_annotation_reads(
     session: Session,
     evidence_record_id: int,
+    *,
+    source_content: dict,
 ) -> list[EvidenceAnnotationRead]:
     annotations = list(
         session.scalars(
@@ -70,7 +76,11 @@ def evidence_annotation_reads(
                     name=target.display_name,
                 ),
                 source_excerpt=annotation.source_excerpt,
-                source_locator=annotation.source_locator,
+                source_locator=validated_annotation_source_locator(
+                    source_content,
+                    source_excerpt=annotation.source_excerpt,
+                    source_locator=annotation.source_locator,
+                ),
                 provenance=annotation.provenance,
             )
         )
@@ -196,6 +206,17 @@ def source_excerpt_at_locator(source_content: dict, locator: dict) -> str | None
         return value if isinstance(value, str) else None
 
     return None
+
+
+def validated_annotation_source_locator(
+    source_content: dict,
+    *,
+    source_excerpt: str,
+    source_locator: dict,
+) -> dict | None:
+    if source_excerpt_at_locator(source_content, source_locator) != source_excerpt:
+        return None
+    return source_locator
 
 
 def _normalized_xlsx_coordinate(value: object) -> str | None:

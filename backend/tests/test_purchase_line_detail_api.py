@@ -212,9 +212,7 @@ def test_reviewed_annotation_imports_and_appears_in_purchase_line_detail(client)
                 "name": "PVC pipe",
             },
             "source_excerpt": "Delivery included",
-            "source_locator": {
-                "kind": "manual_text",
-            },
+            "source_locator": None,
             "provenance": "source_field",
         },
         {
@@ -290,6 +288,12 @@ def test_reviewed_annotation_imports_and_appears_in_purchase_line_detail(client)
     assert damaged_locator_detail.json()["evidence_records"][0]["locator"] == {
         "kind": "structured_manual"
     }
+    assert [
+        annotation["source_locator"]
+        for annotation in damaged_locator_detail.json()["evidence_records"][0][
+            "annotations"
+        ]
+    ] == [None, None]
 
     with client.app.state.session_factory() as session, session.begin():
         evidence_record = session.get(EvidenceRecord, evidence["id"])
@@ -299,8 +303,8 @@ def test_reviewed_annotation_imports_and_appears_in_purchase_line_detail(client)
         evidence_record.content = {"original_text": "Short source text"}
         annotations[0].source_locator = {
             "kind": "text_span",
-            "start": 900,
-            "end": 950,
+            "start": 6,
+            "end": 12,
         }
         annotations[1].source_locator = {
             "kind": "structured_field",
@@ -315,6 +319,12 @@ def test_reviewed_annotation_imports_and_appears_in_purchase_line_detail(client)
         "kind": "manual_text",
         "field_path": "original_text",
     }
+    assert [
+        annotation["source_locator"]
+        for annotation in missing_text_and_field_detail.json()["evidence_records"][0][
+            "annotations"
+        ]
+    ] == [None, None]
 
     with client.app.state.session_factory() as session, session.begin():
         evidence_record = session.get(EvidenceRecord, evidence["id"])

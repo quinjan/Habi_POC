@@ -3193,7 +3193,10 @@ function formatLabel(value: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-function formatLocator(locator: Record<string, unknown>): string {
+function formatLocator(locator: Record<string, unknown> | null | undefined): string {
+  if (!locator) {
+    return "Precise locator unavailable";
+  }
   if (locator.kind === "text_span") {
     return `Characters ${locator.start}–${locator.end}`;
   }
@@ -3339,6 +3342,7 @@ function HighlightedSourceText({
     .map((annotation) => annotation.source_locator)
     .filter(
       (locator): locator is { kind: string; start: number; end: number } =>
+        !!locator &&
         locator.kind === "text_span" &&
         typeof locator.start === "number" &&
         typeof locator.end === "number"

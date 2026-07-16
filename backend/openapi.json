@@ -1938,8 +1938,15 @@
             "title": "Source Excerpt"
           },
           "source_locator": {
-            "additionalProperties": true,
-            "type": "object",
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Source Locator"
           },
           "provenance": {

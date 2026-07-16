@@ -607,7 +607,7 @@ export interface components {
             /** Source Locator */
             source_locator: {
                 [key: string]: unknown;
-            };
+            } | null;
             /** Provenance */
             provenance: string;
         };

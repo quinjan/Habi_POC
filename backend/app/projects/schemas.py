@@ -99,7 +99,7 @@ class EvidenceAnnotationRead(BaseModel):
     annotation_type: str
     target: EvidenceAnnotationTargetRead
     source_excerpt: str
-    source_locator: dict
+    source_locator: dict | None
     provenance: str
 
 
