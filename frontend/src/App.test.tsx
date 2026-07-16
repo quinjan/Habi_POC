@@ -1664,12 +1664,22 @@ describe("Project Workspace app shell", () => {
     expect(within(detail).getByText("Linked Concepts")).toBeInTheDocument();
     expect(within(detail).getByText("Purchase Details")).toBeInTheDocument();
     expect(within(detail).getAllByText("PVC elbow").length).toBeGreaterThan(1);
+    expect(within(detail).getByText("AI Confidence").parentElement).toHaveTextContent("84%");
+    expect(
+      within(detail).getByText(
+        "Annotation extraction limit reached — 20 of 21 source-grounded annotation proposals were retained. Review the source and add any omitted qualifiers that matter."
+      )
+    ).toBeInTheDocument();
     expect(within(detail).getByText("AI suggested")).toBeInTheDocument();
     await user.selectOptions(
       within(detail).getByLabelText("Annotation type 1"),
       "condition_or_exclusion"
     );
     expect(within(detail).getByText("Changed from Delivery terms")).toBeInTheDocument();
+    await user.click(within(detail).getByRole("button", { name: "Add annotation" }));
+    await user.type(within(detail).getByLabelText("Source quote 2"), "Delivery included");
+    expect(within(detail).getByText("Source locator: Characters 0–17")).toBeInTheDocument();
+    expect(within(detail).queryByText("Reviewer-added annotation")).not.toBeInTheDocument();
   });
 
   test("reviewer submits a manual source entry, approves it, and sees the imported purchase line", async () => {
@@ -1926,6 +1936,9 @@ function buildCandidate(
       provider_name: "ABC Trading",
       purchase_date: null,
       remarks_or_terms: null,
+      confidence: 0.84,
+      annotation_omitted_count: 1,
+      annotation_detected_count: 21,
       annotation_proposals: [
         {
           proposal_id: `ai:${id}:0`,
@@ -1945,6 +1958,11 @@ function buildCandidate(
     decision: null,
     merged_into_candidate_id: null,
     reviewed_payload: null,
+    source_grounding: {
+      kind: "free_form_text",
+      original_text: "Delivery included in the quoted price.",
+      options: []
+    },
     taxonomy_gate: null,
     taxonomy_gates: [
       {
