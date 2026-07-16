@@ -53,6 +53,10 @@ class StructuredManualSourcePayload(BaseModel):
 
     @model_validator(mode="after")
     def validate_annotation_targets(self) -> "StructuredManualSourcePayload":
+        if self.remarks_or_terms is not None and is_workflow_noise(self.remarks_or_terms):
+            raise ValueError(
+                "Workflow and status noise cannot be submitted as legacy remarks or terms"
+            )
         legacy_annotation_count = int(
             self.remarks_or_terms is not None and self.remarks_or_terms.strip() != ""
         )
