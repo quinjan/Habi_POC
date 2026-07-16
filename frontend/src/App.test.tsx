@@ -140,6 +140,23 @@ describe("Project Workspace app shell", () => {
                       field_path: "structured_payload.annotations[0].text"
                     },
                     provenance: "source_field"
+                  },
+                  {
+                    id: 42,
+                    proposal_id: "reviewer:material-warranty",
+                    text: "Five-year warranty",
+                    annotation_type: "warranty_terms",
+                    target: {
+                      memory_record_id: 11,
+                      record_type: "material",
+                      name: "PVC pipe"
+                    },
+                    source_excerpt: "Delivery included",
+                    source_locator: {
+                      kind: "structured_field",
+                      field_path: "structured_payload.annotations[0].text"
+                    },
+                    provenance: "reviewer_added"
                   }
                 ],
                 annotation_omitted_count: 0,
@@ -1093,8 +1110,11 @@ describe("Project Workspace app shell", () => {
     expect(screen.getByText("ABC Trading")).toBeInTheDocument();
     expect(screen.getAllByText("Delivery included").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("Delivery included", { selector: "mark" })).toBeInTheDocument();
-    expect(screen.queryByText("Warranty terms")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Purchase line · PVC pipe" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Material · PVC pipe" })).toBeInTheDocument();
+    expect(screen.getByText("Warranty terms")).toBeInTheDocument();
     expect(screen.getByText("Delivery terms")).toBeInTheDocument();
+    expect(screen.getAllByText("structured_payload.annotations[0].text").length).toBeGreaterThan(1);
     expect(screen.getByText("No reviewed changes yet")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /edit|archive|restore/i })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Manual Source Entry" })).toHaveAttribute(
