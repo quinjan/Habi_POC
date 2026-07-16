@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.database import Base
@@ -40,11 +40,57 @@ class TaxonomyDecision(Base):
     resolved_taxonomy_node_id: Mapped[int | None] = mapped_column(
         ForeignKey("taxonomy_nodes.id"), nullable=True
     )
+    taxonomy_gate_id: Mapped[int | None] = mapped_column(
+        ForeignKey("taxonomy_gates.id"), nullable=True, index=True
+    )
+    candidate_id: Mapped[int | None] = mapped_column(
+        ForeignKey("extracted_candidates.id"), nullable=True, index=True
+    )
+    subject_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    subject_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    accepted_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    superseded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
     )
+
+
+class TaxonomyGate(Base):
+    __tablename__ = "taxonomy_gates"
+    __table_args__ = (
+        UniqueConstraint(
+            "candidate_id", "subject_type", name="uq_taxonomy_gate_candidate_subject_type"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    project_workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("project_workspaces.id"), nullable=False, index=True
+    )
+    review_batch_id: Mapped[int] = mapped_column(
+        ForeignKey("review_batches.id"), nullable=False, index=True
+    )
+    candidate_id: Mapped[int] = mapped_column(
+        ForeignKey("extracted_candidates.id"), nullable=False, index=True
+    )
+    subject_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    subject_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    normalized_subject_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    original_top_level_category: Mapped[str] = mapped_column(String(255), nullable=False)
+    original_subcategory: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    normalized_original_path_key: Mapped[str] = mapped_column(String(511), nullable=False)
+    reviewer_draft_top_level_category: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    reviewer_draft_subcategory: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    selected_proposal: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="ai_suggestion"
+    )
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="needs_decision")
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
 def normalize_taxonomy_name(value: str) -> str:

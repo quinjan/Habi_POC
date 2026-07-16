@@ -226,6 +226,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-gates/{taxonomy_gate_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept Taxonomy Gate */
+        post: operations["accept_taxonomy_gate_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__taxonomy_gates__taxonomy_gate_id__accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-gates/{taxonomy_gate_id}/reviewer-draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Save Taxonomy Gate Reviewer Draft */
+        put: operations["save_taxonomy_gate_reviewer_draft_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__taxonomy_gates__taxonomy_gate_id__reviewer_draft_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-gates/{taxonomy_gate_id}/selection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Select Taxonomy Gate Proposal */
+        put: operations["select_taxonomy_gate_proposal_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__taxonomy_gates__taxonomy_gate_id__selection_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-gates/{taxonomy_gate_id}/edit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Edit Accepted Taxonomy Gate */
+        post: operations["edit_accepted_taxonomy_gate_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__taxonomy_gates__taxonomy_gate_id__edit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/review-draft": {
         parameters: {
             query?: never;
@@ -380,6 +448,10 @@ export interface components {
             prior_rejection?: {
                 [key: string]: unknown;
             } | null;
+            /** Id */
+            id: number;
+            /** Active */
+            active: boolean;
             /**
              * Subject Type
              * @enum {string}
@@ -387,6 +459,23 @@ export interface components {
             subject_type: "material" | "service" | "provider";
             /** Subject Name */
             subject_name: string;
+            /** Original Ai Category Path */
+            original_ai_category_path: string;
+            /** Reviewer Draft Category Path */
+            reviewer_draft_category_path?: string | null;
+            /**
+             * Selected Proposal
+             * @enum {string}
+             */
+            selected_proposal: "ai_suggestion" | "reviewer_draft";
+            /** Selected Category Path */
+            selected_category_path: string;
+            /** Accepted Category Path */
+            accepted_category_path?: string | null;
+            /** Accepted Source */
+            accepted_source?: ("ai_suggestion" | "reviewer_draft") | null;
+            /** Decision History */
+            decision_history?: components["schemas"]["TaxonomyDecisionRead"][];
         };
         /** DuplicateCandidateGroupCreate */
         DuplicateCandidateGroupCreate: {
@@ -944,6 +1033,30 @@ export interface components {
             decision: string;
             /** Resolved Taxonomy Node Id */
             resolved_taxonomy_node_id: number | null;
+            /** Taxonomy Gate Id */
+            taxonomy_gate_id?: number | null;
+            /** Candidate Id */
+            candidate_id?: number | null;
+            /** Subject Type */
+            subject_type?: string | null;
+            /** Subject Name */
+            subject_name?: string | null;
+            /** Accepted Source */
+            accepted_source?: string | null;
+            /**
+             * Superseded
+             * @default false
+             */
+            superseded: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Superseded At */
+            superseded_at?: string | null;
+            /** Accepted Category Path */
+            accepted_category_path?: string | null;
         };
         /** TaxonomyDefaultRead */
         TaxonomyDefaultRead: {
@@ -974,6 +1087,32 @@ export interface components {
             prior_rejection?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /** TaxonomyGateReviewerDraftSaveRequest */
+        TaxonomyGateReviewerDraftSaveRequest: {
+            /** Top Level Category */
+            top_level_category: string;
+            /** Subcategory */
+            subcategory: string;
+            /**
+             * Apply To Similar
+             * @default false
+             */
+            apply_to_similar: boolean;
+        };
+        /** TaxonomyGateReviewerDraftSaveResponse */
+        TaxonomyGateReviewerDraftSaveResponse: {
+            review_batch: components["schemas"]["ReviewBatchDetail"];
+            /** Affected Count */
+            affected_count: number;
+        };
+        /** TaxonomyGateSelectionRequest */
+        TaxonomyGateSelectionRequest: {
+            /**
+             * Selected Proposal
+             * @enum {string}
+             */
+            selected_proposal: "ai_suggestion" | "reviewer_draft";
         };
         /** TaxonomyNodeListRead */
         TaxonomyNodeListRead: {
@@ -1451,6 +1590,146 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExtractedCandidateRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_taxonomy_gate_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__taxonomy_gates__taxonomy_gate_id__accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+                review_batch_id: number;
+                taxonomy_gate_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewBatchDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_taxonomy_gate_reviewer_draft_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__taxonomy_gates__taxonomy_gate_id__reviewer_draft_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+                review_batch_id: number;
+                taxonomy_gate_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaxonomyGateReviewerDraftSaveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxonomyGateReviewerDraftSaveResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    select_taxonomy_gate_proposal_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__taxonomy_gates__taxonomy_gate_id__selection_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+                review_batch_id: number;
+                taxonomy_gate_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaxonomyGateSelectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewBatchDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_accepted_taxonomy_gate_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__taxonomy_gates__taxonomy_gate_id__edit_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+                review_batch_id: number;
+                taxonomy_gate_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewBatchDetail"];
                 };
             };
             /** @description Validation Error */

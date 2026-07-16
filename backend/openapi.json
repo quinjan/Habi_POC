@@ -677,6 +677,266 @@
         }
       }
     },
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-gates/{taxonomy_gate_id}/accept": {
+      "post": {
+        "tags": [
+          "review-batches"
+        ],
+        "summary": "Accept Taxonomy Gate",
+        "operationId": "accept_taxonomy_gate_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__taxonomy_gates__taxonomy_gate_id__accept_post",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          },
+          {
+            "name": "review_batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Review Batch Id"
+            }
+          },
+          {
+            "name": "taxonomy_gate_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Taxonomy Gate Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewBatchDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-gates/{taxonomy_gate_id}/reviewer-draft": {
+      "put": {
+        "tags": [
+          "review-batches"
+        ],
+        "summary": "Save Taxonomy Gate Reviewer Draft",
+        "operationId": "save_taxonomy_gate_reviewer_draft_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__taxonomy_gates__taxonomy_gate_id__reviewer_draft_put",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          },
+          {
+            "name": "review_batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Review Batch Id"
+            }
+          },
+          {
+            "name": "taxonomy_gate_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Taxonomy Gate Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaxonomyGateReviewerDraftSaveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaxonomyGateReviewerDraftSaveResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-gates/{taxonomy_gate_id}/selection": {
+      "put": {
+        "tags": [
+          "review-batches"
+        ],
+        "summary": "Select Taxonomy Gate Proposal",
+        "operationId": "select_taxonomy_gate_proposal_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__taxonomy_gates__taxonomy_gate_id__selection_put",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          },
+          {
+            "name": "review_batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Review Batch Id"
+            }
+          },
+          {
+            "name": "taxonomy_gate_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Taxonomy Gate Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaxonomyGateSelectionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewBatchDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-gates/{taxonomy_gate_id}/edit": {
+      "post": {
+        "tags": [
+          "review-batches"
+        ],
+        "summary": "Edit Accepted Taxonomy Gate",
+        "operationId": "edit_accepted_taxonomy_gate_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__taxonomy_gates__taxonomy_gate_id__edit_post",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          },
+          {
+            "name": "review_batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Review Batch Id"
+            }
+          },
+          {
+            "name": "taxonomy_gate_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Taxonomy Gate Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewBatchDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/review-draft": {
       "put": {
         "tags": [
@@ -1225,6 +1485,14 @@
             ],
             "title": "Prior Rejection"
           },
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          },
           "subject_type": {
             "type": "string",
             "enum": [
@@ -1237,14 +1505,79 @@
           "subject_name": {
             "type": "string",
             "title": "Subject Name"
+          },
+          "original_ai_category_path": {
+            "type": "string",
+            "title": "Original Ai Category Path"
+          },
+          "reviewer_draft_category_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewer Draft Category Path"
+          },
+          "selected_proposal": {
+            "type": "string",
+            "enum": [
+              "ai_suggestion",
+              "reviewer_draft"
+            ],
+            "title": "Selected Proposal"
+          },
+          "selected_category_path": {
+            "type": "string",
+            "title": "Selected Category Path"
+          },
+          "accepted_category_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted Category Path"
+          },
+          "accepted_source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ai_suggestion",
+                  "reviewer_draft"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted Source"
+          },
+          "decision_history": {
+            "items": {
+              "$ref": "#/components/schemas/TaxonomyDecisionRead"
+            },
+            "type": "array",
+            "title": "Decision History"
           }
         },
         "type": "object",
         "required": [
           "status",
           "suggested_category_path",
+          "id",
+          "active",
           "subject_type",
-          "subject_name"
+          "subject_name",
+          "original_ai_category_path",
+          "selected_proposal",
+          "selected_category_path"
         ],
         "title": "CandidateTaxonomyGateRead"
       },
@@ -3164,6 +3497,94 @@
               }
             ],
             "title": "Resolved Taxonomy Node Id"
+          },
+          "taxonomy_gate_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Taxonomy Gate Id"
+          },
+          "candidate_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Id"
+          },
+          "subject_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Type"
+          },
+          "subject_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Name"
+          },
+          "accepted_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted Source"
+          },
+          "superseded": {
+            "type": "boolean",
+            "title": "Superseded",
+            "default": false
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "superseded_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded At"
+          },
+          "accepted_category_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted Category Path"
           }
         },
         "type": "object",
@@ -3175,7 +3596,8 @@
           "suggested_subcategory",
           "normalized_suggested_path_key",
           "decision",
-          "resolved_taxonomy_node_id"
+          "resolved_taxonomy_node_id",
+          "created_at"
         ],
         "title": "TaxonomyDecisionRead"
       },
@@ -3280,6 +3702,67 @@
           "suggested_category_path"
         ],
         "title": "TaxonomyGateRead"
+      },
+      "TaxonomyGateReviewerDraftSaveRequest": {
+        "properties": {
+          "top_level_category": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Top Level Category"
+          },
+          "subcategory": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Subcategory"
+          },
+          "apply_to_similar": {
+            "type": "boolean",
+            "title": "Apply To Similar",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "top_level_category",
+          "subcategory"
+        ],
+        "title": "TaxonomyGateReviewerDraftSaveRequest"
+      },
+      "TaxonomyGateReviewerDraftSaveResponse": {
+        "properties": {
+          "review_batch": {
+            "$ref": "#/components/schemas/ReviewBatchDetail"
+          },
+          "affected_count": {
+            "type": "integer",
+            "title": "Affected Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "review_batch",
+          "affected_count"
+        ],
+        "title": "TaxonomyGateReviewerDraftSaveResponse"
+      },
+      "TaxonomyGateSelectionRequest": {
+        "properties": {
+          "selected_proposal": {
+            "type": "string",
+            "enum": [
+              "ai_suggestion",
+              "reviewer_draft"
+            ],
+            "title": "Selected Proposal"
+          }
+        },
+        "type": "object",
+        "required": [
+          "selected_proposal"
+        ],
+        "title": "TaxonomyGateSelectionRequest"
       },
       "TaxonomyNodeListRead": {
         "properties": {

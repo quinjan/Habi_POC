@@ -1,4 +1,7 @@
-from backend.tests.manual_submission_helpers import create_review_ready_manual_submission
+from backend.tests.manual_submission_helpers import (
+    accept_all_taxonomy_gates,
+    create_review_ready_manual_submission,
+)
 
 
 def _create_project(
@@ -43,6 +46,11 @@ def _import_reviewed_line(client, project: dict, reviewed_payload: dict) -> dict
         },
     )
     assert decision.status_code == 200
+    accept_all_taxonomy_gates(
+        client,
+        project_workspace_id=project["id"],
+        review_batch_id=review_batch_id,
+    )
     batch = client.get(
         f"/api/project-workspaces/{project['id']}/review-batches/{review_batch_id}"
     )
@@ -349,7 +357,7 @@ def test_review_exposes_independent_taxonomy_gates_for_new_linked_memory(client)
         ("service", "PVC pipe installation", "Trade services / Pipe installation"),
         ("provider", "ABC Trading", "Providers / General"),
     ]
-    assert all(gate["status"] == "new_taxonomy_path" for gate in gates)
+    assert all(gate["status"] == "needs_decision" for gate in gates)
 
     decision = client.post(
         f"/api/project-workspaces/{project['id']}/review-batches/"
@@ -392,25 +400,15 @@ def test_review_exposes_independent_taxonomy_gates_for_new_linked_memory(client)
     assert blocked_review["review_batch"]["status"] == "review_in_progress"
     assert len(blocked_review["candidates"][0]["taxonomy_gates"]) == 3
     assert blocked_import.status_code == 400
-    assert blocked_import.json()["detail"] == "Approved candidates require a resolved taxonomy gate"
+    assert blocked_import.json()["detail"] == "Approved candidates require an accepted taxonomy gate"
 
-    paths = [
-        ("Plumbing", "Pipes"),
-        ("Trade services", "Pipe installation"),
-        ("Providers", "General"),
-    ]
-    for index, (top_level_category, subcategory) in enumerate(paths):
+    for index, gate in enumerate(gates):
         resolved = client.post(
             f"/api/project-workspaces/{project['id']}/review-batches/"
-            f"{submission['review_batch']['id']}/taxonomy-decisions",
-            json={
-                "decision": "approved",
-                "suggested_top_level_category": top_level_category,
-                "suggested_subcategory": subcategory,
-            },
+            f"{submission['review_batch']['id']}/taxonomy-gates/{gate['id']}/accept",
         )
-        assert resolved.status_code == 201
-        expected_status = "ready_to_import" if index == len(paths) - 1 else "review_in_progress"
+        assert resolved.status_code == 200
+        expected_status = "ready_to_import" if index == len(gates) - 1 else "review_in_progress"
         assert resolved.json()["review_batch"]["status"] == expected_status
 
     imported = client.post(
@@ -479,6 +477,12 @@ def test_exact_name_reuse_preserves_categories_and_distinct_source_counts(client
             json={"decision": "approved", "reviewed_payload": reviewed_payload},
         )
         assert response.status_code == 200
+
+    accept_all_taxonomy_gates(
+        client,
+        project_workspace_id=project["id"],
+        review_batch_id=review_batch_id,
+    )
 
     imported = client.post(
         f"/api/project-workspaces/{project['id']}/review-batches/{review_batch_id}/import"
@@ -563,4 +567,8 @@ def test_review_surfaces_project_scoped_existing_memory_matches(client):
             "category_path": "Providers / General",
         },
     ]
-    assert candidate["taxonomy_gates"] == []
+    assert [gate["subject_type"] for gate in candidate["taxonomy_gates"]] == [
+        "material",
+        "provider",
+    ]
+    assert all(gate["status"] == "needs_decision" for gate in candidate["taxonomy_gates"])

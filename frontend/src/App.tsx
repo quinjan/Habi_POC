@@ -2,11 +2,12 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Check, FolderOpen, GitBranch, Plus, Upload, X } from "lucide-react";
 
 import {
+  acceptTaxonomyGate,
   createProjectWorkspace,
   createSourceFile,
-  createTaxonomyDecision,
   createManualSourceEntry,
   decideCandidate,
+  editAcceptedTaxonomyGate,
   getReviewBatch,
   getProjectWorkspaceMaterials,
   getProjectWorkspacePurchaseLines,
@@ -17,7 +18,8 @@ import {
   listTaxonomyLeafPaths,
   listProjectWorkspaces,
   saveReviewBatchDraft,
-  saveReviewBatchTaxonomyMapping,
+  saveTaxonomyGateReviewerDraft,
+  selectTaxonomyGateProposal,
   type ExtractedCandidateRead,
   type EntityMemoryListView,
   type ManualSourceEntryCreate,
@@ -134,14 +136,12 @@ function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [detailCandidateId, setDetailCandidateId] = useState<number | null>(null);
   const [taxonomyCandidateId, setTaxonomyCandidateId] = useState<number | null>(null);
+  const [taxonomyGateId, setTaxonomyGateId] = useState<number | null>(null);
   const [taxonomyForm, setTaxonomyForm] = useState<TaxonomyForm>({
     topLevelCategory: "",
     subcategory: "",
     applyToSimilar: false
   });
-  const [similarMappingConfirmation, setSimilarMappingConfirmation] = useState<{
-    affectedCount: number;
-  } | null>(null);
   const [reviewForm, setReviewForm] = useState<ReviewForm | null>(null);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -153,7 +153,6 @@ function App() {
   const [taxonomyLeafPaths, setTaxonomyLeafPaths] = useState<
     { id: number; path: string }[]
   >([]);
-  const [selectedTaxonomyNodeId, setSelectedTaxonomyNodeId] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -223,6 +222,8 @@ function App() {
   const taxonomyCandidate =
     activeReviewBatch?.candidates.find((candidate) => candidate.id === taxonomyCandidateId) ??
     null;
+  const taxonomyGate =
+    taxonomyCandidate?.taxonomy_gates?.find((gate) => gate.id === taxonomyGateId) ?? null;
   const selectedExistingTaxonomyPath = taxonomyLeafPaths.find(
     (path) => path.path === `${taxonomyForm.topLevelCategory} / ${taxonomyForm.subcategory}`
   )?.path ?? "";
@@ -260,7 +261,7 @@ function App() {
       setCandidateDrafts({});
       setDetailCandidateId(null);
       setTaxonomyCandidateId(null);
-      setSimilarMappingConfirmation(null);
+      setTaxonomyGateId(null);
       setReviewForm(null);
       setFreeFormText("");
       setSelectedXlsxFile(null);
@@ -356,9 +357,8 @@ function App() {
       setCandidateDrafts({});
       setDetailCandidateId(null);
       setTaxonomyCandidateId(null);
-      setSimilarMappingConfirmation(null);
+      setTaxonomyGateId(null);
       setReviewForm(null);
-      setSelectedTaxonomyNodeId("");
       setIsCandidateApproved(false);
       if (manualEntryMode === "structured_row") {
         setManualSourceForm(emptyManualSourceForm);
@@ -429,9 +429,8 @@ function App() {
       setCandidateDrafts(initialDraftsForCandidates(detail.candidates));
       setDetailCandidateId(null);
       setTaxonomyCandidateId(null);
-      setSimilarMappingConfirmation(null);
+      setTaxonomyGateId(null);
       setReviewForm(buildReviewForm(detail, manualSourceForm));
-      setSelectedTaxonomyNodeId("");
       setIsCandidateApproved(false);
       setToastMessage(null);
       navigateWorkspace(selectedPurchaseLines.project_workspace.id, {
@@ -502,21 +501,21 @@ function App() {
     return detail;
   }
 
-  function openTaxonomyDialog(candidate: ExtractedCandidateRead) {
-    const reviewedPayload =
-      candidateDrafts[candidate.id]?.reviewedPayload ?? reviewedPayloadForCandidate(candidate);
+  function openTaxonomyDialog(candidate: ExtractedCandidateRead, gate: CandidateTaxonomyGate) {
+    const selectedPath = splitCategoryPath(
+      gate.reviewer_draft_category_path ?? gate.selected_category_path
+    );
     setTaxonomyForm({
-      topLevelCategory: reviewedPayload.top_level_category ?? "",
-      subcategory: reviewedPayload.subcategory ?? "",
+      topLevelCategory: selectedPath?.topLevelCategory ?? "",
+      subcategory: selectedPath?.subcategory ?? "",
       applyToSimilar: false
     });
-    setSimilarMappingConfirmation(null);
     setTaxonomyCandidateId(candidate.id);
+    setTaxonomyGateId(gate.id);
   }
 
   function updateTaxonomyForm(field: keyof TaxonomyForm, value: string | boolean) {
     setTaxonomyForm((currentForm) => ({ ...currentForm, [field]: value }));
-    setSimilarMappingConfirmation(null);
   }
 
   function handleExistingTaxonomyPathChange(path: string) {
@@ -529,31 +528,14 @@ function App() {
       topLevelCategory: categoryPath.topLevelCategory,
       subcategory: categoryPath.subcategory
     }));
-    setSimilarMappingConfirmation(null);
   }
 
-  async function handleSaveTaxonomyMapping(event: FormEvent<HTMLFormElement>) {
+  async function handleSaveTaxonomyDraft(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (
-      activeReviewBatch !== null &&
-      taxonomyCandidate !== null &&
-      taxonomyForm.applyToSimilar &&
-      similarMappingConfirmation === null
-    ) {
-      setSimilarMappingConfirmation({
-        affectedCount: countSimilarTaxonomyCandidates(activeReviewBatch, taxonomyCandidate)
-      });
-      return;
-    }
-
-    await saveTaxonomyMapping();
-  }
-
-  async function saveTaxonomyMapping() {
     if (
       selectedPurchaseLines === null ||
       activeReviewBatch === null ||
-      taxonomyCandidate === null
+      taxonomyGate === null
     ) {
       return;
     }
@@ -562,42 +544,78 @@ function App() {
     setErrorMessage(null);
 
     try {
-      const previousDrafts = candidateDrafts;
-      const detail = await saveReviewBatchTaxonomyMapping(
+      const response = await saveTaxonomyGateReviewerDraft(
         selectedPurchaseLines.project_workspace.id,
         activeReviewBatch.review_batch.id,
+        taxonomyGate.id,
         {
-          candidate_id: taxonomyCandidate.id,
           top_level_category: taxonomyForm.topLevelCategory,
           subcategory: taxonomyForm.subcategory,
           apply_to_similar: taxonomyForm.applyToSimilar
         }
       );
-      const refreshedDrafts = initialDraftsForCandidates(detail.candidates);
-      setActiveReviewBatch(detail);
-      setCandidateDrafts(
-        Object.fromEntries(
-          detail.candidates.map((candidate) => {
-            const previousDraft = previousDrafts[candidate.id];
-            const refreshedDraft = refreshedDrafts[candidate.id];
-            return [
-              candidate.id,
-              {
-                ...refreshedDraft,
-                included: previousDraft?.included ?? refreshedDraft.included
-              }
-            ];
-          })
-        )
-      );
-      setDetailCandidateId(null);
+      applyReviewBatchDetail(response.review_batch);
       setTaxonomyCandidateId(null);
-      setSimilarMappingConfirmation(null);
-      setToastMessage("Taxonomy mapping saved.");
+      setTaxonomyGateId(null);
+      setToastMessage(
+        response.affected_count > 0
+          ? `Reviewer draft saved and copied to ${response.affected_count} similar gates.`
+          : "Reviewer taxonomy draft saved."
+      );
     } catch {
-      setErrorMessage("Taxonomy mapping could not be saved.");
+      setErrorMessage("Reviewer taxonomy draft could not be saved.");
     } finally {
       setIsApprovingCandidate(false);
+    }
+  }
+
+  async function handleSelectTaxonomyGate(
+    gate: CandidateTaxonomyGate,
+    selectedProposal: "ai_suggestion" | "reviewer_draft"
+  ) {
+    if (selectedPurchaseLines === null || activeReviewBatch === null) return;
+    try {
+      const detail = await selectTaxonomyGateProposal(
+        selectedPurchaseLines.project_workspace.id,
+        activeReviewBatch.review_batch.id,
+        gate.id,
+        { selected_proposal: selectedProposal }
+      );
+      applyReviewBatchDetail(detail);
+    } catch {
+      setErrorMessage("Taxonomy proposal could not be selected.");
+    }
+  }
+
+  async function handleAcceptTaxonomyGate(gate: CandidateTaxonomyGate) {
+    if (selectedPurchaseLines === null || activeReviewBatch === null) return;
+    setIsApprovingCandidate(true);
+    try {
+      const detail = await acceptTaxonomyGate(
+        selectedPurchaseLines.project_workspace.id,
+        activeReviewBatch.review_batch.id,
+        gate.id
+      );
+      applyReviewBatchDetail(detail);
+      await refreshTaxonomyLeafPaths(selectedPurchaseLines.project_workspace.id);
+    } catch {
+      setErrorMessage("Selected taxonomy category could not be accepted.");
+    } finally {
+      setIsApprovingCandidate(false);
+    }
+  }
+
+  async function handleEditTaxonomyGate(gate: CandidateTaxonomyGate) {
+    if (selectedPurchaseLines === null || activeReviewBatch === null) return;
+    try {
+      const detail = await editAcceptedTaxonomyGate(
+        selectedPurchaseLines.project_workspace.id,
+        activeReviewBatch.review_batch.id,
+        gate.id
+      );
+      applyReviewBatchDetail(detail);
+    } catch {
+      setErrorMessage("Accepted taxonomy gate could not be edited.");
     }
   }
 
@@ -675,55 +693,9 @@ function App() {
     }
   }
 
-  async function handleTaxonomyDecision(
-    gate: CandidateTaxonomyGate,
-    decision: "approved" | "mapped" | "rejected"
-  ) {
-    const suggestion = splitCategoryPath(gate.suggested_category_path);
-    if (
-      selectedPurchaseLines === null ||
-      activeReviewBatch === null ||
-      suggestion === null
-    ) {
-      return;
-    }
-
-    const resolvedTaxonomyNodeId =
-      decision === "mapped" && selectedTaxonomyNodeId
-        ? Number(selectedTaxonomyNodeId)
-        : undefined;
-    if (decision === "mapped" && !resolvedTaxonomyNodeId) {
-      setErrorMessage("Choose an existing taxonomy path before mapping.");
-      return;
-    }
-
-    setIsApprovingCandidate(true);
-    setErrorMessage(null);
-
-    try {
-      const detail = await createTaxonomyDecision(
-        selectedPurchaseLines.project_workspace.id,
-        activeReviewBatch.review_batch.id,
-        {
-          decision,
-          suggested_top_level_category: suggestion.topLevelCategory,
-          suggested_subcategory: suggestion.subcategory,
-          resolved_taxonomy_node_id: resolvedTaxonomyNodeId ?? null
-        }
-      );
-      applyReviewBatchDetail(detail);
-      await refreshTaxonomyLeafPaths(selectedPurchaseLines.project_workspace.id);
-    } catch {
-      setErrorMessage("Taxonomy decision could not be saved.");
-    } finally {
-      setIsApprovingCandidate(false);
-    }
-  }
-
   function applyReviewBatchDetail(detail: ReviewBatchDetail) {
     setActiveReviewBatch(detail);
     setReviewForm(buildReviewForm(detail, manualSourceForm));
-    setSelectedTaxonomyNodeId("");
     setIsCandidateApproved(false);
   }
 
@@ -1437,39 +1409,25 @@ function App() {
                                     )?.subject_name} - existing category will be preserved.
                                   </p>
                                 ) : null}
-                                {(
-                                  [
-                                    ["name", `${formatConceptType(concept.concept_type)} name`],
-                                    [
-                                      "top_level_category",
-                                      `${formatConceptType(concept.concept_type)} top-level category`
-                                    ],
-                                    [
-                                      "subcategory",
-                                      `${formatConceptType(concept.concept_type)} subcategory`
-                                    ]
-                                  ] as const
-                                ).map(([field, label]) => (
-                                  <label key={field}>
-                                    {label}
-                                    <input
-                                      onChange={(event) =>
-                                        updateCandidateReviewedPayload(
-                                          detailCandidate,
-                                          (payload) => ({
-                                            ...payload,
-                                            linked_concepts: reviewedConcepts(payload).map((item) =>
-                                              item.concept_type === concept.concept_type
-                                                ? { ...item, [field]: event.target.value || null }
-                                                : item
-                                            )
-                                          })
-                                        )
-                                      }
-                                      value={concept[field] ?? ""}
-                                    />
-                                  </label>
-                                ))}
+                                <label>
+                                  {formatConceptType(concept.concept_type)} name
+                                  <input
+                                    onChange={(event) =>
+                                      updateCandidateReviewedPayload(
+                                        detailCandidate,
+                                        (payload) => ({
+                                          ...payload,
+                                          linked_concepts: reviewedConcepts(payload).map((item) =>
+                                            item.concept_type === concept.concept_type
+                                              ? { ...item, name: event.target.value }
+                                              : item
+                                          )
+                                        })
+                                      )
+                                    }
+                                    value={concept.name}
+                                  />
+                                </label>
                               </div>
                             ))}
                             <div className="review-actions">
@@ -1565,32 +1523,21 @@ function App() {
                                     )?.subject_name} - existing category will be preserved.
                                   </p>
                                 ) : null}
-                                {(
-                                  [
-                                    ["provider_name", "Provider name"],
-                                    [
-                                      "provider_top_level_category",
-                                      "Provider top-level category"
-                                    ],
-                                    ["provider_subcategory", "Provider subcategory"]
-                                  ] as const
-                                ).map(([field, label]) => (
-                                  <label key={field}>
-                                    {label}
-                                    <input
-                                      onChange={(event) =>
-                                        updateCandidateReviewedPayload(
-                                          detailCandidate,
-                                          (payload) => ({
-                                            ...payload,
-                                            [field]: event.target.value || null
-                                          })
-                                        )
-                                      }
-                                      value={reviewedPayload[field] ?? ""}
-                                    />
-                                  </label>
-                                ))}
+                                <label>
+                                  Provider name
+                                  <input
+                                    onChange={(event) =>
+                                      updateCandidateReviewedPayload(
+                                        detailCandidate,
+                                        (payload) => ({
+                                          ...payload,
+                                          provider_name: event.target.value || null
+                                        })
+                                      )
+                                    }
+                                    value={reviewedPayload.provider_name ?? ""}
+                                  />
+                                </label>
                               </>
                             ) : null}
                             {providerState === "unknown" ? <p>Provider is a data gap.</p> : null}
@@ -1640,27 +1587,77 @@ function App() {
                             <section>
                               <h4>Taxonomy Gates</h4>
                               {(detailCandidate.taxonomy_gates ?? []).map((gate) => (
-                                <div
-                                  key={`${gate.subject_type}-${gate.subject_name}-${gate.suggested_category_path}`}
-                                >
+                                <div className="taxonomy-gate" key={gate.id}>
                                   <p>
                                     <strong>{formatTaxonomySubjectType(gate.subject_type)}</strong>: {" "}
                                     {gate.subject_name}
                                   </p>
-                                  <p>{gate.suggested_category_path}</p>
-                                  {gate.decision ? (
-                                    <p className="status-message">{gate.status}</p>
-                                  ) : splitCategoryPath(gate.suggested_category_path) ? (
-                                    <button
-                                      className="secondary-action"
-                                      disabled={isApprovingCandidate}
-                                      onClick={() => void handleTaxonomyDecision(gate, "approved")}
-                                      type="button"
-                                    >
-                                      Approve {gate.subject_type} taxonomy: {gate.suggested_category_path}
-                                    </button>
+                                  <p>AI suggestion: {gate.original_ai_category_path}</p>
+                                  {gate.reviewer_draft_category_path ? (
+                                    <p>Reviewer draft: {gate.reviewer_draft_category_path}</p>
+                                  ) : null}
+                                  {gate.status === "accepted" ? (
+                                    <>
+                                      <p className="status-message">
+                                        Accepted: {gate.accepted_category_path}
+                                      </p>
+                                      <p>
+                                        Accepted from {gate.accepted_source === "reviewer_draft"
+                                          ? "reviewer draft"
+                                          : "AI suggestion"}
+                                      </p>
+                                      <button
+                                        className="secondary-action"
+                                        onClick={() => void handleEditTaxonomyGate(gate)}
+                                        type="button"
+                                      >
+                                        Edit
+                                      </button>
+                                    </>
                                   ) : (
-                                    <p className="status-message">Choose a complete category path.</p>
+                                    <>
+                                      <p className="status-message">Needs decision</p>
+                                      <p>Selected: {gate.selected_category_path}</p>
+                                      <div className="taxonomy-actions">
+                                        <button
+                                          className="secondary-action"
+                                          disabled={gate.selected_proposal === "ai_suggestion"}
+                                          onClick={() =>
+                                            void handleSelectTaxonomyGate(gate, "ai_suggestion")
+                                          }
+                                          type="button"
+                                        >
+                                          Select AI suggestion
+                                        </button>
+                                        {gate.reviewer_draft_category_path ? (
+                                          <button
+                                            className="secondary-action"
+                                            disabled={gate.selected_proposal === "reviewer_draft"}
+                                            onClick={() =>
+                                              void handleSelectTaxonomyGate(gate, "reviewer_draft")
+                                            }
+                                            type="button"
+                                          >
+                                            Select reviewer draft
+                                          </button>
+                                        ) : null}
+                                        <button
+                                          className="secondary-action"
+                                          onClick={() => openTaxonomyDialog(detailCandidate, gate)}
+                                          type="button"
+                                        >
+                                          Adjust category
+                                        </button>
+                                        <button
+                                          className="primary-action compact-action"
+                                          disabled={isApprovingCandidate}
+                                          onClick={() => void handleAcceptTaxonomyGate(gate)}
+                                          type="button"
+                                        >
+                                          Accept selected category
+                                        </button>
+                                      </div>
+                                    </>
                                   )}
                                 </div>
                               ))}
@@ -1668,13 +1665,6 @@ function App() {
                           ) : null}
                         </div>
                         <div className="review-actions">
-                          <button
-                            className="secondary-action"
-                            onClick={() => openTaxonomyDialog(detailCandidate)}
-                            type="button"
-                          >
-                            Change Taxonomy
-                          </button>
                           <button
                             className="secondary-action"
                             onClick={() => setDetailCandidateId(null)}
@@ -1690,23 +1680,25 @@ function App() {
               </div>
             ) : null}
 
-            {workspaceRoute.name === "review_batch" && taxonomyCandidate ? (
+            {workspaceRoute.name === "review_batch" &&
+            activeReviewBatch &&
+            taxonomyCandidate &&
+            taxonomyGate ? (
               <div
-                aria-label="Resolve Taxonomy"
+                aria-label="Edit Taxonomy Gate"
                 aria-modal="true"
                 className="modal-backdrop"
                 role="dialog"
               >
                 <form
                   className="modal-panel"
-                  onSubmit={(event) => void handleSaveTaxonomyMapping(event)}
+                  onSubmit={(event) => void handleSaveTaxonomyDraft(event)}
                 >
                   <div className="view-heading">
-                    <p className="eyebrow">
-                      {displayText(taxonomyCandidate.proposed_payload.name, "candidate")}
-                    </p>
-                    <h3>Resolve Taxonomy</h3>
+                    <p className="eyebrow">{taxonomyGate.subject_name}</p>
+                    <h3>Edit Taxonomy Gate</h3>
                   </div>
+                  <p>AI suggestion: {taxonomyGate.original_ai_category_path}</p>
                   <label>
                     Existing Taxonomy Path
                     <select
@@ -1749,7 +1741,10 @@ function App() {
                       }
                       type="checkbox"
                     />
-                    Apply to similar taxonomy in this Review Batch
+                    Apply reviewer draft to similar ({countSimilarPendingTaxonomyGates(
+                      activeReviewBatch,
+                      taxonomyGate
+                    )} gates)
                   </label>
                   <div className="review-actions">
                     <button
@@ -1757,13 +1752,13 @@ function App() {
                       disabled={isApprovingCandidate}
                       type="submit"
                     >
-                      Save Mapping
+                      Save reviewer draft
                     </button>
                     <button
                       className="secondary-action"
                       onClick={() => {
                         setTaxonomyCandidateId(null);
-                        setSimilarMappingConfirmation(null);
+                        setTaxonomyGateId(null);
                       }}
                       type="button"
                     >
@@ -1771,43 +1766,6 @@ function App() {
                     </button>
                   </div>
                 </form>
-              </div>
-            ) : null}
-
-            {workspaceRoute.name === "review_batch" && similarMappingConfirmation ? (
-              <div
-                aria-label="Confirm Similar Taxonomy Mapping"
-                aria-modal="true"
-                className="modal-backdrop"
-                role="dialog"
-              >
-                <section className="modal-panel compact-modal">
-                  <div className="view-heading">
-                    <p className="eyebrow">Apply to similar</p>
-                    <h3>Confirm Similar Taxonomy Mapping</h3>
-                  </div>
-                  <p>
-                    This mapping will affect {similarMappingConfirmation.affectedCount} candidates
-                    in this Review Batch.
-                  </p>
-                  <div className="review-actions">
-                    <button
-                      className="primary-action compact-action"
-                      disabled={isApprovingCandidate}
-                      onClick={() => void saveTaxonomyMapping()}
-                      type="button"
-                    >
-                      Confirm Mapping
-                    </button>
-                    <button
-                      className="secondary-action"
-                      onClick={() => setSimilarMappingConfirmation(null)}
-                      type="button"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </section>
               </div>
             ) : null}
 
@@ -2314,16 +2272,18 @@ function taxonomySuggestion(candidate: ExtractedCandidateRead | null):
   };
 }
 
-function countSimilarTaxonomyCandidates(
+function countSimilarPendingTaxonomyGates(
   reviewBatchDetail: ReviewBatchDetail,
-  selectedCandidate: ExtractedCandidateRead
+  selectedGate: CandidateTaxonomyGate
 ): number {
-  const selectedKey = normalizedTaxonomySuggestionKey(selectedCandidate);
-  if (selectedKey === null) {
-    return 1;
-  }
-  return reviewBatchDetail.candidates.filter(
-    (candidate) => normalizedTaxonomySuggestionKey(candidate) === selectedKey
+  const selectedPath = normalizeTaxonomyPart(selectedGate.original_ai_category_path);
+  return reviewBatchDetail.candidates.flatMap((candidate) => candidate.taxonomy_gates ?? []).filter(
+    (gate) =>
+      gate.id !== selectedGate.id &&
+      gate.active &&
+      gate.status === "needs_decision" &&
+      gate.subject_type === selectedGate.subject_type &&
+      normalizeTaxonomyPart(gate.original_ai_category_path) === selectedPath
   ).length;
 }
 
@@ -2341,6 +2301,13 @@ function taxonomyStatusLabel(
   candidate: ExtractedCandidateRead,
   reviewedPayload: ReviewedPurchaseLinePayload
 ): string {
+  const activeGates = (candidate.taxonomy_gates ?? []).filter((gate) => gate.active);
+  if (activeGates.length > 0) {
+    return activeGates.every((gate) => gate.status === "accepted")
+      ? "Accepted"
+      : "Needs decision";
+  }
+
   if (!reviewedPayload.top_level_category || !reviewedPayload.subcategory) {
     return "Needs taxonomy";
   }

@@ -1,7 +1,10 @@
 from fastapi.testclient import TestClient
 
 from backend.tests.db import make_postgres_test_client
-from backend.tests.manual_submission_helpers import create_review_ready_manual_submission
+from backend.tests.manual_submission_helpers import (
+    accept_all_taxonomy_gates,
+    create_review_ready_manual_submission,
+)
 
 
 def make_client(_tmp_path):
@@ -248,7 +251,7 @@ def create_manual_submission(client: TestClient):
 
 
 def approve_submission(client: TestClient, project: dict, submission: dict):
-    return client.post(
+    response = client.post(
         f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/candidates/{submission['candidates'][0]['id']}/decision",
         json={
             "decision": "approved",
@@ -267,3 +270,9 @@ def approve_submission(client: TestClient, project: dict, submission: dict):
             },
         },
     )
+    accept_all_taxonomy_gates(
+        client,
+        project_workspace_id=project["id"],
+        review_batch_id=submission["review_batch"]["id"],
+    )
+    return response

@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -126,6 +126,16 @@ class ReviewBatchTaxonomyMappingRequest(BaseModel):
     apply_to_similar: bool = False
 
 
+class TaxonomyGateReviewerDraftSaveRequest(BaseModel):
+    top_level_category: str = Field(min_length=1, max_length=255)
+    subcategory: str = Field(min_length=1, max_length=255)
+    apply_to_similar: bool = False
+
+
+class TaxonomyGateSelectionRequest(BaseModel):
+    selected_proposal: Literal["ai_suggestion", "reviewer_draft"]
+
+
 class TaxonomyDecisionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -137,6 +147,15 @@ class TaxonomyDecisionRead(BaseModel):
     normalized_suggested_path_key: str
     decision: str
     resolved_taxonomy_node_id: int | None
+    taxonomy_gate_id: int | None = None
+    candidate_id: int | None = None
+    subject_type: str | None = None
+    subject_name: str | None = None
+    accepted_source: str | None = None
+    superseded: bool = False
+    created_at: datetime
+    superseded_at: datetime | None = None
+    accepted_category_path: str | None = None
 
 
 class TaxonomyGateRead(BaseModel):
@@ -150,8 +169,17 @@ class TaxonomyGateRead(BaseModel):
 
 
 class CandidateTaxonomyGateRead(TaxonomyGateRead):
+    id: int
+    active: bool
     subject_type: Literal["material", "service", "provider"]
     subject_name: str
+    original_ai_category_path: str
+    reviewer_draft_category_path: str | None = None
+    selected_proposal: Literal["ai_suggestion", "reviewer_draft"]
+    selected_category_path: str
+    accepted_category_path: str | None = None
+    accepted_source: Literal["ai_suggestion", "reviewer_draft"] | None = None
+    decision_history: list[TaxonomyDecisionRead] = Field(default_factory=list)
 
 
 class ExistingMemoryMatchRead(BaseModel):
@@ -190,6 +218,11 @@ class ReviewBatchDetail(BaseModel):
     duplicate_groups: list["DuplicateCandidateGroupRead"] = Field(default_factory=list)
     duplicate_conflicts: list[str] = Field(default_factory=list)
     taxonomy_decisions: list[TaxonomyDecisionRead] = Field(default_factory=list)
+
+
+class TaxonomyGateReviewerDraftSaveResponse(BaseModel):
+    review_batch: ReviewBatchDetail
+    affected_count: int
 
 
 class DuplicateCandidateGroupCreate(BaseModel):

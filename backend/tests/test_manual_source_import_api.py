@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from backend.tests.db import make_postgres_test_client
+from backend.tests.manual_submission_helpers import accept_all_taxonomy_gates
 
 
 def make_client(_tmp_path):
@@ -103,6 +104,11 @@ def test_approved_manual_candidate_imports_active_purchase_line_with_evidence(tm
                     "remarks_or_terms": "Delivery included",
                 },
             },
+        )
+        accept_all_taxonomy_gates(
+            client,
+            project_workspace_id=project["id"],
+            review_batch_id=submission["review_batch"]["id"],
         )
         imported = client.post(
             f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/import"
@@ -241,14 +247,10 @@ def test_approved_free_form_candidate_imports_purchase_line_with_original_text_e
                 },
             },
         )
-        taxonomy_decision = client.post(
-            f"/api/project-workspaces/{project['id']}/review-batches/"
-            f"{submission['review_batch']['id']}/taxonomy-decisions",
-            json={
-                "decision": "approved",
-                "suggested_top_level_category": "Plumbing",
-                "suggested_subcategory": "Pipes",
-            },
+        accepted_gates = accept_all_taxonomy_gates(
+            client,
+            project_workspace_id=project["id"],
+            review_batch_id=submission["review_batch"]["id"],
         )
         imported = client.post(
             f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/import"
@@ -258,7 +260,7 @@ def test_approved_free_form_candidate_imports_purchase_line_with_original_text_e
         )
 
     assert decision.status_code == 200
-    assert taxonomy_decision.status_code == 201
+    assert accepted_gates["candidates"][0]["taxonomy_gates"][0]["status"] == "accepted"
     assert imported.status_code == 200
     evidence_contents = imported_purchase_line_evidence_contents(
         client,
@@ -530,6 +532,11 @@ def test_review_batch_status_reaches_ready_only_after_complete_importable_review
                 },
             },
         )
+        accept_all_taxonomy_gates(
+            client,
+            project_workspace_id=project["id"],
+            review_batch_id=submission["review_batch"]["id"],
+        )
         after_correction = client.get(
             f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}"
         )
@@ -597,6 +604,11 @@ def test_manual_import_preserves_unknown_states_and_project_scope(tmp_path):
                     "remarks_or_terms": "Night work",
                 },
             },
+        )
+        accept_all_taxonomy_gates(
+            client,
+            project_workspace_id=project["id"],
+            review_batch_id=submission["review_batch"]["id"],
         )
         client.post(
             f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/import"

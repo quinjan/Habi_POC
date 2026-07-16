@@ -84,6 +84,11 @@ def test_issue_8_migration_converts_legacy_purchase_line_and_provider_category(m
             purchase_line_columns = {
                 column["name"] for column in inspect(connection).get_columns("purchase_lines")
             }
+            table_names = set(inspect(connection).get_table_names())
+            taxonomy_decision_columns = {
+                column["name"]
+                for column in inspect(connection).get_columns("taxonomy_decisions")
+            }
 
         assert contractor_assigned == "Internal"
         assert tuple(concept_link) == (1, 1, "material")
@@ -91,6 +96,14 @@ def test_issue_8_migration_converts_legacy_purchase_line_and_provider_category(m
         assert "provider_state" in purchase_line_columns
         assert "item_memory_record_id" not in purchase_line_columns
         assert "category_path" not in purchase_line_columns
+        assert "taxonomy_gates" in table_names
+        assert {
+            "taxonomy_gate_id",
+            "candidate_id",
+            "accepted_source",
+            "superseded",
+            "superseded_at",
+        } <= taxonomy_decision_columns
     finally:
         engine.dispose()
         reset_postgres_test_database(database_url)

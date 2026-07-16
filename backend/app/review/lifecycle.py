@@ -10,7 +10,7 @@ from backend.app.review.models import (
     ReviewBatch,
 )
 from backend.app.review.schemas import ReviewedPurchaseLinePayload
-from backend.app.taxonomy.models import TaxonomyDecision, TaxonomyNode
+from backend.app.taxonomy.models import TaxonomyDecision, TaxonomyGate, TaxonomyNode
 
 
 TERMINAL_REVIEW_BATCH_STATUSES = {"imported", "review_closed_no_import"}
@@ -260,6 +260,17 @@ def approved_candidate_has_unresolved_taxonomy_gate(
     if candidate.decision != "approved":
         return False
 
+    persisted_gates = list(
+        session.scalars(
+            select(TaxonomyGate).where(
+                TaxonomyGate.candidate_id == candidate.id,
+                TaxonomyGate.active.is_(True),
+            )
+        )
+    )
+    if persisted_gates:
+        return any(gate.status != "accepted" for gate in persisted_gates)
+
     reviewed_subjects = _reviewed_taxonomy_subjects_by_type(candidate)
     for subject_type, suggestion in _candidate_taxonomy_suggestions(candidate):
         reviewed_subject = reviewed_subjects.get(subject_type)
@@ -317,6 +328,7 @@ def latest_taxonomy_decision_for_path(
         .where(
             TaxonomyDecision.project_workspace_id == project_workspace_id,
             TaxonomyDecision.normalized_suggested_path_key == normalized_path_key,
+            TaxonomyDecision.superseded.is_(False),
         )
         .order_by(TaxonomyDecision.id.desc())
     )

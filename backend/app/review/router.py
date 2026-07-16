@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -54,14 +56,23 @@ from backend.app.review.schemas import (
     ReviewBatchTaxonomyMappingRequest,
     ReviewedPurchaseLinePayload,
     TaxonomyDecisionCreate,
+    TaxonomyDecisionRead,
     TaxonomyDefaultRead,
     TaxonomyGateRead,
+    TaxonomyGateReviewerDraftSaveRequest,
+    TaxonomyGateReviewerDraftSaveResponse,
+    TaxonomyGateSelectionRequest,
     TaxonomyNodeListRead,
     TaxonomyNodePathRead,
     TaxonomyNodeUpdate,
 )
 from backend.app.sources.models import SourceFile
-from backend.app.taxonomy.models import TaxonomyDecision, TaxonomyNode, normalize_taxonomy_name
+from backend.app.taxonomy.models import (
+    TaxonomyDecision,
+    TaxonomyGate,
+    TaxonomyNode,
+    normalize_taxonomy_name,
+)
 
 
 router = APIRouter(tags=["review-batches"])
@@ -157,6 +168,9 @@ def get_review_batch(
     session: Session = Depends(get_session),
 ) -> ReviewBatchDetail:
     review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
+    for candidate in _get_batch_candidates(session, review_batch.id):
+        _ensure_candidate_taxonomy_gates(session, candidate)
+    session.commit()
     return _review_batch_detail(session, review_batch)
 
 
@@ -182,6 +196,8 @@ def decide_candidate(
     if candidate is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found")
 
+    _ensure_candidate_taxonomy_gates(session, candidate)
+
     try:
         apply_candidate_decision(
             session=session,
@@ -193,6 +209,7 @@ def decide_candidate(
             else None,
             merged_into_candidate_id=payload.merged_into_candidate_id,
         )
+        _ensure_candidate_taxonomy_gates(session, candidate)
     except TerminalReviewBatchError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -207,6 +224,251 @@ def decide_candidate(
     session.commit()
     session.refresh(candidate)
     return _candidate_read(session, candidate)
+
+
+@router.post(
+    "/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-gates/{taxonomy_gate_id}/accept",
+    response_model=ReviewBatchDetail,
+)
+def accept_taxonomy_gate(
+    project_workspace_id: int,
+    review_batch_id: int,
+    taxonomy_gate_id: int,
+    session: Session = Depends(get_session),
+) -> ReviewBatchDetail:
+    review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
+    _ensure_review_batch_editable_or_conflict(review_batch)
+    taxonomy_gate = session.scalar(
+        select(TaxonomyGate).where(
+            TaxonomyGate.id == taxonomy_gate_id,
+            TaxonomyGate.project_workspace_id == project_workspace_id,
+            TaxonomyGate.review_batch_id == review_batch_id,
+        )
+    )
+    if taxonomy_gate is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Taxonomy gate not found")
+    if not taxonomy_gate.active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Inactive taxonomy gates cannot be accepted",
+        )
+    if taxonomy_gate.status == "accepted":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Taxonomy gate is already accepted",
+        )
+
+    if taxonomy_gate.selected_proposal == "reviewer_draft":
+        top_level_category = taxonomy_gate.reviewer_draft_top_level_category
+        subcategory = taxonomy_gate.reviewer_draft_subcategory
+    else:
+        top_level_category = taxonomy_gate.original_top_level_category
+        subcategory = taxonomy_gate.original_subcategory
+    if not _present(top_level_category) or not _present(subcategory):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Taxonomy gate acceptance requires a selected two-level category path",
+        )
+
+    resolved_leaf = _approve_taxonomy_path(
+        session=session,
+        project_workspace_id=project_workspace_id,
+        top_level_category=top_level_category or "",
+        subcategory=subcategory or "",
+    )
+    decision = TaxonomyDecision(
+        project_workspace_id=project_workspace_id,
+        review_batch_id=review_batch_id,
+        suggested_top_level_category=taxonomy_gate.original_top_level_category,
+        suggested_subcategory=taxonomy_gate.original_subcategory,
+        normalized_suggested_path_key=taxonomy_gate.normalized_original_path_key,
+        decision=(
+            "approved" if taxonomy_gate.selected_proposal == "ai_suggestion" else "mapped"
+        ),
+        resolved_taxonomy_node_id=resolved_leaf.id,
+        taxonomy_gate_id=taxonomy_gate.id,
+        candidate_id=taxonomy_gate.candidate_id,
+        subject_type=taxonomy_gate.subject_type,
+        subject_name=taxonomy_gate.subject_name,
+        accepted_source=taxonomy_gate.selected_proposal,
+    )
+    session.add(decision)
+    taxonomy_gate.status = "accepted"
+    _apply_accepted_gate_category(
+        session=session,
+        taxonomy_gate=taxonomy_gate,
+        top_level_category=top_level_category or "",
+        subcategory=subcategory or "",
+    )
+    session.flush()
+    recalculate_review_batch_status(session=session, review_batch=review_batch)
+    session.commit()
+    session.refresh(review_batch)
+    return _review_batch_detail(session, review_batch)
+
+
+@router.put(
+    "/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-gates/{taxonomy_gate_id}/reviewer-draft",
+    response_model=TaxonomyGateReviewerDraftSaveResponse,
+)
+def save_taxonomy_gate_reviewer_draft(
+    project_workspace_id: int,
+    review_batch_id: int,
+    taxonomy_gate_id: int,
+    payload: TaxonomyGateReviewerDraftSaveRequest,
+    session: Session = Depends(get_session),
+) -> TaxonomyGateReviewerDraftSaveResponse:
+    review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
+    _ensure_review_batch_editable_or_conflict(review_batch)
+    taxonomy_gate = session.scalar(
+        select(TaxonomyGate).where(
+            TaxonomyGate.id == taxonomy_gate_id,
+            TaxonomyGate.project_workspace_id == project_workspace_id,
+            TaxonomyGate.review_batch_id == review_batch_id,
+        )
+    )
+    if taxonomy_gate is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Taxonomy gate not found")
+    if not taxonomy_gate.active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Inactive taxonomy gates cannot be changed",
+        )
+    if taxonomy_gate.status == "accepted":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Accepted taxonomy gates must be edited before saving a draft",
+        )
+
+    taxonomy_gate.reviewer_draft_top_level_category = payload.top_level_category.strip()
+    taxonomy_gate.reviewer_draft_subcategory = payload.subcategory.strip()
+    taxonomy_gate.selected_proposal = "reviewer_draft"
+    taxonomy_gate.status = "needs_decision"
+    affected_count = 0
+    if payload.apply_to_similar:
+        similar_pending_gates = list(
+            session.scalars(
+                select(TaxonomyGate).where(
+                    TaxonomyGate.review_batch_id == review_batch_id,
+                    TaxonomyGate.id != taxonomy_gate.id,
+                    TaxonomyGate.subject_type == taxonomy_gate.subject_type,
+                    TaxonomyGate.normalized_original_path_key
+                    == taxonomy_gate.normalized_original_path_key,
+                    TaxonomyGate.status == "needs_decision",
+                    TaxonomyGate.active.is_(True),
+                )
+            )
+        )
+        for similar_gate in similar_pending_gates:
+            similar_gate.reviewer_draft_top_level_category = payload.top_level_category.strip()
+            similar_gate.reviewer_draft_subcategory = payload.subcategory.strip()
+            similar_gate.selected_proposal = "reviewer_draft"
+        affected_count = len(similar_pending_gates)
+    recalculate_review_batch_status(session=session, review_batch=review_batch)
+    session.commit()
+    session.refresh(review_batch)
+    return TaxonomyGateReviewerDraftSaveResponse(
+        review_batch=_review_batch_detail(session, review_batch),
+        affected_count=affected_count,
+    )
+
+
+@router.put(
+    "/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-gates/{taxonomy_gate_id}/selection",
+    response_model=ReviewBatchDetail,
+)
+def select_taxonomy_gate_proposal(
+    project_workspace_id: int,
+    review_batch_id: int,
+    taxonomy_gate_id: int,
+    payload: TaxonomyGateSelectionRequest,
+    session: Session = Depends(get_session),
+) -> ReviewBatchDetail:
+    review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
+    _ensure_review_batch_editable_or_conflict(review_batch)
+    taxonomy_gate = session.scalar(
+        select(TaxonomyGate).where(
+            TaxonomyGate.id == taxonomy_gate_id,
+            TaxonomyGate.project_workspace_id == project_workspace_id,
+            TaxonomyGate.review_batch_id == review_batch_id,
+        )
+    )
+    if taxonomy_gate is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Taxonomy gate not found")
+    if not taxonomy_gate.active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Inactive taxonomy gates cannot be changed",
+        )
+    if taxonomy_gate.status == "accepted":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Accepted taxonomy gates must be edited before changing selection",
+        )
+    if payload.selected_proposal == "reviewer_draft" and not _present(
+        taxonomy_gate.reviewer_draft_top_level_category
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Taxonomy gate has no reviewer draft to select",
+        )
+
+    taxonomy_gate.selected_proposal = payload.selected_proposal
+    taxonomy_gate.status = "needs_decision"
+    recalculate_review_batch_status(session=session, review_batch=review_batch)
+    session.commit()
+    session.refresh(review_batch)
+    return _review_batch_detail(session, review_batch)
+
+
+@router.post(
+    "/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-gates/{taxonomy_gate_id}/edit",
+    response_model=ReviewBatchDetail,
+)
+def edit_accepted_taxonomy_gate(
+    project_workspace_id: int,
+    review_batch_id: int,
+    taxonomy_gate_id: int,
+    session: Session = Depends(get_session),
+) -> ReviewBatchDetail:
+    review_batch = _get_project_review_batch(session, project_workspace_id, review_batch_id)
+    _ensure_review_batch_editable_or_conflict(review_batch)
+    taxonomy_gate = session.scalar(
+        select(TaxonomyGate).where(
+            TaxonomyGate.id == taxonomy_gate_id,
+            TaxonomyGate.project_workspace_id == project_workspace_id,
+            TaxonomyGate.review_batch_id == review_batch_id,
+        )
+    )
+    if taxonomy_gate is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Taxonomy gate not found")
+    if not taxonomy_gate.active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Inactive taxonomy gates cannot be changed",
+        )
+    if taxonomy_gate.status != "accepted":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only accepted taxonomy gates can be edited",
+        )
+
+    active_decisions = list(
+        session.scalars(
+            select(TaxonomyDecision).where(
+                TaxonomyDecision.taxonomy_gate_id == taxonomy_gate.id,
+                TaxonomyDecision.superseded.is_(False),
+            )
+        )
+    )
+    for decision in active_decisions:
+        decision.superseded = True
+        decision.superseded_at = datetime.now(timezone.utc)
+    taxonomy_gate.status = "needs_decision"
+    recalculate_review_batch_status(session=session, review_batch=review_batch)
+    session.commit()
+    session.refresh(review_batch)
+    return _review_batch_detail(session, review_batch)
 
 
 @router.put(
@@ -627,7 +889,7 @@ def import_review_batch(
         if approved_candidate_has_unresolved_taxonomy_gate(session, candidate):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Approved candidates require a resolved taxonomy gate",
+                detail="Approved candidates require an accepted taxonomy gate",
             )
         purchase_line = _import_purchase_line(
             session=session,
@@ -713,13 +975,14 @@ def _review_batch_detail(session: Session, review_batch: ReviewBatch) -> ReviewB
             session=session,
             review_batch=review_batch,
         ),
-        taxonomy_decisions=list(
-            session.scalars(
+        taxonomy_decisions=[
+            _taxonomy_decision_read(session, decision)
+            for decision in session.scalars(
                 select(TaxonomyDecision)
                 .where(TaxonomyDecision.review_batch_id == review_batch.id)
                 .order_by(TaxonomyDecision.id)
             )
-        ),
+        ],
     )
 
 
@@ -1342,6 +1605,20 @@ def _taxonomy_gates_for_candidate(
     session: Session,
     candidate: ExtractedCandidate,
 ) -> list[CandidateTaxonomyGateRead]:
+    _ensure_candidate_taxonomy_gates(session, candidate)
+    persisted_gates = list(
+        session.scalars(
+            select(TaxonomyGate)
+            .where(
+                TaxonomyGate.candidate_id == candidate.id,
+                TaxonomyGate.active.is_(True),
+            )
+            .order_by(TaxonomyGate.id)
+        )
+    )
+    if persisted_gates:
+        return [_persisted_taxonomy_gate_read(session, gate) for gate in persisted_gates]
+
     reviewed_subjects = _reviewed_taxonomy_subjects(candidate)
     gates: list[CandidateTaxonomyGateRead] = []
     for subject_type, subject_name, suggestion in _candidate_taxonomy_subjects(candidate):
@@ -1373,6 +1650,225 @@ def _taxonomy_gates_for_candidate(
                 )
             )
     return gates
+
+
+def _ensure_candidate_taxonomy_gates(
+    session: Session,
+    candidate: ExtractedCandidate,
+) -> None:
+    existing_gates = {
+        gate.subject_type: gate
+        for gate in session.scalars(
+            select(TaxonomyGate).where(TaxonomyGate.candidate_id == candidate.id)
+        )
+    }
+    relevant_subject_types: set[str] = set()
+    for subject_type, subject_name, suggestion in _active_candidate_taxonomy_subjects(candidate):
+        relevant_subject_types.add(subject_type)
+        existing_gate = existing_gates.get(subject_type)
+        if existing_gate is not None:
+            existing_gate.active = True
+            existing_gate.subject_name = subject_name
+            existing_gate.normalized_subject_name = _normalize(subject_name)
+            suggestion_top_level = suggestion.get("top_level_category")
+            suggestion_subcategory = suggestion.get("subcategory")
+            if (
+                existing_gate.original_subcategory is None
+                and isinstance(suggestion_top_level, str)
+                and _present(suggestion_top_level)
+                and isinstance(suggestion_subcategory, str)
+                and _present(suggestion_subcategory)
+            ):
+                existing_gate.original_top_level_category = suggestion_top_level.strip()
+                existing_gate.original_subcategory = suggestion_subcategory.strip()
+                existing_gate.normalized_original_path_key = normalized_taxonomy_path_key(
+                    suggestion_top_level, suggestion_subcategory
+                )
+            continue
+        top_level_category = suggestion.get("top_level_category")
+        subcategory = suggestion.get("subcategory")
+        if not isinstance(top_level_category, str) or not _present(top_level_category):
+            continue
+        session.add(
+            TaxonomyGate(
+                project_workspace_id=candidate.project_workspace_id,
+                review_batch_id=candidate.review_batch_id,
+                candidate_id=candidate.id,
+                subject_type=subject_type,
+                subject_name=subject_name,
+                normalized_subject_name=_normalize(subject_name),
+                original_top_level_category=top_level_category.strip(),
+                original_subcategory=(
+                    subcategory.strip()
+                    if isinstance(subcategory, str) and _present(subcategory)
+                    else None
+                ),
+                normalized_original_path_key=normalized_taxonomy_path_key(
+                    top_level_category,
+                    subcategory if isinstance(subcategory, str) else None,
+                ),
+                selected_proposal="ai_suggestion",
+                status="needs_decision",
+                active=True,
+            )
+        )
+    for subject_type, existing_gate in existing_gates.items():
+        if subject_type not in relevant_subject_types:
+            existing_gate.active = False
+    session.flush()
+
+
+def _active_candidate_taxonomy_subjects(
+    candidate: ExtractedCandidate,
+) -> list[tuple[str, str, dict]]:
+    proposed_subjects = {
+        subject_type: (subject_name, suggestion)
+        for subject_type, subject_name, suggestion in _candidate_taxonomy_subjects(candidate)
+    }
+    if candidate.decision != "approved" or candidate.reviewed_payload is None:
+        return [
+            (subject_type, subject_name, suggestion)
+            for subject_type, (subject_name, suggestion) in proposed_subjects.items()
+        ]
+
+    payload = ReviewedPurchaseLinePayload.model_validate(candidate.reviewed_payload)
+    subjects: list[tuple[str, str, dict]] = []
+    for concept in payload.concepts():
+        if not _present(concept.name):
+            continue
+        proposed = proposed_subjects.get(concept.concept_type)
+        suggestion = (
+            proposed[1]
+            if proposed is not None
+            else {
+                "top_level_category": concept.top_level_category,
+                "subcategory": concept.subcategory,
+            }
+        )
+        subjects.append((concept.concept_type, concept.name or "", suggestion))
+    if payload.provider_state == "external" and _present(payload.provider_name):
+        proposed = proposed_subjects.get("provider")
+        suggestion = (
+            proposed[1]
+            if proposed is not None
+            else {
+                "top_level_category": payload.provider_top_level_category,
+                "subcategory": payload.provider_subcategory,
+            }
+        )
+        subjects.append(("provider", payload.provider_name or "", suggestion))
+    return subjects
+
+
+def _apply_accepted_gate_category(
+    *,
+    session: Session,
+    taxonomy_gate: TaxonomyGate,
+    top_level_category: str,
+    subcategory: str,
+) -> None:
+    candidate = session.get(ExtractedCandidate, taxonomy_gate.candidate_id)
+    if candidate is None or candidate.reviewed_payload is None:
+        return
+    payload = {**candidate.reviewed_payload}
+    if taxonomy_gate.subject_type in {"material", "service"}:
+        linked_concepts = payload.get("linked_concepts")
+        if isinstance(linked_concepts, list) and linked_concepts:
+            payload["linked_concepts"] = [
+                {
+                    **concept,
+                    **(
+                        {
+                            "top_level_category": top_level_category.strip(),
+                            "subcategory": subcategory.strip(),
+                        }
+                        if isinstance(concept, dict)
+                        and concept.get("concept_type") == taxonomy_gate.subject_type
+                        else {}
+                    ),
+                }
+                if isinstance(concept, dict)
+                else concept
+                for concept in linked_concepts
+            ]
+        elif payload.get("line_type") == taxonomy_gate.subject_type:
+            payload["top_level_category"] = top_level_category.strip()
+            payload["subcategory"] = subcategory.strip()
+    elif taxonomy_gate.subject_type == "provider":
+        payload["provider_top_level_category"] = top_level_category.strip()
+        payload["provider_subcategory"] = subcategory.strip()
+    candidate.reviewed_payload = ReviewedPurchaseLinePayload.model_validate(payload).model_dump(
+        mode="json"
+    )
+
+
+def _persisted_taxonomy_gate_read(
+    session: Session,
+    gate: TaxonomyGate,
+) -> CandidateTaxonomyGateRead:
+    original_path = _display_taxonomy_path(
+        gate.original_top_level_category, gate.original_subcategory
+    )
+    reviewer_draft_path = (
+        _display_taxonomy_path(
+            gate.reviewer_draft_top_level_category,
+            gate.reviewer_draft_subcategory,
+        )
+        if _present(gate.reviewer_draft_top_level_category)
+        else None
+    )
+    selected_path = (
+        reviewer_draft_path
+        if gate.selected_proposal == "reviewer_draft" and reviewer_draft_path is not None
+        else original_path
+    )
+    history = list(
+        session.scalars(
+            select(TaxonomyDecision)
+            .where(TaxonomyDecision.taxonomy_gate_id == gate.id)
+            .order_by(TaxonomyDecision.id)
+        )
+    )
+    active_decision = next((decision for decision in reversed(history) if not decision.superseded), None)
+    accepted_path = (
+        _taxonomy_node_path(session, active_decision.resolved_taxonomy_node_id)
+        if active_decision is not None and active_decision.resolved_taxonomy_node_id is not None
+        else None
+    )
+    return CandidateTaxonomyGateRead(
+        id=gate.id,
+        active=gate.active,
+        subject_type=gate.subject_type,
+        subject_name=gate.subject_name,
+        status=gate.status,
+        reason="candidate_acceptance_required" if gate.status == "needs_decision" else None,
+        suggested_category_path=original_path,
+        original_ai_category_path=original_path,
+        reviewer_draft_category_path=reviewer_draft_path,
+        selected_proposal=gate.selected_proposal,
+        selected_category_path=selected_path,
+        resolved_category_path=accepted_path,
+        accepted_category_path=accepted_path,
+        decision=active_decision.decision if active_decision is not None else None,
+        taxonomy_decision_id=active_decision.id if active_decision is not None else None,
+        accepted_source=active_decision.accepted_source if active_decision is not None else None,
+        decision_history=[_taxonomy_decision_read(session, item) for item in history],
+    )
+
+
+def _taxonomy_decision_read(
+    session: Session,
+    decision: TaxonomyDecision,
+) -> TaxonomyDecisionRead:
+    return TaxonomyDecisionRead.model_validate(decision).model_copy(
+        update={
+            "accepted_category_path": (
+                _taxonomy_node_path(session, decision.resolved_taxonomy_node_id)
+                if decision.resolved_taxonomy_node_id is not None
+                else None
+            )
+        }
+    )
 
 
 def _existing_memory_matches(
