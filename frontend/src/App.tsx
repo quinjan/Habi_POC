@@ -148,6 +148,13 @@ function parseWorkspaceLocation(
       }
     };
   }
+  const reviewBatch = pathname.match(/^\/projects\/(\d+)\/review-batches\/(\d+)$/);
+  if (reviewBatch) {
+    return {
+      projectId: Number(reviewBatch[1]),
+      route: { name: "review_batch", reviewBatchId: Number(reviewBatch[2]) }
+    };
+  }
   const purchaseList = pathname.match(/^\/projects\/(\d+)\/purchase-lines$/);
   if (purchaseList) {
     return { projectId: Number(purchaseList[1]), route: { name: "purchase_lines" } };
@@ -273,6 +280,15 @@ function App() {
               linkedRoute.route.sourceSubmissionId
             )
           );
+        } else if (linkedRoute.route.name === "review_batch") {
+          const detail = await getReviewBatch(
+            linkedRoute.projectId,
+            linkedRoute.route.reviewBatchId
+          );
+          if (!isMounted) return;
+          setActiveReviewBatch(detail);
+          setCandidateDrafts(initialDraftsForCandidates(detail.candidates));
+          setReviewForm(buildReviewForm(detail, manualSourceForm));
         }
       } catch {
         if (isMounted) setErrorMessage("The linked Project Memory view could not be loaded.");
@@ -2552,7 +2568,13 @@ function App() {
                   <section className="detail-card">
                     <h3>Review Batch</h3>
                     {sourceSubmissionDetail.review_batch ? (
-                      <a href={sourceSubmissionDetail.review_batch.href}>
+                      <a
+                        href={sourceSubmissionDetail.review_batch.href}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          void handleOpenReviewBatch(sourceSubmissionDetail.review_batch!.id);
+                        }}
+                      >
                         Review Batch #{sourceSubmissionDetail.review_batch.id}
                       </a>
                     ) : (
