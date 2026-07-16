@@ -1,0 +1,7 @@
+# Transaction Terms Do Not Imply Service Links
+
+Delivery, payment processing, warranty coverage, validity, availability, exclusions, and similar terms attached to a Material or Bundled Purchase Line remain Evidence Annotations and do not create Service concept links merely because they describe an action, benefit, or separate ancillary charge. `Purchased 10 steel doors from Acme. Delivery included.` is Material-only with a delivery-terms annotation, and `BuildMart Trading charged delivery separately at PHP 1,500` remains a delivery-terms annotation on the qualified Material Purchase Line rather than a separate Service. A Service candidate is created only when the source presents delivery, hauling, or other work as an independent purchased or completed subject, such as a standalone `Door hauling and site delivery — PHP 5,000` fact.
+
+This complements ADR 0139: GPT-5.5 must distinguish the core supplied or performed subject from its commercial qualifications in both directions. The prompt and scorecard must include incidental-term negative examples so Project Memory names such as `Delivery service` cannot promote an annotation into an unsupported Service link.
+
+The presence of an ancillary amount does not by itself change annotation targeting or Purchase Line shape; the exact charge remains inside the grounded annotation and is not copied into the qualified Purchase Line's structured price.

@@ -1,0 +1,3 @@
+# Reject Malformed Structured Taxonomy Fields
+
+GPT-5.5 free-form candidates will return taxonomy suggestions as separate `top_level_category` and `subcategory` fields, not as a combined path string. Habi trims both fields and rejects a blank field, any `/` in `top_level_category`, or a leading `/` in `subcategory`; malformed structured output receives the configured `xhigh` repair instead of silent rewriting. When preserved source evidence or a legacy input supplies one raw category path, Habi still splits at the first `/`, retaining any remaining path text as the single subcategory value under ADR 0117. This keeps model-contract failures visible while preserving source wording and the POC's two-field taxonomy representation.

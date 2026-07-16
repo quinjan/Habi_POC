@@ -1,0 +1,5 @@
+# Explicit Package Pricing Keeps Concepts Bundled
+
+Explicit package pricing takes precedence over ADR 0146's normally separate treatment of individually attributable concept prices. When source evidence presents multiple concepts with component quantities or unit prices but establishes one discounted, package, lot, or otherwise authoritative combined total, GPT-5.5 creates one Bundled Purchase Line. Concept links retain their grounded quantities, units, and component unit prices as supporting commercial detail, while the Purchase Line retains the source-stated package total; Habi does not create separate component Purchase Lines or treat component arithmetic as authoritative totals.
+
+Candidate Detail may show the sum of compatible component arithmetic as a supporting comparison but does not raise the unexplained-variance warning from ADR 0148 when package or discount wording explains the difference. The source's explicit discount or package condition becomes a grounded general-qualifier annotation; a calculated discount amount is not an annotation unless the source states that amount.

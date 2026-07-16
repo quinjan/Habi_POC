@@ -1,0 +1,5 @@
+# Presume Coherent Free-Form Transactions Are Final
+
+A free-form source span that grounds at least one Material or Service and presents a coherent transaction or completed construction action is treated as a final/as-used Purchase Line even when it lacks an explicit verb such as `purchased` or a heading such as `Final purchases`. GPT-5.5 may therefore extract shorthand such as `20 bags Eagle Portland Cement | Wilcon | PHP 8,400` unless candidate-local wording establishes a negative or non-final status under ADR 0136. This default-positive presumption preserves pasted receipts, ledgers, and practical construction shorthand without requiring users to rewrite evidence as formal prose.
+
+The presumption applies only after the minimum grounded-concept and purchasing-context threshold in ADR 0135 is met. A bare concept name, Provider name, price, or qualifier remains insufficient on its own even when it contains no negative wording; Project Memory also cannot turn such a fragment into a transaction.

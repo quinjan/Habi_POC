@@ -1,0 +1,3 @@
+# Replicate Shared Free-Form Qualifiers Per Candidate
+
+When a free-form Purchase Line Supporting Span clearly qualifies multiple Purchase Lines, GPT-5.5 will return a separately grounded Evidence Annotation proposal on every affected candidate, and will split distinct terms such as delivery and payment into their respective annotation types. Each proposal may cite the same exact source excerpt but remains attached to its candidate's Evidence Record and target Memory Record; the shared qualifier never becomes standalone Project Memory. This deliberate replication preserves the one-Evidence-Record and one-target annotation model while making global terms visible on every purchasing fact they govern.

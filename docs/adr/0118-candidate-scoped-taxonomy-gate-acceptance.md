@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0131
+---
+
 # Candidate-Scoped Taxonomy Gate Acceptance
 
 Every Material, Service, and external Provider Taxonomy Gate is a candidate- and subject-specific import requirement, even when its current category path already exists in the Project Workspace. An AI suggestion or Reviewer Taxonomy Draft is only a pending proposal; saving a draft neither creates taxonomy nodes nor changes future defaults, and a reviewer must explicitly accept each gate before either side effect or import. Each retained Taxonomy Decision records the original AI path, accepted path, and whether the accepted source was the AI suggestion or a reviewer draft. Editing an accepted gate returns it to needs decision and retains its prior accepted decision as superseded review history. Applying a reviewer draft copies it only to matching pending subject-type gates, never revising an accepted gate; the copy does not accept those gates, preserves the original AI suggestion, and requires individual confirmation.
