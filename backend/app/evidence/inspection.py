@@ -22,6 +22,7 @@ def build_purchase_line_evidence_read(
     source_submission_id, source_type = evidence_source_info(session, evidence)
     annotations = evidence_annotation_reads(session, evidence.id)
     locator = strongest_evidence_locator(
+        evidence.content,
         evidence_locator(evidence.content),
         *(annotation.source_locator for annotation in annotations),
     )
@@ -107,21 +108,36 @@ def evidence_locator(content: dict) -> dict | None:
     return {"kind": "structured_manual"} if content else None
 
 
-def strongest_evidence_locator(*locators: dict | None) -> dict | None:
+def strongest_evidence_locator(
+    source_content: dict,
+    *locators: dict | None,
+) -> dict | None:
     available = [
         locator
         for locator in locators
-        if isinstance(locator, dict) and locator and _locator_strength(locator) > 0
+        if isinstance(locator, dict)
+        and locator
+        and _locator_strength(source_content, locator) > 0
     ]
-    return max(available, key=_locator_strength, default=None)
+    return max(
+        available,
+        key=lambda locator: _locator_strength(source_content, locator),
+        default=None,
+    )
 
 
-def _locator_strength(locator: dict) -> int:
+def _locator_strength(source_content: dict, locator: dict) -> int:
     kind = locator.get("kind")
     if kind == "text_span":
+        original_text = source_content.get("original_text")
         start = locator.get("start")
         end = locator.get("end")
-        if type(start) is int and type(end) is int and start >= 0 and end > start:
+        if (
+            isinstance(original_text, str)
+            and type(start) is int
+            and type(end) is int
+            and 0 <= start < end <= len(original_text)
+        ):
             return 40
         return 0
     if kind == "xlsx_cell":
@@ -132,19 +148,66 @@ def _locator_strength(locator: dict) -> int:
             and worksheet.strip()
             and isinstance(coordinate, str)
             and re.fullmatch(r"\$?[A-Z]{1,3}\$?[1-9]\d*", coordinate.strip(), re.IGNORECASE)
+            and worksheet == source_content.get("worksheet")
+            and any(
+                isinstance(cell, dict)
+                and isinstance(cell.get("coordinate"), str)
+                and cell["coordinate"].upper() == coordinate.strip().replace("$", "").upper()
+                for cell in source_content.get("row_snapshot", [])
+            )
         ):
             return 40
         return 0
+    if kind == "structured_field" and _structured_source_value(
+        source_content, locator.get("field_path")
+    ) is not _MISSING:
+        return 40
     if (
-        kind == "structured_field"
-        and isinstance(locator.get("field_path"), str)
-        and locator["field_path"].strip()
+        kind == "xlsx_rows"
+        and isinstance(locator.get("rows"), list)
+        and locator["rows"]
+        and locator.get("worksheet") == source_content.get("worksheet")
+        and locator["rows"] == source_content.get("locators")
     ):
-        return 40
-    if kind in {"pdf_region", "image_region"}:
-        return 40
-    if kind == "xlsx_rows" and isinstance(locator.get("rows"), list) and locator["rows"]:
         return 20
-    if kind in {"manual_text", "structured_manual"}:
+    if (
+        kind == "manual_text"
+        and locator.get("field_path") == "original_text"
+        and isinstance(source_content.get("original_text"), str)
+    ):
+        return 10
+    if (
+        kind == "structured_manual"
+        and bool(source_content)
+        and "original_text" not in source_content
+        and not isinstance(source_content.get("locators"), list)
+    ):
         return 10
     return 0
+
+
+_MISSING = object()
+
+
+def _structured_source_value(content: dict, field_path: object) -> object:
+    if not isinstance(field_path, str):
+        return _MISSING
+    segments = field_path.split(".")
+    if len(segments) < 2 or segments[0] != "structured_payload":
+        return _MISSING
+
+    current: object = content
+    for segment in segments[1:]:
+        match = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)(?:\[(\d+)\])?", segment)
+        if match is None or not isinstance(current, dict):
+            return _MISSING
+        name, index_text = match.groups()
+        if name not in current:
+            return _MISSING
+        current = current[name]
+        if index_text is not None:
+            index = int(index_text)
+            if not isinstance(current, list) or index >= len(current):
+                return _MISSING
+            current = current[index]
+    return current
