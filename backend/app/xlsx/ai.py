@@ -4,7 +4,10 @@ from typing import Literal
 from openpyxl.utils import column_index_from_string
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from backend.app.evidence.annotation_policy import is_workflow_noise
+
 from backend.app.processing.ai_extraction import (
+    AiAnnotationProposal,
     AiCategorySuggestion,
     AiLinkedConcept,
     CurrencyState,
@@ -82,6 +85,7 @@ class XlsxPurchaseLineCandidate(BaseModel):
     confidence: float = Field(ge=0, le=1)
     category_suggestion: AiCategorySuggestion | None = None
     evidence: XlsxCandidateEvidence
+    annotation_proposals: list[dict] = Field(default_factory=list)
 
     @field_validator("name", mode="before")
     @classmethod
@@ -183,6 +187,7 @@ def validate_xlsx_candidates(
     artifact: dict,
     profile: dict,
     expected_region_id: str,
+    ground_ai_annotations: bool = True,
 ) -> tuple[list[dict], int]:
     valid: list[dict] = []
     dropped = 0
@@ -204,8 +209,20 @@ def validate_xlsx_candidates(
         profile["title_rows"] + profile["header_rows"] + region["header_row_numbers"]
     )
     for raw_candidate in raw_candidates:
+        annotation_metadata: dict = {}
+        candidate_input = raw_candidate
+        if not ground_ai_annotations and isinstance(raw_candidate, dict):
+            candidate_input = dict(raw_candidate)
+            for field in (
+                "dropped_annotation_count",
+                "dropped_annotation_reasons",
+                "annotation_omitted_count",
+                "annotation_detected_count",
+            ):
+                if field in candidate_input:
+                    annotation_metadata[field] = candidate_input.pop(field)
         try:
-            candidate = XlsxPurchaseLineCandidate.model_validate(raw_candidate)
+            candidate = XlsxPurchaseLineCandidate.model_validate(candidate_input)
         except ValidationError:
             dropped += 1
             continue
@@ -229,8 +246,110 @@ def validate_xlsx_candidates(
         ):
             dropped += 1
             continue
-        valid.append(candidate.model_dump(mode="json"))
+        payload = candidate.model_dump(mode="json")
+        if ground_ai_annotations:
+            payload.update(_ground_xlsx_annotations(candidate, artifact))
+        else:
+            payload.update(annotation_metadata)
+        valid.append(payload)
     return valid, dropped
+
+
+def _ground_xlsx_annotations(
+    candidate: XlsxPurchaseLineCandidate,
+    artifact: dict,
+) -> dict:
+    evidence_rows = {locator.row for locator in candidate.evidence.locators}
+    cells = sorted(
+        (
+            cell
+            for cell in artifact["cells"]
+            if cell["row"] in evidence_rows
+        ),
+        key=lambda cell: (cell["row"], cell["column"]),
+    )
+    grounded: list[dict] = []
+    dropped_reasons: dict[str, int] = {}
+    seen: set[tuple[str, str, str, str]] = set()
+    for raw_proposal in candidate.annotation_proposals:
+        try:
+            proposal = AiAnnotationProposal.model_validate(raw_proposal)
+        except ValidationError:
+            _count_annotation_drop(dropped_reasons, "invalid_shape")
+            continue
+        if is_workflow_noise(proposal.text) or is_workflow_noise(proposal.source_excerpt):
+            _count_annotation_drop(dropped_reasons, "workflow_noise")
+            continue
+        if not _xlsx_annotation_target_available(candidate, proposal.target):
+            _count_annotation_drop(dropped_reasons, "target_unavailable")
+            continue
+        source_cell = next(
+            (
+                cell
+                for cell in cells
+                if proposal.source_excerpt in str(cell.get("displayed_text") or "")
+            ),
+            None,
+        )
+        if source_cell is None:
+            _count_annotation_drop(dropped_reasons, "source_excerpt_not_found")
+            continue
+        duplicate_key = (
+            " ".join(proposal.text.casefold().split()),
+            proposal.annotation_type,
+            proposal.target,
+            source_cell["coordinate"],
+        )
+        if duplicate_key in seen:
+            _count_annotation_drop(dropped_reasons, "exact_duplicate")
+            continue
+        seen.add(duplicate_key)
+        if len(grounded) >= 20:
+            _count_annotation_drop(dropped_reasons, "annotation_limit")
+            continue
+        grounded.append(
+            {
+                "proposal_id": f"ai:xlsx:annotation:{len(grounded)}",
+                "text": proposal.text,
+                "annotation_type": proposal.annotation_type,
+                "target": proposal.target,
+                "source_excerpt": proposal.source_excerpt,
+                "source_locator": {
+                    "kind": "xlsx_cell",
+                    "worksheet": candidate.evidence.worksheet,
+                    "row": source_cell["row"],
+                    "column": source_cell["column"],
+                    "coordinate": source_cell["coordinate"],
+                },
+                "provenance": "ai_suggested",
+            }
+        )
+    result = {"annotation_proposals": grounded}
+    if dropped_reasons:
+        result["dropped_annotation_count"] = sum(dropped_reasons.values())
+        result["dropped_annotation_reasons"] = dropped_reasons
+    omitted_count = dropped_reasons.get("annotation_limit", 0)
+    if omitted_count:
+        result["annotation_omitted_count"] = omitted_count
+        result["annotation_detected_count"] = len(grounded) + omitted_count
+    return result
+
+
+def _xlsx_annotation_target_available(
+    candidate: XlsxPurchaseLineCandidate,
+    target: str,
+) -> bool:
+    if target == "purchase_line":
+        return True
+    if target == "provider":
+        return candidate.provider_state == "external" and bool(candidate.provider_name)
+    if candidate.linked_concepts:
+        return any(concept.concept_type == target for concept in candidate.linked_concepts)
+    return candidate.line_type == target
+
+
+def _count_annotation_drop(reasons: dict[str, int], reason: str) -> None:
+    reasons[reason] = reasons.get(reason, 0) + 1
 
 
 def _require_artifact_rows(

@@ -160,6 +160,7 @@ def test_reviewer_imports_one_bundled_purchase_line_with_two_linked_concepts(cli
             "purchase_date": "2025-07-12",
             "date_state": "known",
             "has_evidence": True,
+            "evidence_count": 1,
             "source_label": "Manual Source Entry",
         }
     ]
@@ -239,6 +240,11 @@ def test_legacy_internal_sentinel_does_not_match_arbitrary_named_provider(client
     assert purchase_lines[0]["provider_category_path"] == "Providers / General"
     assert providers[0]["name"] == "ABC Trading"
     assert providers[0]["category_path"] == "Providers / General"
+    detail = client.get(
+        f"/api/project-workspaces/{project['id']}/purchase-lines/{purchase_lines[0]['id']}"
+    ).json()
+    assert detail["provider"]["state"] == "external"
+    assert detail["provider"]["record"]["name"] == "ABC Trading"
 
 
 def test_internal_and_unknown_provider_states_never_create_provider_memory(client):
@@ -291,6 +297,22 @@ def test_internal_and_unknown_provider_states_never_create_provider_memory(clien
     assert purchase_lines[1]["provider_name"] is None
     assert purchase_lines[1]["provider_roles"] == []
     assert providers == []
+    internal_detail = client.get(
+        f"/api/project-workspaces/{project['id']}/purchase-lines/{purchase_lines[0]['id']}"
+    ).json()
+    unknown_detail = client.get(
+        f"/api/project-workspaces/{project['id']}/purchase-lines/{purchase_lines[1]['id']}"
+    ).json()
+    assert internal_detail["provider"] == {
+        "state": "internal",
+        "record": None,
+        "roles": ["material_supplier"],
+    }
+    assert unknown_detail["provider"] == {
+        "state": "unknown",
+        "record": None,
+        "roles": [],
+    }
 
 
 def test_provider_role_filters_match_any_selected_observed_role(client):

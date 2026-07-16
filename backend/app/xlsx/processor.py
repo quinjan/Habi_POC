@@ -208,6 +208,7 @@ def process_xlsx_source_file(
                         artifact=artifact_content,
                         profile=profile,
                         expected_region_id=region["region_id"],
+                        ground_ai_annotations=False,
                     )
                     source_grounded_candidate_count += len(grounded_valid)
                     chunk_payloads = ungrounded_ai_candidates + grounded_valid
@@ -247,6 +248,31 @@ def process_xlsx_source_file(
         ai_candidate_replaced_count=ai_candidate_replaced_count,
         invalid_profile_column_mapping_count=invalid_profile_column_mapping_count,
     )
+    dropped_annotation_reasons: dict[str, int] = {}
+    for payload in valid_payloads:
+        reasons = payload.get("dropped_annotation_reasons", {})
+        if not isinstance(reasons, dict):
+            continue
+        for reason, count in reasons.items():
+            if isinstance(count, int) and count > 0:
+                dropped_annotation_reasons[reason] = (
+                    dropped_annotation_reasons.get(reason, 0) + count
+                )
+    if dropped_annotation_reasons:
+        diagnostics["dropped_annotation_count"] = sum(dropped_annotation_reasons.values())
+        diagnostics["dropped_annotation_reasons"] = dropped_annotation_reasons
+    limited_payloads = [
+        payload
+        for payload in valid_payloads
+        if int(payload.get("annotation_omitted_count", 0)) > 0
+    ]
+    if limited_payloads:
+        detected_count = int(limited_payloads[0]["annotation_detected_count"])
+        diagnostics["warning_summary"] = (
+            "Annotation extraction limit reached — 20 of "
+            f"{detected_count} source-grounded annotation proposals were retained. "
+            "Review the source and add any omitted qualifiers that matter."
+        )
     if any(omitted_counts.values()):
         diagnostics["memory_context_omitted_counts"] = omitted_counts
     if not valid_payloads:

@@ -1,6 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.app.evidence.inspection import source_excerpt_at_locator
 from backend.app.evidence.sources import candidate_source_evidence
 from backend.app.memory.models import MemoryRecord
 from backend.app.review.models import (
@@ -40,7 +41,7 @@ def apply_candidate_decision(
 
     candidate.decision = decision
     candidate.status = "pending_review" if decision is None else f"{decision}_for_import"
-    candidate.reviewed_payload = reviewed_payload if decision == "approved" else None
+    candidate.reviewed_payload = reviewed_payload if decision in {"approved", "merged"} else None
     candidate.merged_into_candidate_id = merged_into_candidate_id if decision == "merged" else None
     recalculate_review_batch_status(session=session, review_batch=review_batch)
 
@@ -98,6 +99,60 @@ def validate_approved_reviewed_payload(reviewed_payload: dict | None) -> None:
         raise ValueError(
             "Included candidates require valid linked concepts and resolved category paths"
         )
+
+
+def validate_annotation_source_grounding(
+    *,
+    session: Session,
+    candidate: ExtractedCandidate,
+    reviewed_payload: dict | None,
+) -> None:
+    if reviewed_payload is None:
+        return
+    proposed_by_id = {
+        proposal.get("proposal_id"): proposal
+        for proposal in candidate.proposed_payload.get("annotation_proposals", [])
+        if isinstance(proposal, dict) and isinstance(proposal.get("proposal_id"), str)
+    }
+    seen_ids: set[str] = set()
+    for annotation in reviewed_payload.get("annotation_proposals", []):
+        proposal_id = annotation.get("proposal_id")
+        if proposal_id in seen_ids:
+            raise ValueError("Annotation proposal IDs must be unique")
+        seen_ids.add(proposal_id)
+        proposed = proposed_by_id.get(proposal_id)
+        if proposed is None:
+            if annotation.get("provenance") != "reviewer_added":
+                raise ValueError("New annotations require reviewer-added provenance")
+            if not _reviewer_annotation_matches_source(
+                session=session,
+                candidate=candidate,
+                annotation=annotation,
+            ):
+                raise ValueError(
+                    "Reviewer-added annotations must quote and locate preserved source content"
+                )
+            continue
+        if any(
+            annotation.get(field) != proposed.get(field)
+            for field in ("source_excerpt", "source_locator", "provenance")
+        ):
+            raise ValueError("Annotation source grounding is immutable")
+
+
+def _reviewer_annotation_matches_source(
+    *,
+    session: Session,
+    candidate: ExtractedCandidate,
+    annotation: dict,
+) -> bool:
+    source = candidate_source_evidence(session=session, candidate=candidate)
+    excerpt = annotation.get("source_excerpt")
+    locator = annotation.get("source_locator")
+    if source is None or not isinstance(excerpt, str) or not isinstance(locator, dict):
+        return False
+
+    return source_excerpt_at_locator(source.content, locator) == excerpt
 
 
 def detect_duplicate_conflicts(*, session: Session, review_batch: ReviewBatch) -> list[str]:

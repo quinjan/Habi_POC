@@ -60,6 +60,90 @@ class ContextRecordingAiProvider:
         return {"candidates": []}
 
 
+def test_free_form_annotations_require_exact_quotes_and_receive_character_spans(client):
+    from backend.app.processing.worker import run_once
+
+    original_text = (
+        "PVC pipe, 20 pcs, from ABC Trading. Delivery included to Makati City. "
+        "Payment due in 30 days. Paid already."
+    )
+    project = create_project(client)
+    submission = create_free_form_submission(client, project["id"], original_text)
+    source_submission_id = submission["source_submission"]["id"]
+    provider = FakeAiProvider(
+        [
+            {
+                "line_type": "material",
+                "name": "PVC pipe",
+                "category_suggestion": {
+                    "top_level_category": "Plumbing",
+                    "subcategory": "Pipes",
+                },
+                "provider_state": "external",
+                "provider_name": "ABC Trading",
+                "confidence": 0.91,
+                "evidence": {
+                    "source_submission_id": source_submission_id,
+                    "locator": "manual_source_entry.original_text",
+                },
+                "annotation_proposals": [
+                    {
+                        "text": "Delivery is included to the project site",
+                        "annotation_type": "delivery_terms",
+                        "target": "purchase_line",
+                        "source_excerpt": "Delivery included to Makati City",
+                    },
+                    {
+                        "text": "Untraceable warranty",
+                        "annotation_type": "warranty_terms",
+                        "target": "material",
+                        "source_excerpt": "Five-year warranty",
+                    },
+                    {
+                        "text": "Paid already",
+                        "annotation_type": "general_qualifier",
+                        "target": "purchase_line",
+                        "source_excerpt": "Paid already",
+                    },
+                ],
+            }
+        ]
+    )
+
+    assert run_once(client.app.state.session_factory, ai_provider=provider) == 1
+    job = get_job(client, project["id"], submission["processing_job"]["id"])
+    review = client.get(
+        f"/api/project-workspaces/{project['id']}/review-batches/{job['review_batch_id']}"
+    ).json()
+
+    start = original_text.index("Delivery included to Makati City")
+    assert review["candidates"][0]["source_grounding"] == {
+        "kind": "free_form_text",
+        "original_text": original_text,
+        "options": [],
+    }
+    assert review["candidates"][0]["proposed_payload"]["annotation_proposals"] == [
+        {
+            "proposal_id": "ai:annotation:0",
+            "text": "Delivery is included to the project site",
+            "annotation_type": "delivery_terms",
+            "target": "purchase_line",
+            "source_excerpt": "Delivery included to Makati City",
+            "source_locator": {
+                "kind": "text_span",
+                "start": start,
+                "end": start + len("Delivery included to Makati City"),
+            },
+            "provenance": "ai_suggested",
+        }
+    ]
+    assert job["diagnostics"]["dropped_annotation_count"] == 2
+    assert job["diagnostics"]["dropped_annotation_reasons"] == {
+        "source_excerpt_not_found": 1,
+        "workflow_noise": 1,
+    }
+
+
 def seed_material_memory(client, project_workspace_id: int, *, name: str, category: str):
     from backend.app.memory.models import Material, MemoryRecord
     from backend.app.taxonomy.models import TaxonomyNode

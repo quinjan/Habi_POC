@@ -28,6 +28,10 @@ _Avoid_: Memory record, item
 A project-scoped submitted source input, such as an uploaded file or manual source entry, that can be processed into reviewable candidates.
 _Avoid_: Candidate batch, import request
 
+**Evidence Record**:
+A source-backed citation for one imported Purchase Line occurrence that points to one Source Submission and retains the strongest available locator and supporting content. It may support the Purchase Line and its linked Material, Service, and external Provider Memory Records.
+_Avoid_: Source Submission, source file, annotation
+
 **Manual Source Entry**:
 A reviewer-entered source submission whose evidence content is typed or pasted rather than uploaded as a file.
 _Avoid_: Lower-trust note, unsupported memory
@@ -142,5 +146,9 @@ An observed Material, Service, or supply-and-install role on a Purchase Line wit
 _Avoid_: Separate duplicate provider
 
 **Evidence Annotation**:
-Typed supporting source text that qualifies a memory record but does not usually stand alone as reusable project memory.
+Reviewer-approved typed supporting source text grounded in exactly one Evidence Record and qualifying exactly one Memory Record, but not usually standing alone as reusable Project Memory. Purchase Line is the default target for transaction terms; a linked Material, Service, or external Provider is targeted only when the source clearly qualifies that concept.
 _Avoid_: Note, miscellaneous memory record
+
+**Evidence Annotation Type**:
+The reviewer-approved classification of an Evidence Annotation as delivery terms, payment terms, validity terms, warranty terms, availability terms, condition or exclusion, or general qualifier. General qualifier is used only when none of the specific types fits and the text still qualifies the purchasing fact or linked concept; workflow states, payment status, follow-up tasks, and other process noise are excluded.
+_Avoid_: Free-form label, note category

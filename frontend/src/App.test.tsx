@@ -66,6 +66,222 @@ describe("Project Workspace app shell", () => {
           });
         }
 
+        const purchaseLineDetailMatch = url.match(
+          /^\/api\/project-workspaces\/(\d+)\/purchase-lines\/(\d+)$/
+        );
+        if (purchaseLineDetailMatch && method === "GET") {
+          const projectId = Number(purchaseLineDetailMatch[1]);
+          const purchaseLineId = Number(purchaseLineDetailMatch[2]);
+          return jsonResponse({
+            id: purchaseLineId,
+            status: "active",
+            line_type: "material",
+            linked_concepts: [
+              {
+                memory_record_id: 11,
+                concept_type: "material",
+                name: "PVC pipe",
+                category_path: "Plumbing / Pipes"
+              }
+            ],
+            provider: {
+              state: "external",
+              record: {
+                memory_record_id: 12,
+                name: "ABC Trading",
+                category_path: "Providers / General"
+              },
+              roles: ["material_supplier"]
+            },
+            quantity: "20",
+            unit: "pcs",
+            unit_state: "known",
+            price: "1500",
+            currency: "PHP",
+            price_state: "known",
+            purchase_date: "2025-07-12",
+            date_state: "known",
+            evidence_records: [
+              {
+                id: 21,
+                source_submission_id: 31,
+                source_label: "Manual Source Entry",
+                source_type: "structured_row",
+                source_submission_href: `/projects/${projectId}/sources/31`,
+                locator: {
+                  kind: "structured_field",
+                  field_path: "structured_payload.annotations[0].text"
+                },
+                supporting_content: {
+                  line_type: "material",
+                  name: "PVC pipe",
+                  annotations: [
+                    {
+                      text: "Delivery included",
+                      annotation_type: "delivery_terms",
+                      target: "purchase_line"
+                    }
+                  ]
+                },
+                annotations: [
+                  {
+                    id: 41,
+                    proposal_id: "structured:annotations:0",
+                    text: "Delivery included",
+                    annotation_type: "delivery_terms",
+                    target: {
+                      memory_record_id: 10,
+                      record_type: "purchase_line",
+                      name: "PVC pipe"
+                    },
+                    source_excerpt: "Delivery included",
+                    source_locator:
+                      purchaseLineId === 2
+                        ? null
+                        : {
+                            kind: "structured_field",
+                            field_path: "structured_payload.annotations[0].text"
+                          },
+                    provenance: "source_field"
+                  },
+                  {
+                    id: 42,
+                    proposal_id: "reviewer:material-warranty",
+                    text: "Five-year warranty",
+                    annotation_type: "warranty_terms",
+                    target: {
+                      memory_record_id: 11,
+                      record_type: "material",
+                      name: "PVC pipe"
+                    },
+                    source_excerpt: "Delivery included",
+                    source_locator: {
+                      kind: "structured_field",
+                      field_path: "structured_payload.annotations[0].text"
+                    },
+                    provenance: "reviewer_added"
+                  }
+                ],
+                annotation_omitted_count: 0,
+                annotation_detected_count: 0
+              }
+            ],
+            value_history_available: false
+          });
+        }
+
+        const sourceSubmissionDetailMatch = url.match(
+          /^\/api\/project-workspaces\/(\d+)\/source-submissions\/(\d+)$/
+        );
+        if (sourceSubmissionDetailMatch && method === "GET") {
+          const projectId = Number(sourceSubmissionDetailMatch[1]);
+          const sourceSubmissionId = Number(sourceSubmissionDetailMatch[2]);
+          const annotation = {
+            id: 41,
+            proposal_id: "structured:annotations:0",
+            text: "Delivery included",
+            annotation_type: "delivery_terms",
+            target: {
+              memory_record_id: 10,
+              record_type: "purchase_line",
+              name: "PVC pipe"
+            },
+            source_excerpt: "Delivery included",
+            source_locator: {
+              kind: "structured_field",
+              field_path: "structured_payload.annotations[0].text"
+            },
+            provenance: "source_field"
+          };
+          const freeText = "Earlier purchasing context. Delivery included in the quoted price.";
+          const freeTextStart = freeText.indexOf("Delivery included");
+          const sourceAnnotation =
+            sourceSubmissionId === 32
+              ? {
+                  ...annotation,
+                  proposal_id: "ai:annotation:0",
+                  source_locator: {
+                    kind: "text_span",
+                    start: freeTextStart,
+                    end: freeTextStart + "Delivery included".length
+                  },
+                  provenance: "ai_suggested"
+                }
+              : annotation;
+          return jsonResponse({
+            id: sourceSubmissionId,
+            project_workspace_id: projectId,
+            submission_type: "manual_source_entry",
+            submitted_at: "2025-07-12T10:00:00Z",
+            source: {
+              kind: sourceSubmissionId === 32 ? "free_form_text" : "structured_manual",
+              structured_payload: sourceSubmissionId === 32 ? null : {
+                line_type: "material",
+                name: "PVC pipe",
+                annotations: [
+                  {
+                    text: "Delivery included",
+                    annotation_type: "delivery_terms",
+                    target: "purchase_line"
+                  }
+                ]
+              },
+              original_text: sourceSubmissionId === 32 ? freeText : null,
+              source_file: null
+            },
+            processing_job: {
+              id: 51,
+              project_workspace_id: projectId,
+              source_submission_id: sourceSubmissionId,
+              status: "completed",
+              source_type: "manual_source_entry",
+              processor_name: "structured_manual_row_v1",
+              created_at: "2025-07-12T10:00:00Z",
+              started_at: "2025-07-12T10:00:01Z",
+              finished_at: "2025-07-12T10:00:02Z",
+              error_message: null,
+              diagnostics: { processor: "structured_manual_row_v1" },
+              candidate_count: 1,
+              review_batch_id: 61
+            },
+            review_batch: {
+              id: 61,
+              status: "imported",
+              href: `/projects/${projectId}/review-batches/61`
+            },
+            imported_evidence: [
+              {
+                id: 21,
+                source_label: "Manual Source Entry",
+                locator: { kind: "structured_manual" },
+                supporting_content: {
+                  line_type: "material",
+                  name: "PVC pipe"
+                },
+                annotations: [sourceAnnotation],
+                purchase_lines: [
+                  {
+                    id: 1,
+                    status: "active",
+                    href: `/projects/${projectId}/purchase-lines/1`,
+                    linked_records: [
+                      {
+                        memory_record_id: 11,
+                        record_type: "material",
+                        name: "PVC pipe",
+                        category_path: "Plumbing / Pipes"
+                      }
+                    ]
+                  }
+                ],
+                annotation_omitted_count: 0,
+                annotation_detected_count: 0
+              }
+            ],
+            empty_state: null
+          });
+        }
+
         const entityMemoryMatch = url.match(
           /^\/api\/project-workspaces\/(\d+)\/(materials|services|providers)(?:\?.*)?$/
         );
@@ -387,6 +603,21 @@ describe("Project Workspace app shell", () => {
               buildCandidate(20, "PVC pipe", "material", "Plumbing", "Pipes"),
               buildCandidate(21, "PVC elbow", "material", "Plumbing", "Pipes")
             ],
+            duplicate_groups: [],
+            duplicate_conflicts: [],
+            taxonomy_decisions: []
+          });
+        }
+
+        if (url === "/api/project-workspaces/1/review-batches/61" && method === "GET") {
+          return jsonResponse({
+            review_batch: {
+              id: 61,
+              project_workspace_id: 1,
+              source_submission_id: 31,
+              status: "imported"
+            },
+            candidates: [buildCandidate(20, "PVC pipe", "material", "Plumbing", "Pipes")],
             duplicate_groups: [],
             duplicate_conflicts: [],
             taxonomy_decisions: []
@@ -715,6 +946,7 @@ describe("Project Workspace app shell", () => {
               purchase_date: "2025-07-12",
               date_state: "known",
               has_evidence: true,
+              evidence_count: 1,
               source_label: "Manual Source Entry"
             }
           ]);
@@ -842,6 +1074,7 @@ describe("Project Workspace app shell", () => {
         purchase_date: "2025-07-12",
         date_state: "known",
         has_evidence: true,
+        evidence_count: 1,
         source_label: "Manual Source Entry"
       }
     ]);
@@ -858,6 +1091,264 @@ describe("Project Workspace app shell", () => {
     expect(screen.getByText("PVC pipe installation")).toBeInTheDocument();
     expect(screen.getByText("Plumbing / Pipes")).toBeInTheDocument();
     expect(screen.getByText("Trade services / Pipe installation")).toBeInTheDocument();
+  });
+
+  test("reviewer opens read-only Purchase Line Detail from accessible list links", async () => {
+    purchaseLinesByProject.set(1, [
+      {
+        id: 1,
+        line_type: "material",
+        linked_concepts: [
+          {
+            memory_record_id: 11,
+            concept_type: "material",
+            name: "PVC pipe",
+            category_path: "Plumbing / Pipes"
+          }
+        ],
+        provider_state: "external",
+        provider_name: "ABC Trading",
+        provider_category_path: "Providers / General",
+        provider_roles: ["material_supplier"],
+        quantity: "20",
+        unit: "pcs",
+        unit_state: "known",
+        price: "1500",
+        currency: "PHP",
+        price_state: "known",
+        purchase_date: "2025-07-12",
+        date_state: "known",
+        has_evidence: true,
+        evidence_count: 1,
+        source_label: "Manual Source Entry"
+      }
+    ]);
+    const user = userEvent.setup();
+    render(<App />);
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+
+    expect(screen.getByText("1 evidence — Manual Source Entry")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "PVC pipe" })).toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "View details" }));
+
+    expect(window.location.pathname).toBe("/projects/1/purchase-lines/1");
+    expect(
+      await screen.findByRole("heading", { name: "Purchase Line Detail" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("ABC Trading")).toBeInTheDocument();
+    expect(screen.getAllByText("Delivery included").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Delivery included", { selector: "mark" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Purchase line · PVC pipe" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Material · PVC pipe" })).toBeInTheDocument();
+    expect(screen.getByText("Warranty terms")).toBeInTheDocument();
+    expect(screen.getByText("Delivery terms")).toBeInTheDocument();
+    expect(screen.getAllByText("structured_payload.annotations[0].text").length).toBeGreaterThan(1);
+    expect(screen.getByText("No reviewed changes yet")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /edit|archive|restore/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Manual Source Entry" })).toHaveAttribute(
+      "href",
+      "/projects/1/sources/31"
+    );
+  });
+
+  test("Purchase Line Detail degrades an unavailable annotation locator visibly", async () => {
+    window.history.pushState({}, "", "/projects/1/purchase-lines/2");
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Purchase Line Detail" })
+    ).toBeInTheDocument();
+    const annotationCard = screen.getByText("Delivery terms").closest(".annotation-card");
+    expect(annotationCard).not.toBeNull();
+    expect(
+      within(annotationCard as HTMLElement).getByText("Precise locator unavailable")
+    ).toBeInTheDocument();
+  });
+
+  test("reviewer follows Purchase Line evidence into Source Submission Detail", async () => {
+    purchaseLinesByProject.set(1, [
+      {
+        id: 1,
+        line_type: "material",
+        linked_concepts: [
+          {
+            memory_record_id: 11,
+            concept_type: "material",
+            name: "PVC pipe",
+            category_path: "Plumbing / Pipes"
+          }
+        ],
+        provider_state: "unknown",
+        provider_name: null,
+        provider_category_path: null,
+        provider_roles: [],
+        quantity: "20",
+        unit: "pcs",
+        unit_state: "known",
+        price: "1500",
+        currency: "PHP",
+        price_state: "known",
+        purchase_date: null,
+        date_state: "unknown",
+        has_evidence: true,
+        evidence_count: 1,
+        source_label: "Manual Source Entry"
+      }
+    ]);
+    const user = userEvent.setup();
+    render(<App />);
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+    await user.click(screen.getByRole("link", { name: "View details" }));
+    await user.click(await screen.findByRole("link", { name: "Manual Source Entry" }));
+
+    expect(window.location.pathname).toBe("/projects/1/sources/31");
+    expect(
+      await screen.findByRole("heading", { name: "Source Submission Detail" })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Immutable source" })).toBeInTheDocument();
+    expect(screen.getByText("structured_manual_row_v1")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Review Batch #61" })).toHaveAttribute(
+      "href",
+      "/projects/1/review-batches/61"
+    );
+    expect(screen.getByRole("heading", { name: "Imported evidence" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Purchase Line #1" })).toHaveAttribute(
+      "href",
+      "/projects/1/purchase-lines/1"
+    );
+    expect(screen.getAllByText("Delivery included").length).toBeGreaterThan(0);
+  });
+
+  test("reviewer opens the linked Review Batch from Source Submission Detail", async () => {
+    window.history.pushState({}, "", "/projects/1/sources/31");
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("link", { name: "Review Batch #61" }));
+
+    expect(window.location.pathname).toBe("/projects/1/review-batches/61");
+    expect(await screen.findByRole("heading", { name: "Review Batch #61" })).toBeInTheDocument();
+  });
+
+  test("Review Batch survives refresh through its stable URL", async () => {
+    window.history.pushState({}, "", "/projects/1/review-batches/61");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Review Batch #61" })).toBeInTheDocument();
+    expect(
+      vi.mocked(fetch).mock.calls.some(
+        ([input]) => input.toString() === "/api/project-workspaces/1/review-batches/61"
+      )
+    ).toBe(true);
+  });
+
+  test("Purchase Line Detail survives refresh and Browser Back restores the list", async () => {
+    window.history.pushState({}, "", "/projects/1/purchase-lines/1");
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Purchase Line Detail" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("PVC pipe")).toBeInTheDocument();
+    expect(
+      vi.mocked(fetch).mock.calls.some(
+        ([input]) => input.toString() === "/api/project-workspaces/1/purchase-lines/1"
+      )
+    ).toBe(true);
+
+    window.history.pushState({}, "", "/projects/1/purchase-lines");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+
+    expect(
+      await screen.findByRole("heading", { name: "Purchase Lines" })
+    ).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/projects/1/purchase-lines");
+  });
+
+  test("Browser Back restores the actual Purchase Lines list scroll position", async () => {
+    purchaseLinesByProject.set(1, [
+      {
+        id: 1,
+        line_type: "material",
+        linked_concepts: [
+          {
+            memory_record_id: 11,
+            concept_type: "material",
+            name: "PVC pipe",
+            category_path: "Plumbing / Pipes"
+          }
+        ],
+        provider_state: "unknown",
+        provider_name: null,
+        provider_category_path: null,
+        provider_roles: [],
+        quantity: "20",
+        unit: "pcs",
+        unit_state: "known",
+        price: "1500",
+        currency: "PHP",
+        price_state: "known",
+        purchase_date: null,
+        date_state: "unknown",
+        has_evidence: true,
+        evidence_count: 1,
+        source_label: "Manual Source Entry"
+      }
+    ]);
+    let scrollY = 0;
+    let listWasRenderedWhenScrollRestored = false;
+    const scrollTo = vi.fn(() => {
+      listWasRenderedWhenScrollRestored =
+        screen.queryByRole("heading", { name: "Purchase Lines" }) !== null;
+    });
+    Object.defineProperty(window, "scrollY", { configurable: true, get: () => scrollY });
+    Object.defineProperty(window, "scrollTo", { configurable: true, value: scrollTo });
+    const user = userEvent.setup();
+    render(<App />);
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+    scrollY = 640;
+    await user.click(screen.getByRole("link", { name: "View details" }));
+    expect(await screen.findByRole("heading", { name: "Purchase Line Detail" })).toBeInTheDocument();
+    scrollY = 0;
+
+    window.history.back();
+
+    await waitFor(() => expect(window.location.pathname).toBe("/projects/1/purchase-lines"));
+    expect(scrollTo).toHaveBeenCalledWith({ behavior: "auto", top: 640 });
+    expect(listWasRenderedWhenScrollRestored).toBe(true);
+  });
+
+  test("free-text source inspection scrolls the exact highlighted span into view", async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView
+    });
+    window.history.pushState({}, "", "/projects/1/sources/32");
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Source Submission Detail" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("Delivery included", { selector: "mark" })).toBeInTheDocument();
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "center" }));
   });
 
   test("bundled candidate detail separates Linked Concepts, Provider, and Purchase Details", async () => {
@@ -1339,6 +1830,24 @@ describe("Project Workspace app shell", () => {
     expect(within(detail).getByText("Linked Concepts")).toBeInTheDocument();
     expect(within(detail).getByText("Purchase Details")).toBeInTheDocument();
     expect(within(detail).getAllByText("PVC elbow").length).toBeGreaterThan(1);
+    expect(within(detail).getByText("AI Confidence").parentElement).toHaveTextContent("84%");
+    expect(
+      within(detail).getByText(
+        "Annotation extraction limit reached — 20 of 21 source-grounded annotation proposals were retained. Review the source and add any omitted qualifiers that matter."
+      )
+    ).toBeInTheDocument();
+    expect(within(detail).getByText("AI suggested")).toBeInTheDocument();
+    await user.selectOptions(
+      within(detail).getByLabelText("Annotation type 1"),
+      "condition_or_exclusion"
+    );
+    expect(within(detail).getByText("Changed from Delivery terms")).toBeInTheDocument();
+    await user.click(within(detail).getByRole("button", { name: "Add annotation" }));
+    await user.type(within(detail).getByLabelText("Source quote 2"), "Delivery included");
+    expect(
+      within(detail).getAllByText("Source locator: Characters 0–17")
+    ).toHaveLength(2);
+    expect(within(detail).queryByText("Reviewer-added annotation")).not.toBeInTheDocument();
   });
 
   test("reviewer submits a manual source entry, approves it, and sees the imported purchase line", async () => {
@@ -1361,7 +1870,11 @@ describe("Project Workspace app shell", () => {
     await user.type(screen.getByLabelText("Price"), "1500");
     await user.type(screen.getByLabelText("Provider"), "ABC Trading");
     await user.type(screen.getByLabelText("Purchase date"), "2025-07-12");
-    await user.type(screen.getByLabelText("Remarks or terms"), "Delivery included");
+    await user.click(screen.getByRole("button", { name: "Add annotation" }));
+    await user.type(screen.getByLabelText("Annotation text 1"), "Delivery included");
+    await user.selectOptions(screen.getByLabelText("Annotation type 1"), "delivery_terms");
+    await user.selectOptions(screen.getByLabelText("Annotation target 1"), "purchase_line");
+    expect(screen.queryByLabelText("Remarks or terms")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
 
     await user.click(await screen.findByRole("button", { name: "Open Review Batch" }));
@@ -1374,7 +1887,7 @@ describe("Project Workspace app shell", () => {
     expect(await within(selectedWorkspace).findByText("PVC pipe")).toBeInTheDocument();
     expect(within(selectedWorkspace).getByText("ABC Trading")).toBeInTheDocument();
     expect(within(selectedWorkspace).getByText("Plumbing / Pipes")).toBeInTheDocument();
-    expect(within(selectedWorkspace).getAllByText("Manual Source Entry").length).toBeGreaterThan(0);
+    expect(within(selectedWorkspace).getAllByText(/Manual Source Entry/).length).toBeGreaterThan(0);
   });
 
   test("reviewer submits free-form text, reviews the parsed candidate, and imports it", async () => {
@@ -1591,6 +2104,20 @@ function buildCandidate(
       provider_name: "ABC Trading",
       purchase_date: null,
       remarks_or_terms: null,
+      confidence: 0.84,
+      annotation_omitted_count: 1,
+      annotation_detected_count: 21,
+      annotation_proposals: [
+        {
+          proposal_id: `ai:${id}:0`,
+          text: "Delivery included",
+          annotation_type: "delivery_terms",
+          target: "purchase_line",
+          source_excerpt: "Delivery included",
+          source_locator: { kind: "text_span", start: 0, end: 17 },
+          provenance: "ai_suggested"
+        }
+      ],
       category_suggestion: {
         top_level_category: topLevelCategory,
         subcategory
@@ -1599,6 +2126,11 @@ function buildCandidate(
     decision: null,
     merged_into_candidate_id: null,
     reviewed_payload: null,
+    source_grounding: {
+      kind: "free_form_text",
+      original_text: "Delivery included in the quoted price.",
+      options: []
+    },
     taxonomy_gate: null,
     taxonomy_gates: [
       {

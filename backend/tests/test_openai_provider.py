@@ -271,10 +271,27 @@ def test_openai_provider_requests_strict_structured_output():
     ]
     assert "linked_concepts" in candidate_schema["properties"]
     assert "provider_state" in candidate_schema["properties"]
+    annotation_schema = candidate_schema["properties"]["annotation_proposals"]["items"]
+    assert annotation_schema["properties"]["annotation_type"]["enum"] == [
+        "delivery_terms",
+        "payment_terms",
+        "validity_terms",
+        "warranty_terms",
+        "availability_terms",
+        "condition_or_exclusion",
+        "general_qualifier",
+    ]
+    assert annotation_schema["properties"]["target"]["enum"] == [
+        "purchase_line",
+        "material",
+        "service",
+        "provider",
+    ]
     assert "Quinlan Construction" in call["input"][1]["content"]
     system_prompt = call["input"][0]["content"].lower()
     assert "case-and-whitespace normalization" in system_prompt
     assert "contractor assigned" in system_prompt
+    assert "exact quote" in system_prompt
 
 
 def test_openai_provider_uses_stateless_strict_xlsx_profile_and_extraction_calls():

@@ -59,6 +59,233 @@ class NoUsableRegionsProvider:
         }
 
 
+class ExplicitAnnotationColumnsProvider:
+    provider_name = "fake"
+    model = "fake-xlsx-model"
+
+    def profile_worksheet(self, *, worksheet: dict, source_submission_id: int):
+        return {
+            "worksheet_name": worksheet["worksheet"]["name"],
+            "title_rows": [],
+            "header_rows": [1],
+            "regions": [
+                {
+                    "region_id": "purchases",
+                    "usable": True,
+                    "unusable_reason": None,
+                    "header_row_numbers": [1],
+                    "body_start_row": 2,
+                    "body_end_row": 3,
+                    "columns": {"line_type": "A"},
+                }
+            ],
+        }
+
+    def extract_worksheet_chunk(self, **kwargs):
+        return {"candidates": []}
+
+
+def test_explicit_xlsx_annotation_columns_create_exact_cell_grounded_proposals(
+    client, monkeypatch, tmp_path
+):
+    monkeypatch.setenv("HABI_STORAGE_ROOT", str(tmp_path))
+
+    def configure(workbook):
+        sheet = workbook.active
+        sheet.title = "Purchases"
+        sheet.append(
+            [
+                "Line kind",
+                "Material name",
+                "Material category path",
+                "Provider State",
+                "Provider name",
+                "Delivery Terms",
+                "Material Warranty",
+                "Provider Notes",
+            ]
+        )
+        sheet.append(
+            [
+                "Material",
+                "PVC pipe",
+                "Plumbing / Pipes",
+                "External",
+                "ABC Trading",
+                "Delivery included",
+                "Five-year warranty",
+                "Accredited distributor",
+            ]
+        )
+        sheet.append(["Not a purchase line"])
+
+    project = _create_project(client)
+    submission = _upload(client, project["id"], _workbook_bytes(configure))
+
+    assert run_once(
+        client.app.state.session_factory,
+        ai_provider=ExplicitAnnotationColumnsProvider(),
+    ) == 1
+    job = client.get(
+        f"/api/project-workspaces/{project['id']}/processing-jobs/"
+        f"{submission['processing_job']['id']}"
+    ).json()["processing_job"]
+    assert job["status"] == "review_ready", job
+    review = client.get(
+        f"/api/project-workspaces/{project['id']}/review-batches/{job['review_batch_id']}"
+    ).json()
+
+    grounding = review["candidates"][0]["source_grounding"]
+    assert grounding["kind"] == "xlsx"
+    assert grounding["original_text"] is None
+    assert {
+        "source_excerpt": "Delivery included",
+        "source_locator": {
+            "kind": "xlsx_cell",
+            "worksheet": "Purchases",
+            "row": 2,
+            "column": 6,
+            "coordinate": "F2",
+        },
+    } in grounding["options"]
+
+    assert review["candidates"][0]["proposed_payload"]["annotation_proposals"] == [
+        {
+            "proposal_id": "xlsx:Purchases:F2",
+            "text": "Delivery included",
+            "annotation_type": "delivery_terms",
+            "target": "purchase_line",
+            "source_excerpt": "Delivery included",
+            "source_locator": {
+                "kind": "xlsx_cell",
+                "worksheet": "Purchases",
+                "row": 2,
+                "column": "F",
+                "coordinate": "F2",
+            },
+            "provenance": "source_field",
+        },
+        {
+            "proposal_id": "xlsx:Purchases:G2",
+            "text": "Five-year warranty",
+            "annotation_type": "warranty_terms",
+            "target": "material",
+            "source_excerpt": "Five-year warranty",
+            "source_locator": {
+                "kind": "xlsx_cell",
+                "worksheet": "Purchases",
+                "row": 2,
+                "column": "G",
+                "coordinate": "G2",
+            },
+            "provenance": "source_field",
+        },
+        {
+            "proposal_id": "xlsx:Purchases:H2",
+            "text": "Accredited distributor",
+            "annotation_type": "general_qualifier",
+            "target": "provider",
+            "source_excerpt": "Accredited distributor",
+            "source_locator": {
+                "kind": "xlsx_cell",
+                "worksheet": "Purchases",
+                "row": 2,
+                "column": "H",
+                "coordinate": "H2",
+            },
+            "provenance": "source_field",
+        },
+    ]
+
+
+def test_deterministic_xlsx_annotations_are_capped_and_diagnosed(client, monkeypatch, tmp_path):
+    monkeypatch.setenv("HABI_STORAGE_ROOT", str(tmp_path))
+    annotation_headers = [
+        "Delivery Terms",
+        "Payment Terms",
+        "Validity Terms",
+        "Validity",
+        "Warranty Terms",
+        "Warranty",
+        "Availability Terms",
+        "Availability",
+        "Condition or Exclusion",
+        "Conditions",
+        "Exclusions",
+        "Remarks or Terms",
+        "Remarks",
+        "Terms",
+        "Notes",
+        "Material Delivery Terms",
+        "Material Payment Terms",
+        "Material Validity",
+        "Material Warranty",
+        "Material Availability",
+        "Material Conditions",
+    ]
+
+    def configure(workbook):
+        sheet = workbook.active
+        sheet.title = "Purchases"
+        sheet.append(
+            [
+                "Line kind",
+                "Material name",
+                "Material category path",
+                "Provider State",
+                "Provider name",
+                *annotation_headers,
+                "Provider Notes",
+            ]
+        )
+        sheet.append(
+            [
+                "Material",
+                "PVC pipe",
+                "Plumbing / Pipes",
+                "External",
+                "ABC Trading",
+                *[f"Qualifier {index}" for index in range(1, 22)],
+                "Call site supervisor tomorrow",
+            ]
+        )
+        sheet.append(["Not a purchase line"])
+
+    project = _create_project(client)
+    submission = _upload(client, project["id"], _workbook_bytes(configure))
+
+    assert run_once(
+        client.app.state.session_factory,
+        ai_provider=ExplicitAnnotationColumnsProvider(),
+    ) == 1
+    job = client.get(
+        f"/api/project-workspaces/{project['id']}/processing-jobs/"
+        f"{submission['processing_job']['id']}"
+    ).json()["processing_job"]
+    assert job["status"] == "review_ready", job
+    review = client.get(
+        f"/api/project-workspaces/{project['id']}/review-batches/{job['review_batch_id']}"
+    ).json()
+    candidate = review["candidates"][0]["proposed_payload"]
+
+    assert len(candidate["annotation_proposals"]) == 20
+    assert candidate["annotation_omitted_count"] == 1
+    assert candidate["annotation_detected_count"] == 21
+    assert all(
+        proposal["source_excerpt"] != "Call site supervisor tomorrow"
+        for proposal in candidate["annotation_proposals"]
+    )
+    assert job["diagnostics"]["dropped_annotation_count"] == 2
+    assert job["diagnostics"]["dropped_annotation_reasons"] == {
+        "annotation_limit": 1,
+        "workflow_noise": 1,
+    }
+    assert job["diagnostics"]["warning_summary"] == (
+        "Annotation extraction limit reached — 20 of 21 source-grounded annotation "
+        "proposals were retained. Review the source and add any omitted qualifiers that matter."
+    )
+
+
 class ValidXlsxProvider:
     provider_name = "fake"
     model = "fake-xlsx-model"
@@ -128,6 +355,14 @@ class ValidXlsxProvider:
                         "top_level_category": "Plumbing",
                         "subcategory": "Pipes",
                     },
+                    "annotation_proposals": [
+                        {
+                            "text": "Delivery within seven days",
+                            "annotation_type": "delivery_terms",
+                            "target": "purchase_line",
+                            "source_excerpt": "Delivery within seven days",
+                        }
+                    ],
                     "evidence": {
                         "source_submission_id": source_submission_id,
                         "source_file_id": self.source_file_id,
@@ -675,8 +910,8 @@ def test_xlsx_processing_profiles_then_extracts_verified_candidates(
     def configure(workbook):
         sheet = workbook.active
         sheet.title = "Purchases"
-        sheet.append(["Item", "Qty", "Unit", "Price"])
-        sheet.append(["PVC pipe", 20, "pcs", 1500])
+        sheet.append(["Item", "Qty", "Unit", "Price", "Additional detail"])
+        sheet.append(["PVC pipe", 20, "pcs", 1500, "Delivery within seven days"])
         sheet.append(["Cement", 10, "bags", 2800])
 
     submission = _upload(client, project["id"], _workbook_bytes(configure))
@@ -712,6 +947,23 @@ def test_xlsx_processing_profiles_then_extracts_verified_candidates(
         "primary_body_row": 2,
         "locators": [{"row": 2, "role": "body"}],
     }
+    assert candidate["proposed_payload"]["annotation_proposals"] == [
+        {
+            "proposal_id": "ai:xlsx:annotation:0",
+            "text": "Delivery within seven days",
+            "annotation_type": "delivery_terms",
+            "target": "purchase_line",
+            "source_excerpt": "Delivery within seven days",
+            "source_locator": {
+                "kind": "xlsx_cell",
+                "worksheet": "Purchases",
+                "row": 2,
+                "column": 5,
+                "coordinate": "E2",
+            },
+            "provenance": "ai_suggested",
+        }
+    ]
 
 
 def test_xlsx_extraction_chunks_are_independent_and_respect_configured_row_limit(
@@ -902,4 +1154,37 @@ def test_approved_xlsx_candidate_imports_verified_spreadsheet_evidence(
         assert evidence.manual_source_entry_id is None
         assert evidence.source_file_id == submission["source_file"]["id"]
         assert evidence.source_label == "purchase-log.xlsx"
-        assert evidence.content == candidate["proposed_payload"]["evidence"]
+        assert {
+            key: evidence.content[key]
+            for key in candidate["proposed_payload"]["evidence"]
+        } == candidate["proposed_payload"]["evidence"]
+        assert evidence.content["row_snapshot"] == [
+            {
+                "column": 1,
+                "coordinate": "A2",
+                "header": "Item",
+                "value": "PVC pipe",
+                "annotation": False,
+            },
+            {
+                "column": 2,
+                "coordinate": "B2",
+                "header": "Qty",
+                "value": "20",
+                "annotation": False,
+            },
+            {
+                "column": 3,
+                "coordinate": "C2",
+                "header": "Unit",
+                "value": "pcs",
+                "annotation": False,
+            },
+            {
+                "column": 4,
+                "coordinate": "D2",
+                "header": "Price",
+                "value": "1500",
+                "annotation": False,
+            },
+        ]

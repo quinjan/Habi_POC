@@ -144,6 +144,7 @@ def test_approved_manual_candidate_imports_active_purchase_line_with_evidence(tm
             "purchase_date": "2025-07-12",
             "date_state": "known",
             "has_evidence": True,
+            "evidence_count": 1,
             "source_label": "Manual Source Entry",
         }
     ]
@@ -645,6 +646,7 @@ def test_manual_import_preserves_unknown_states_and_project_scope(tmp_path):
         "purchase_date": None,
         "date_state": "unknown",
         "has_evidence": True,
+        "evidence_count": 1,
         "source_label": "Manual Source Entry",
     }
     assert other_purchase_lines.status_code == 200

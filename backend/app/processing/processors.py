@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from backend.app.processing.ai_extraction import (
     AiExtractionProvider,
     apply_contractor_assigned_provider_default,
+    ground_free_form_annotation_proposals,
     validate_ai_candidates,
 )
 from backend.app.processing.models import ProcessingJob
@@ -31,6 +32,38 @@ def process_structured_manual_row(
     payload = StructuredManualSourcePayload.model_validate(
         manual_entry.structured_payload
     ).model_dump(mode="json")
+    submitted_annotations = payload.pop("annotations")
+    payload["annotation_proposals"] = [
+        {
+            "proposal_id": f"structured:annotations:{index}",
+            "text": annotation["text"],
+            "annotation_type": annotation["annotation_type"],
+            "target": annotation["target"],
+            "source_excerpt": annotation["text"],
+            "source_locator": {
+                "kind": "structured_field",
+                "field_path": f"structured_payload.annotations[{index}].text",
+            },
+            "provenance": "source_field",
+        }
+        for index, annotation in enumerate(submitted_annotations)
+    ]
+    legacy_remarks = payload.get("remarks_or_terms")
+    if isinstance(legacy_remarks, str) and legacy_remarks.strip() != "":
+        payload["annotation_proposals"].append(
+            {
+                "proposal_id": "structured:remarks_or_terms",
+                "text": legacy_remarks,
+                "annotation_type": "general_qualifier",
+                "target": "purchase_line",
+                "source_excerpt": legacy_remarks,
+                "source_locator": {
+                    "kind": "structured_field",
+                    "field_path": "structured_payload.remarks_or_terms",
+                },
+                "provenance": "legacy_default",
+            }
+        )
     review_batch = ReviewBatch(
         project_workspace_id=job.project_workspace_id,
         source_submission_id=job.source_submission_id,
@@ -140,6 +173,23 @@ def process_ai_manual_free_form(
         source_submission_id=job.source_submission_id,
         raw_candidates=raw_candidates,
     )
+    grounded_payloads: list[dict] = []
+    dropped_annotation_count = 0
+    dropped_annotation_reasons: dict[str, int] = {}
+    for payload in valid_payloads:
+        grounded_payload, annotation_dropped, annotation_reasons = (
+            ground_free_form_annotation_proposals(
+                payload,
+                original_text=manual_entry.original_text,
+            )
+        )
+        grounded_payloads.append(grounded_payload)
+        dropped_annotation_count += annotation_dropped
+        for reason, count in annotation_reasons.items():
+            dropped_annotation_reasons[reason] = (
+                dropped_annotation_reasons.get(reason, 0) + count
+            )
+    valid_payloads = grounded_payloads
     valid_payloads = [
         apply_contractor_assigned_provider_default(
             payload,
@@ -155,6 +205,21 @@ def process_ai_manual_free_form(
         "valid_candidate_count": len(valid_payloads),
         "dropped_candidate_count": dropped_count,
     }
+    if dropped_annotation_count:
+        diagnostics["dropped_annotation_count"] = dropped_annotation_count
+        diagnostics["dropped_annotation_reasons"] = dropped_annotation_reasons
+    annotation_limit_omitted = dropped_annotation_reasons.get("annotation_limit", 0)
+    if annotation_limit_omitted:
+        annotation_detected = sum(
+            len(payload.get("annotation_proposals", []))
+            + int(payload.get("annotation_omitted_count", 0))
+            for payload in valid_payloads
+        )
+        diagnostics["warning_summary"] = (
+            "Annotation extraction limit reached — 20 of "
+            f"{annotation_detected} source-grounded annotation proposals were retained. "
+            "Review the source and add any omitted qualifiers that matter."
+        )
     if any(omitted_counts.values()):
         diagnostics["memory_context_omitted_counts"] = omitted_counts
 

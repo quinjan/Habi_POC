@@ -6,6 +6,8 @@ export type ProjectWorkspaceListItem = components["schemas"]["ProjectWorkspaceLi
 export type ProjectWorkspacePurchaseLinesView =
   components["schemas"]["ProjectWorkspacePurchaseLinesView"];
 export type ProjectWorkspaceRead = components["schemas"]["ProjectWorkspaceRead"];
+export type PurchaseLineDetail = components["schemas"]["PurchaseLineDetail"];
+export type SourceSubmissionDetail = components["schemas"]["SourceSubmissionDetail"];
 export type EntityMemoryListView = components["schemas"]["EntityMemoryListView"];
 export type ProviderMemoryListView = components["schemas"]["ProviderMemoryListView"];
 export type CandidateDecisionRequest = components["schemas"]["CandidateDecisionRequest"];
@@ -23,6 +25,9 @@ export type ReviewBatchDetail = components["schemas"]["ReviewBatchDetail"];
 export type ReviewBatchTaxonomyMappingRequest =
   components["schemas"]["ReviewBatchTaxonomyMappingRequest"];
 export type ReviewedPurchaseLinePayload = components["schemas"]["ReviewedPurchaseLinePayload"];
+export type ReviewedAnnotationProposal = components["schemas"]["ReviewedAnnotationProposal"];
+export type StructuredEvidenceAnnotationInput =
+  components["schemas"]["StructuredEvidenceAnnotationInput"];
 export type TaxonomyDecisionCreate = components["schemas"]["TaxonomyDecisionCreate"];
 export type TaxonomyNodeListRead = components["schemas"]["TaxonomyNodeListRead"];
 export type TaxonomyGateReviewerDraftSaveRequest =
@@ -53,6 +58,32 @@ export async function getProjectWorkspacePurchaseLines(
   return request<ProjectWorkspacePurchaseLinesView>(
     `/api/project-workspaces/${projectWorkspaceId}/purchase-lines`
   );
+}
+
+export async function getPurchaseLineDetail(
+  projectWorkspaceId: number,
+  purchaseLineId: number
+): Promise<PurchaseLineDetail> {
+  return request<PurchaseLineDetail>(
+    `/api/project-workspaces/${projectWorkspaceId}/purchase-lines/${purchaseLineId}`
+  );
+}
+
+export async function getSourceSubmissionDetail(
+  projectWorkspaceId: number,
+  sourceSubmissionId: number
+): Promise<SourceSubmissionDetail> {
+  return request<SourceSubmissionDetail>(
+    `/api/project-workspaces/${projectWorkspaceId}/source-submissions/${sourceSubmissionId}`
+  );
+}
+
+export function originalSourceFileUrl(
+  projectWorkspaceId: number,
+  sourceSubmissionId: number,
+  sourceFileId: number
+): string {
+  return `${API_BASE_URL}/api/project-workspaces/${projectWorkspaceId}/source-submissions/${sourceSubmissionId}/source-files/${sourceFileId}/original`;
 }
 
 export async function getProjectWorkspaceMaterials(

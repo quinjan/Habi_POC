@@ -232,7 +232,13 @@ def test_imports_approved_survivor_once_and_promotes_merged_candidate_evidence(t
             structured_payload={
                 "line_type": "material",
                 "name": "PVC pipe duplicate receipt",
-                "remarks_or_terms": "Second receipt evidence",
+                "annotations": [
+                    {
+                        "text": "Second receipt delivery included",
+                        "annotation_type": "delivery_terms",
+                        "target": "purchase_line",
+                    }
+                ],
             },
         )
         merged_candidate_id = add_candidate_to_batch(
@@ -243,6 +249,20 @@ def test_imports_approved_survivor_once_and_promotes_merged_candidate_evidence(t
             proposed_payload={
                 "line_type": "material",
                 "name": "PVC pipe duplicate receipt",
+                "annotation_proposals": [
+                    {
+                        "proposal_id": "structured:annotations:0",
+                        "text": "Second receipt delivery included",
+                        "annotation_type": "delivery_terms",
+                        "target": "purchase_line",
+                        "source_excerpt": "Second receipt delivery included",
+                        "source_locator": {
+                            "kind": "structured_field",
+                            "field_path": "structured_payload.annotations[0].text",
+                        },
+                        "provenance": "source_field",
+                    }
+                ],
             },
         )
         client.post(
@@ -261,6 +281,26 @@ def test_imports_approved_survivor_once_and_promotes_merged_candidate_evidence(t
             json={
                 "decision": "merged",
                 "merged_into_candidate_id": survivor_candidate_id,
+                "reviewed_payload": {
+                    "line_type": "material",
+                    "name": "PVC pipe duplicate receipt",
+                    "top_level_category": "Plumbing",
+                    "subcategory": "Pipes",
+                    "annotation_proposals": [
+                        {
+                            "proposal_id": "structured:annotations:0",
+                            "text": "Delivery included on duplicate receipt",
+                            "annotation_type": "delivery_terms",
+                            "target": "purchase_line",
+                            "source_excerpt": "Second receipt delivery included",
+                            "source_locator": {
+                                "kind": "structured_field",
+                                "field_path": "structured_payload.annotations[0].text",
+                            },
+                            "provenance": "source_field",
+                        }
+                    ],
+                },
             },
         )
 
@@ -280,6 +320,10 @@ def test_imports_approved_survivor_once_and_promotes_merged_candidate_evidence(t
             client,
             imported.json()["imported_purchase_lines"][0]["id"],
         )
+        detail = client.get(
+            f"/api/project-workspaces/{project['id']}/purchase-lines/"
+            f"{imported.json()['imported_purchase_lines'][0]['id']}"
+        )
 
     assert imported.status_code == 200
     assert len(imported.json()["imported_purchase_lines"]) == 1
@@ -288,6 +332,14 @@ def test_imports_approved_survivor_once_and_promotes_merged_candidate_evidence(t
         "PVC pipe",
         "PVC pipe duplicate receipt",
     }
+    annotations_by_evidence = [
+        evidence["annotations"] for evidence in detail.json()["evidence_records"]
+    ]
+    assert any(
+        annotation["text"] == "Delivery included on duplicate receipt"
+        for annotations in annotations_by_evidence
+        for annotation in annotations
+    )
 
 
 def create_project(client: TestClient):

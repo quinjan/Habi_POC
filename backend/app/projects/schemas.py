@@ -65,12 +65,73 @@ class PurchaseLineRow(BaseModel):
     purchase_date: date | None
     date_state: str
     has_evidence: bool
+    evidence_count: int
     source_label: str
 
 
 class ProjectWorkspacePurchaseLinesView(BaseModel):
     project_workspace: ProjectWorkspaceListItem
     items: list[PurchaseLineRow]
+
+
+class PurchaseLineProviderRecordRead(BaseModel):
+    memory_record_id: int
+    name: str
+    category_path: str
+
+
+class PurchaseLineProviderRead(BaseModel):
+    state: str
+    record: PurchaseLineProviderRecordRead | None
+    roles: list[str]
+
+
+class EvidenceAnnotationTargetRead(BaseModel):
+    memory_record_id: int
+    record_type: str
+    name: str
+
+
+class EvidenceAnnotationRead(BaseModel):
+    id: int
+    proposal_id: str
+    text: str
+    annotation_type: str
+    target: EvidenceAnnotationTargetRead
+    source_excerpt: str
+    source_locator: dict | None
+    provenance: str
+
+
+class PurchaseLineEvidenceRead(BaseModel):
+    id: int
+    source_submission_id: int
+    source_label: str
+    source_type: str
+    source_submission_href: str
+    locator: dict | None
+    supporting_content: dict
+    annotations: list[EvidenceAnnotationRead]
+    annotation_omitted_count: int = 0
+    annotation_detected_count: int = 0
+
+
+class PurchaseLineDetail(BaseModel):
+    id: int
+    status: str
+    line_type: str
+    linked_concepts: list[PurchaseLineConceptRead]
+    provider: PurchaseLineProviderRead
+    quantity: str | None
+    unit: str | None
+    unit_state: str
+    price: str | None
+    currency: str | None
+    price_state: str
+    purchase_date: date | None
+    date_state: str
+    evidence_records: list[PurchaseLineEvidenceRead]
+    value_history_available: bool = False
 
 
 class EntityMemoryRow(BaseModel):
