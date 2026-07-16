@@ -19,7 +19,10 @@ def build_purchase_line_evidence_read(
 ) -> PurchaseLineEvidenceRead:
     source_submission_id, source_type = evidence_source_info(session, evidence)
     annotations = evidence_annotation_reads(session, evidence.id)
-    locator = annotations[0].source_locator if annotations else evidence_locator(evidence.content)
+    locator = strongest_evidence_locator(
+        evidence_locator(evidence.content),
+        *(annotation.source_locator for annotation in annotations),
+    )
     return PurchaseLineEvidenceRead(
         id=evidence.id,
         source_submission_id=source_submission_id,
@@ -100,3 +103,27 @@ def evidence_locator(content: dict) -> dict | None:
     if "original_text" in content:
         return {"kind": "manual_text", "field_path": "original_text"}
     return {"kind": "structured_manual"} if content else None
+
+
+def strongest_evidence_locator(*locators: dict | None) -> dict | None:
+    available = [locator for locator in locators if isinstance(locator, dict) and locator]
+    return max(available, key=_locator_strength, default=None)
+
+
+def _locator_strength(locator: dict) -> int:
+    kind = locator.get("kind")
+    if kind == "text_span" and all(
+        isinstance(locator.get(field), int) for field in ("start", "end")
+    ):
+        return 40
+    if kind == "xlsx_cell" and isinstance(locator.get("coordinate"), str):
+        return 40
+    if kind == "structured_field" and isinstance(locator.get("field_path"), str):
+        return 40
+    if kind in {"pdf_region", "image_region"}:
+        return 40
+    if kind == "xlsx_rows":
+        return 20
+    if kind in {"manual_text", "structured_manual"}:
+        return 10
+    return 0
