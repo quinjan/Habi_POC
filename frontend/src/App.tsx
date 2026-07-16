@@ -286,7 +286,7 @@ function App() {
   }, [projects, selectedPurchaseLines]);
 
   useEffect(() => {
-    async function handlePopState() {
+    async function handlePopState(event: PopStateEvent) {
       const parsed = parseWorkspaceLocation(window.location.pathname);
       if (
         parsed === null ||
@@ -305,9 +305,13 @@ function App() {
           await getSourceSubmissionDetail(parsed.projectId, parsed.route.sourceSubmissionId)
         );
       }
+      const scrollY = (event.state as { scrollY?: unknown } | null)?.scrollY;
+      if (typeof scrollY === "number") {
+        window.scrollTo({ behavior: "auto", top: scrollY });
+      }
     }
 
-    const listener = () => void handlePopState();
+    const listener = (event: PopStateEvent) => void handlePopState(event);
     window.addEventListener("popstate", listener);
     return () => window.removeEventListener("popstate", listener);
   }, [selectedPurchaseLines]);
@@ -405,6 +409,11 @@ function App() {
   }
 
   function navigateWorkspace(projectId: number, route: WorkspaceRoute) {
+    window.history.replaceState(
+      { ...(window.history.state ?? {}), scrollY: window.scrollY },
+      "",
+      window.location.href
+    );
     setWorkspaceRoute(route);
     const path =
       route.name === "purchase_lines"
