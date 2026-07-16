@@ -208,6 +208,7 @@ def process_xlsx_source_file(
                         artifact=artifact_content,
                         profile=profile,
                         expected_region_id=region["region_id"],
+                        ground_ai_annotations=False,
                     )
                     source_grounded_candidate_count += len(grounded_valid)
                     chunk_payloads = ungrounded_ai_candidates + grounded_valid

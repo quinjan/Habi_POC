@@ -39,6 +39,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/project-workspaces/{project_workspace_id}/purchase-lines/{purchase_line_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Purchase Line Detail */
+        get: operations["get_purchase_line_detail_api_project_workspaces__project_workspace_id__purchase_lines__purchase_line_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/project-workspaces/{project_workspace_id}/materials": {
         parameters: {
             query?: never;
@@ -82,6 +99,40 @@ export interface paths {
         };
         /** Get Project Workspace Providers */
         get: operations["get_project_workspace_providers_api_project_workspaces__project_workspace_id__providers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/project-workspaces/{project_workspace_id}/source-submissions/{source_submission_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Source Submission Detail */
+        get: operations["get_source_submission_detail_api_project_workspaces__project_workspace_id__source_submissions__source_submission_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/project-workspaces/{project_workspace_id}/source-submissions/{source_submission_id}/source-files/{source_file_id}/original": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Original Source File */
+        get: operations["get_original_source_file_api_project_workspaces__project_workspace_id__source_submissions__source_submission_id__source_files__source_file_id__original_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -519,6 +570,35 @@ export interface components {
             /** Source Submission Count */
             source_submission_count: number;
         };
+        /** EvidenceAnnotationRead */
+        EvidenceAnnotationRead: {
+            /** Id */
+            id: number;
+            /** Proposal Id */
+            proposal_id: string;
+            /** Text */
+            text: string;
+            /** Annotation Type */
+            annotation_type: string;
+            target: components["schemas"]["EvidenceAnnotationTargetRead"];
+            /** Source Excerpt */
+            source_excerpt: string;
+            /** Source Locator */
+            source_locator: {
+                [key: string]: unknown;
+            };
+            /** Provenance */
+            provenance: string;
+        };
+        /** EvidenceAnnotationTargetRead */
+        EvidenceAnnotationTargetRead: {
+            /** Memory Record Id */
+            memory_record_id: number;
+            /** Record Type */
+            record_type: string;
+            /** Name */
+            name: string;
+        };
         /** ExistingMemoryMatchRead */
         ExistingMemoryMatchRead: {
             /**
@@ -765,6 +845,91 @@ export interface components {
             /** Category Path */
             category_path: string;
         };
+        /** PurchaseLineDetail */
+        PurchaseLineDetail: {
+            /** Id */
+            id: number;
+            /** Status */
+            status: string;
+            /** Line Type */
+            line_type: string;
+            /** Linked Concepts */
+            linked_concepts: components["schemas"]["PurchaseLineConceptRead"][];
+            provider: components["schemas"]["PurchaseLineProviderRead"];
+            /** Quantity */
+            quantity: string | null;
+            /** Unit */
+            unit: string | null;
+            /** Unit State */
+            unit_state: string;
+            /** Price */
+            price: string | null;
+            /** Currency */
+            currency: string | null;
+            /** Price State */
+            price_state: string;
+            /** Purchase Date */
+            purchase_date: string | null;
+            /** Date State */
+            date_state: string;
+            /** Evidence Records */
+            evidence_records: components["schemas"]["PurchaseLineEvidenceRead"][];
+            /**
+             * Value History Available
+             * @default false
+             */
+            value_history_available: boolean;
+        };
+        /** PurchaseLineEvidenceRead */
+        PurchaseLineEvidenceRead: {
+            /** Id */
+            id: number;
+            /** Source Submission Id */
+            source_submission_id: number;
+            /** Source Label */
+            source_label: string;
+            /** Source Type */
+            source_type: string;
+            /** Source Submission Href */
+            source_submission_href: string;
+            /** Locator */
+            locator: {
+                [key: string]: unknown;
+            } | null;
+            /** Supporting Content */
+            supporting_content: {
+                [key: string]: unknown;
+            };
+            /** Annotations */
+            annotations: components["schemas"]["EvidenceAnnotationRead"][];
+            /**
+             * Annotation Omitted Count
+             * @default 0
+             */
+            annotation_omitted_count: number;
+            /**
+             * Annotation Detected Count
+             * @default 0
+             */
+            annotation_detected_count: number;
+        };
+        /** PurchaseLineProviderRead */
+        PurchaseLineProviderRead: {
+            /** State */
+            state: string;
+            record: components["schemas"]["PurchaseLineProviderRecordRead"] | null;
+            /** Roles */
+            roles: string[];
+        };
+        /** PurchaseLineProviderRecordRead */
+        PurchaseLineProviderRecordRead: {
+            /** Memory Record Id */
+            memory_record_id: number;
+            /** Name */
+            name: string;
+            /** Category Path */
+            category_path: string;
+        };
         /** PurchaseLineRow */
         PurchaseLineRow: {
             /** Id */
@@ -799,6 +964,8 @@ export interface components {
             date_state: string;
             /** Has Evidence */
             has_evidence: boolean;
+            /** Evidence Count */
+            evidence_count: number;
             /** Source Label */
             source_label: string;
         };
@@ -852,6 +1019,34 @@ export interface components {
              */
             apply_to_similar: boolean;
         };
+        /** ReviewedAnnotationProposal */
+        ReviewedAnnotationProposal: {
+            /** Proposal Id */
+            proposal_id: string;
+            /** Text */
+            text: string;
+            /**
+             * Annotation Type
+             * @enum {string}
+             */
+            annotation_type: "delivery_terms" | "payment_terms" | "validity_terms" | "warranty_terms" | "availability_terms" | "condition_or_exclusion" | "general_qualifier";
+            /**
+             * Target
+             * @enum {string}
+             */
+            target: "purchase_line" | "material" | "service" | "provider";
+            /** Source Excerpt */
+            source_excerpt: string;
+            /** Source Locator */
+            source_locator: {
+                [key: string]: unknown;
+            };
+            /**
+             * Provenance
+             * @enum {string}
+             */
+            provenance: "source_field" | "ai_suggested" | "legacy_default" | "reviewer_added";
+        };
         /** ReviewedConceptPayload */
         ReviewedConceptPayload: {
             /**
@@ -898,6 +1093,28 @@ export interface components {
             purchase_date?: string | null;
             /** Remarks Or Terms */
             remarks_or_terms?: string | null;
+            /** Annotation Proposals */
+            annotation_proposals?: components["schemas"]["ReviewedAnnotationProposal"][];
+        };
+        /** SourceFileInspectionRead */
+        SourceFileInspectionRead: {
+            /** Id */
+            id: number;
+            /** Original Filename */
+            original_filename: string;
+            /** Byte Size */
+            byte_size: number;
+            /** Declared Mime Type */
+            declared_mime_type: string | null;
+            /**
+             * Uploaded At
+             * Format: date-time
+             */
+            uploaded_at: string;
+            /** Sha256 Checksum */
+            sha256_checksum: string;
+            /** Available */
+            available: boolean;
         };
         /** SourceFileQueuedSubmission */
         SourceFileQueuedSubmission: {
@@ -947,6 +1164,102 @@ export interface components {
             /** Sha256 Checksum */
             sha256_checksum: string;
         };
+        /** SourceImportedEvidenceRead */
+        SourceImportedEvidenceRead: {
+            /** Id */
+            id: number;
+            /** Source Label */
+            source_label: string;
+            /** Locator */
+            locator: {
+                [key: string]: unknown;
+            } | null;
+            /** Supporting Content */
+            supporting_content: {
+                [key: string]: unknown;
+            };
+            /** Annotations */
+            annotations: components["schemas"]["EvidenceAnnotationRead"][];
+            /** Purchase Lines */
+            purchase_lines: components["schemas"]["SourcePurchaseLineLinkRead"][];
+            /**
+             * Annotation Omitted Count
+             * @default 0
+             */
+            annotation_omitted_count: number;
+            /**
+             * Annotation Detected Count
+             * @default 0
+             */
+            annotation_detected_count: number;
+        };
+        /** SourceLinkedRecordRead */
+        SourceLinkedRecordRead: {
+            /** Memory Record Id */
+            memory_record_id: number;
+            /** Record Type */
+            record_type: string;
+            /** Name */
+            name: string;
+            /** Category Path */
+            category_path: string;
+        };
+        /** SourcePurchaseLineLinkRead */
+        SourcePurchaseLineLinkRead: {
+            /** Id */
+            id: number;
+            /** Status */
+            status: string;
+            /** Href */
+            href: string;
+            /** Linked Records */
+            linked_records: components["schemas"]["SourceLinkedRecordRead"][];
+        };
+        /** SourceReviewBatchLinkRead */
+        SourceReviewBatchLinkRead: {
+            /** Id */
+            id: number;
+            /** Status */
+            status: string;
+            /** Href */
+            href: string;
+        };
+        /** SourceSubmissionContentRead */
+        SourceSubmissionContentRead: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "structured_manual" | "free_form_text" | "xlsx";
+            /** Structured Payload */
+            structured_payload?: {
+                [key: string]: unknown;
+            } | null;
+            /** Original Text */
+            original_text?: string | null;
+            source_file?: components["schemas"]["SourceFileInspectionRead"] | null;
+        };
+        /** SourceSubmissionDetail */
+        SourceSubmissionDetail: {
+            /** Id */
+            id: number;
+            /** Project Workspace Id */
+            project_workspace_id: number;
+            /** Submission Type */
+            submission_type: string;
+            /**
+             * Submitted At
+             * Format: date-time
+             */
+            submitted_at: string;
+            source: components["schemas"]["SourceSubmissionContentRead"];
+            processing_job: components["schemas"]["ProcessingJobRead"] | null;
+            review_batch: components["schemas"]["SourceReviewBatchLinkRead"] | null;
+            /** Imported Evidence */
+            imported_evidence: components["schemas"]["SourceImportedEvidenceRead"][];
+            /** Empty State */
+            empty_state: string | null;
+        };
         /** SourceSubmissionRead */
         SourceSubmissionRead: {
             /** Id */
@@ -977,6 +1290,21 @@ export interface components {
              */
             submitted_at: string;
         };
+        /** StructuredEvidenceAnnotationInput */
+        StructuredEvidenceAnnotationInput: {
+            /** Text */
+            text: string;
+            /**
+             * Annotation Type
+             * @enum {string}
+             */
+            annotation_type: "delivery_terms" | "payment_terms" | "validity_terms" | "warranty_terms" | "availability_terms" | "condition_or_exclusion" | "general_qualifier";
+            /**
+             * Target
+             * @enum {string}
+             */
+            target: "purchase_line" | "material" | "service" | "provider";
+        };
         /** StructuredManualSourcePayload */
         StructuredManualSourcePayload: {
             /**
@@ -1000,6 +1328,8 @@ export interface components {
             purchase_date?: string | null;
             /** Remarks Or Terms */
             remarks_or_terms?: string | null;
+            /** Annotations */
+            annotations?: components["schemas"]["StructuredEvidenceAnnotationInput"][];
         };
         /** TaxonomyDecisionCreate */
         TaxonomyDecisionCreate: {
@@ -1237,6 +1567,38 @@ export interface operations {
             };
         };
     };
+    get_purchase_line_detail_api_project_workspaces__project_workspace_id__purchase_lines__purchase_line_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+                purchase_line_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseLineDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_project_workspace_materials_api_project_workspaces__project_workspace_id__materials_get: {
         parameters: {
             query?: never;
@@ -1320,6 +1682,69 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ProviderMemoryListView"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_source_submission_detail_api_project_workspaces__project_workspace_id__source_submissions__source_submission_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+                source_submission_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceSubmissionDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_original_source_file_api_project_workspaces__project_workspace_id__source_submissions__source_submission_id__source_files__source_file_id__original_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_workspace_id: number;
+                source_submission_id: number;
+                source_file_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

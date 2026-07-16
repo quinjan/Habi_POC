@@ -1,7 +1,9 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from backend.app.sources.schemas import EvidenceAnnotationTarget, EvidenceAnnotationType
 
 from backend.app.processing.schemas import ProcessingJobRead, SourceFileSummary
 from backend.app.sources.schemas import ManualSourceEntryRead, SourceFileRead, SourceSubmissionRead
@@ -62,6 +64,28 @@ class ReviewedConceptPayload(BaseModel):
     subcategory: str | None = Field(default=None, max_length=255)
 
 
+class ReviewedAnnotationProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    proposal_id: str = Field(min_length=1, max_length=255)
+    text: str = Field(min_length=1, max_length=2000)
+    annotation_type: EvidenceAnnotationType
+    target: EvidenceAnnotationTarget
+    source_excerpt: str = Field(min_length=1, max_length=2000)
+    source_locator: dict
+    provenance: Literal[
+        "source_field", "ai_suggested", "legacy_default", "reviewer_added"
+    ]
+
+    @model_validator(mode="after")
+    def require_nonblank_content(self) -> "ReviewedAnnotationProposal":
+        if self.text.strip() == "" or self.source_excerpt.strip() == "":
+            raise ValueError("Annotation text and source excerpt must not be blank")
+        if not self.source_locator:
+            raise ValueError("Annotation source locator is required")
+        return self
+
+
 class ReviewedPurchaseLinePayload(BaseModel):
     linked_concepts: list[ReviewedConceptPayload] = Field(default_factory=list, max_length=2)
     provider_state: Literal["external", "internal", "unknown"] | None = None
@@ -80,6 +104,10 @@ class ReviewedPurchaseLinePayload(BaseModel):
     provider_name: str | None = Field(default=None, max_length=255)
     purchase_date: date | None = None
     remarks_or_terms: str | None = Field(default=None, max_length=2000)
+    annotation_proposals: list[ReviewedAnnotationProposal] = Field(
+        default_factory=list,
+        max_length=20,
+    )
 
     def concepts(self) -> list[ReviewedConceptPayload]:
         if self.linked_concepts:
@@ -94,6 +122,27 @@ class ReviewedPurchaseLinePayload(BaseModel):
                 subcategory=self.subcategory,
             )
         ]
+
+    @model_validator(mode="after")
+    def validate_annotations(self) -> "ReviewedPurchaseLinePayload":
+        available_targets = {"purchase_line", *(item.concept_type for item in self.concepts())}
+        if self.provider_state == "external" and self.provider_name:
+            available_targets.add("provider")
+        duplicate_keys: set[tuple[str, str, str, str]] = set()
+        for annotation in self.annotation_proposals:
+            if annotation.target not in available_targets:
+                raise ValueError("Annotation target must be present on the reviewed candidate")
+            locator_key = repr(sorted(annotation.source_locator.items()))
+            duplicate_key = (
+                " ".join(annotation.text.casefold().split()),
+                annotation.annotation_type,
+                annotation.target,
+                locator_key,
+            )
+            if duplicate_key in duplicate_keys:
+                raise ValueError("Exact duplicate annotations are not allowed")
+            duplicate_keys.add(duplicate_key)
+        return self
 
 
 class CandidateDecisionRequest(BaseModel):

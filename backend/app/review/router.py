@@ -32,6 +32,7 @@ from backend.app.review.lifecycle import (
     normalized_taxonomy_path_key,
     recalculate_review_batch_status,
     taxonomy_leaf_node_for_path,
+    validate_annotation_source_grounding,
     validate_approved_reviewed_payload,
 )
 from backend.app.review.models import (
@@ -199,14 +200,21 @@ def decide_candidate(
     _ensure_candidate_taxonomy_gates(session, candidate)
 
     try:
+        reviewed_payload = (
+            payload.reviewed_payload.model_dump(mode="json")
+            if payload.reviewed_payload
+            else None
+        )
+        validate_annotation_source_grounding(
+            candidate=candidate,
+            reviewed_payload=reviewed_payload,
+        )
         apply_candidate_decision(
             session=session,
             review_batch=review_batch,
             candidate=candidate,
             decision=payload.decision,
-            reviewed_payload=payload.reviewed_payload.model_dump(mode="json")
-            if payload.reviewed_payload
-            else None,
+            reviewed_payload=reviewed_payload,
             merged_into_candidate_id=payload.merged_into_candidate_id,
         )
         _ensure_candidate_taxonomy_gates(session, candidate)
@@ -507,6 +515,10 @@ def save_review_batch_draft(
                 else None
             )
             if item.included:
+                validate_annotation_source_grounding(
+                    candidate=candidates_by_id[item.candidate_id],
+                    reviewed_payload=reviewed_payload,
+                )
                 validate_approved_reviewed_payload(reviewed_payload)
                 apply_candidate_decision(
                     session=session,
@@ -1323,14 +1335,47 @@ def _import_purchase_line(
                 )
             )
 
+    annotation_targets = {
+        "purchase_line": purchase_record,
+        **{concept_type: record for concept_type, record in concept_records},
+    }
+    if provider_record is not None:
+        annotation_targets["provider"] = provider_record
+    for annotation in payload.annotation_proposals:
+        target_record = annotation_targets.get(annotation.target)
+        if target_record is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Annotation target must be present on the imported candidate",
+            )
+        session.add(
+            EvidenceAnnotation(
+                evidence_record_id=evidence.id,
+                memory_record_id=target_record.id,
+                annotation_type=annotation.annotation_type,
+                text=annotation.text.strip(),
+                proposal_id=annotation.proposal_id,
+                source_excerpt=annotation.source_excerpt,
+                source_locator=annotation.source_locator,
+                provenance=annotation.provenance,
+            )
+        )
+
     remarks_or_terms = _clean(payload.remarks_or_terms)
-    if remarks_or_terms is not None:
+    if remarks_or_terms is not None and not payload.annotation_proposals:
         session.add(
             EvidenceAnnotation(
                 evidence_record_id=evidence.id,
                 memory_record_id=purchase_record.id,
-                annotation_type="general qualifier",
+                annotation_type="general_qualifier",
                 text=remarks_or_terms,
+                proposal_id="legacy:remarks_or_terms",
+                source_excerpt=remarks_or_terms,
+                source_locator={
+                    "kind": "structured_field",
+                    "field_path": "structured_payload.remarks_or_terms",
+                },
+                provenance="legacy_default",
             )
         )
 
@@ -1431,6 +1476,46 @@ def _promote_merged_candidate_evidence(
                         evidence_record_id=evidence.id,
                     )
                 )
+
+        merged_payload_data = (
+            merged_candidate.reviewed_payload or merged_candidate.proposed_payload
+        )
+        try:
+            merged_payload = ReviewedPurchaseLinePayload.model_validate(merged_payload_data)
+        except ValueError as error:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Merged candidate annotations require a valid reviewed payload",
+            ) from error
+
+        target_records = {
+            record.record_type: record
+            for record in session.scalars(
+                select(MemoryRecord).where(MemoryRecord.id.in_(record_ids))
+            )
+            if record is not None
+        }
+        for annotation in merged_payload.annotation_proposals:
+            target_record = target_records.get(annotation.target)
+            if target_record is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "Merged annotation target must be present on the surviving candidate"
+                    ),
+                )
+            session.add(
+                EvidenceAnnotation(
+                    evidence_record_id=evidence.id,
+                    memory_record_id=target_record.id,
+                    annotation_type=annotation.annotation_type,
+                    text=annotation.text.strip(),
+                    proposal_id=annotation.proposal_id,
+                    source_excerpt=annotation.source_excerpt,
+                    source_locator=annotation.source_locator,
+                    provenance=annotation.provenance,
+                )
+            )
 
 
 def _get_or_create_taxonomy_node(

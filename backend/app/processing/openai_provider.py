@@ -16,7 +16,10 @@ EXTRACTION_SYSTEM_PROMPT = (
     "Internal; the legacy Contractor Assigned value Internal is only a sentinel and never "
     "matches an arbitrary named Provider. "
     "Use null for unknown fields instead of inventing values. Evidence must point "
-    "to the whole preserved manual source entry."
+    "to the whole preserved manual source entry. Propose only relevant purchasing "
+    "qualifiers as annotations. Every annotation source_excerpt must be an exact quote "
+    "from the preserved manual source text; exclude workflow state, payment status, "
+    "follow-up tasks, and other process noise."
 )
 
 PURCHASE_LINE_EXTRACTION_SCHEMA = {
@@ -107,6 +110,48 @@ PURCHASE_LINE_EXTRACTION_SCHEMA = {
                         "description": "Full ISO date YYYY-MM-DD only, or null.",
                     },
                     "remarks_or_terms": {"type": ["string", "null"], "maxLength": 2000},
+                    "annotation_proposals": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "text": {"type": "string", "minLength": 1, "maxLength": 2000},
+                                "annotation_type": {
+                                    "type": "string",
+                                    "enum": [
+                                        "delivery_terms",
+                                        "payment_terms",
+                                        "validity_terms",
+                                        "warranty_terms",
+                                        "availability_terms",
+                                        "condition_or_exclusion",
+                                        "general_qualifier",
+                                    ],
+                                },
+                                "target": {
+                                    "type": "string",
+                                    "enum": [
+                                        "purchase_line",
+                                        "material",
+                                        "service",
+                                        "provider",
+                                    ],
+                                },
+                                "source_excerpt": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 2000,
+                                },
+                            },
+                            "required": [
+                                "text",
+                                "annotation_type",
+                                "target",
+                                "source_excerpt",
+                            ],
+                        },
+                    },
                     "confidence": {"type": "number", "minimum": 0, "maximum": 1},
                     "evidence": {
                         "type": "object",
@@ -133,6 +178,7 @@ PURCHASE_LINE_EXTRACTION_SCHEMA = {
                     "provider_category_suggestion",
                     "purchase_date",
                     "remarks_or_terms",
+                    "annotation_proposals",
                     "confidence",
                     "evidence",
                 ],

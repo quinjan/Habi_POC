@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { Check, FolderOpen, GitBranch, Plus, Upload, X } from "lucide-react";
 
 import {
@@ -8,15 +8,18 @@ import {
   createManualSourceEntry,
   decideCandidate,
   editAcceptedTaxonomyGate,
+  getPurchaseLineDetail,
   getReviewBatch,
   getProjectWorkspaceMaterials,
   getProjectWorkspacePurchaseLines,
   getProjectWorkspaceProviders,
   getProjectWorkspaceServices,
+  getSourceSubmissionDetail,
   importReviewBatch,
   listProcessingJobs,
   listTaxonomyLeafPaths,
   listProjectWorkspaces,
+  originalSourceFileUrl,
   saveReviewBatchDraft,
   saveTaxonomyGateReviewerDraft,
   selectTaxonomyGateProposal,
@@ -24,12 +27,16 @@ import {
   type EntityMemoryListView,
   type ManualSourceEntryCreate,
   type ProcessingJobListItem,
+  type PurchaseLineDetail,
   type ProjectWorkspaceCreate,
   type ProjectWorkspaceListItem,
   type ProjectWorkspacePurchaseLinesView,
   type ProviderMemoryListView,
   type ReviewBatchDetail,
-  type ReviewedPurchaseLinePayload
+  type ReviewedAnnotationProposal,
+  type ReviewedPurchaseLinePayload,
+  type StructuredEvidenceAnnotationInput,
+  type SourceSubmissionDetail
 } from "./api/client";
 
 type ProjectWorkspaceForm = {
@@ -67,7 +74,7 @@ type ManualSourceForm = {
   currency: string;
   providerName: string;
   purchaseDate: string;
-  remarksOrTerms: string;
+  annotations: StructuredEvidenceAnnotationInput[];
 };
 
 type ManualEntryMode = "structured_row" | "free_form_text";
@@ -83,12 +90,30 @@ const emptyManualSourceForm: ManualSourceForm = {
   currency: "PHP",
   providerName: "",
   purchaseDate: "",
-  remarksOrTerms: ""
+  annotations: []
 };
+
+const annotationTypes: StructuredEvidenceAnnotationInput["annotation_type"][] = [
+  "delivery_terms",
+  "payment_terms",
+  "validity_terms",
+  "warranty_terms",
+  "availability_terms",
+  "condition_or_exclusion",
+  "general_qualifier"
+];
+
+const annotationTargets: StructuredEvidenceAnnotationInput["target"][] = [
+  "purchase_line",
+  "material",
+  "service",
+  "provider"
+];
 
 const MAX_XLSX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 type ReviewForm = ManualSourceForm & {
+  remarksOrTerms: string;
   topLevelCategory: string;
   subcategory: string;
 };
@@ -99,7 +124,36 @@ type WorkspaceRoute =
   | { name: "services" }
   | { name: "providers" }
   | { name: "upload_review" }
-  | { name: "review_batch"; reviewBatchId: number };
+  | { name: "review_batch"; reviewBatchId: number }
+  | { name: "purchase_line_detail"; purchaseLineId: number }
+  | { name: "source_submission_detail"; sourceSubmissionId: number };
+
+function parseWorkspaceLocation(
+  pathname: string
+): { projectId: number; route: WorkspaceRoute } | null {
+  const purchaseDetail = pathname.match(/^\/projects\/(\d+)\/purchase-lines\/(\d+)$/);
+  if (purchaseDetail) {
+    return {
+      projectId: Number(purchaseDetail[1]),
+      route: { name: "purchase_line_detail", purchaseLineId: Number(purchaseDetail[2]) }
+    };
+  }
+  const sourceDetail = pathname.match(/^\/projects\/(\d+)\/sources\/(\d+)$/);
+  if (sourceDetail) {
+    return {
+      projectId: Number(sourceDetail[1]),
+      route: {
+        name: "source_submission_detail",
+        sourceSubmissionId: Number(sourceDetail[2])
+      }
+    };
+  }
+  const purchaseList = pathname.match(/^\/projects\/(\d+)\/purchase-lines$/);
+  if (purchaseList) {
+    return { projectId: Number(purchaseList[1]), route: { name: "purchase_lines" } };
+  }
+  return null;
+}
 
 type CandidateDraft = {
   included: boolean;
@@ -129,6 +183,9 @@ function App() {
   const [xlsxValidationMessage, setXlsxValidationMessage] = useState<string | null>(null);
   const [processingJobs, setProcessingJobs] = useState<ProcessingJobListItem[]>([]);
   const [activeReviewBatch, setActiveReviewBatch] = useState<ReviewBatchDetail | null>(null);
+  const [purchaseLineDetail, setPurchaseLineDetail] = useState<PurchaseLineDetail | null>(null);
+  const [sourceSubmissionDetail, setSourceSubmissionDetail] =
+    useState<SourceSubmissionDetail | null>(null);
   const [workspaceRoute, setWorkspaceRoute] = useState<WorkspaceRoute>({
     name: "purchase_lines"
   });
@@ -181,6 +238,79 @@ function App() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (projects.length === 0 || selectedPurchaseLines !== null) return;
+    const parsed = parseWorkspaceLocation(window.location.pathname);
+    if (parsed === null) return;
+    const linkedRoute = parsed;
+    const project = projects.find((item) => item.id === linkedRoute.projectId);
+    if (project === undefined) return;
+    let isMounted = true;
+
+    async function loadDeepLink() {
+      try {
+        const purchaseLines = await getProjectWorkspacePurchaseLines(linkedRoute.projectId);
+        if (!isMounted) return;
+        setSelectedPurchaseLines(purchaseLines);
+        setWorkspaceRoute(linkedRoute.route);
+        const taxonomyNodes = await listTaxonomyLeafPaths(linkedRoute.projectId);
+        if (!isMounted) return;
+        setTaxonomyLeafPaths(
+          taxonomyNodes.items.map((item) => ({ id: item.id, path: item.path }))
+        );
+        if (linkedRoute.route.name === "purchase_line_detail") {
+          setPurchaseLineDetail(
+            await getPurchaseLineDetail(
+              linkedRoute.projectId,
+              linkedRoute.route.purchaseLineId
+            )
+          );
+        } else if (linkedRoute.route.name === "source_submission_detail") {
+          setSourceSubmissionDetail(
+            await getSourceSubmissionDetail(
+              linkedRoute.projectId,
+              linkedRoute.route.sourceSubmissionId
+            )
+          );
+        }
+      } catch {
+        if (isMounted) setErrorMessage("The linked Project Memory view could not be loaded.");
+      }
+    }
+
+    void loadDeepLink();
+    return () => {
+      isMounted = false;
+    };
+  }, [projects, selectedPurchaseLines]);
+
+  useEffect(() => {
+    async function handlePopState() {
+      const parsed = parseWorkspaceLocation(window.location.pathname);
+      if (
+        parsed === null ||
+        selectedPurchaseLines === null ||
+        parsed.projectId !== selectedPurchaseLines.project_workspace.id
+      ) {
+        return;
+      }
+      setWorkspaceRoute(parsed.route);
+      if (parsed.route.name === "purchase_line_detail") {
+        setPurchaseLineDetail(
+          await getPurchaseLineDetail(parsed.projectId, parsed.route.purchaseLineId)
+        );
+      } else if (parsed.route.name === "source_submission_detail") {
+        setSourceSubmissionDetail(
+          await getSourceSubmissionDetail(parsed.projectId, parsed.route.sourceSubmissionId)
+        );
+      }
+    }
+
+    const listener = () => void handlePopState();
+    window.addEventListener("popstate", listener);
+    return () => window.removeEventListener("popstate", listener);
+  }, [selectedPurchaseLines]);
 
   useEffect(() => {
     if (selectedPurchaseLines === null) {
@@ -283,8 +413,42 @@ function App() {
           ? `/projects/${projectId}/${route.name}`
         : route.name === "upload_review"
           ? `/projects/${projectId}/upload-review`
-          : `/projects/${projectId}/review-batches/${route.reviewBatchId}`;
+          : route.name === "review_batch"
+            ? `/projects/${projectId}/review-batches/${route.reviewBatchId}`
+            : route.name === "purchase_line_detail"
+              ? `/projects/${projectId}/purchase-lines/${route.purchaseLineId}`
+              : `/projects/${projectId}/sources/${route.sourceSubmissionId}`;
     window.history.pushState({}, "", path);
+  }
+
+  async function handleOpenPurchaseLineDetail(purchaseLineId: number) {
+    if (selectedPurchaseLines === null) return;
+    const projectId = selectedPurchaseLines.project_workspace.id;
+    setErrorMessage(null);
+    try {
+      const detail = await getPurchaseLineDetail(projectId, purchaseLineId);
+      setPurchaseLineDetail(detail);
+      setSourceSubmissionDetail(null);
+      navigateWorkspace(projectId, { name: "purchase_line_detail", purchaseLineId });
+    } catch {
+      setErrorMessage("Purchase Line Detail could not be loaded.");
+    }
+  }
+
+  async function handleOpenSourceSubmissionDetail(sourceSubmissionId: number) {
+    if (selectedPurchaseLines === null) return;
+    const projectId = selectedPurchaseLines.project_workspace.id;
+    setErrorMessage(null);
+    try {
+      const detail = await getSourceSubmissionDetail(projectId, sourceSubmissionId);
+      setSourceSubmissionDetail(detail);
+      navigateWorkspace(projectId, {
+        name: "source_submission_detail",
+        sourceSubmissionId
+      });
+    } catch {
+      setErrorMessage("Source Submission Detail could not be loaded.");
+    }
   }
 
   async function handleMemoryTab(route: "materials" | "services" | "providers") {
@@ -471,6 +635,19 @@ function App() {
         }
       };
     });
+  }
+
+  function updateCandidateAnnotation(
+    candidate: ExtractedCandidateRead,
+    proposalId: string,
+    update: Partial<ReviewedAnnotationProposal>
+  ) {
+    updateCandidateReviewedPayload(candidate, (payload) => ({
+      ...payload,
+      annotation_proposals: (payload.annotation_proposals ?? []).map((annotation) =>
+        annotation.proposal_id === proposalId ? { ...annotation, ...update } : annotation
+      )
+    }));
   }
 
   async function handleSaveReviewDraft() {
@@ -764,6 +941,39 @@ function App() {
     setManualSourceForm((currentForm) => ({ ...currentForm, [field]: value }));
   }
 
+  function addManualAnnotation() {
+    setManualSourceForm((currentForm) => ({
+      ...currentForm,
+      annotations: [
+        ...currentForm.annotations,
+        {
+          text: "",
+          annotation_type: "general_qualifier",
+          target: "purchase_line"
+        }
+      ]
+    }));
+  }
+
+  function updateManualAnnotation(
+    index: number,
+    update: Partial<StructuredEvidenceAnnotationInput>
+  ) {
+    setManualSourceForm((currentForm) => ({
+      ...currentForm,
+      annotations: currentForm.annotations.map((annotation, annotationIndex) =>
+        annotationIndex === index ? { ...annotation, ...update } : annotation
+      )
+    }));
+  }
+
+  function removeManualAnnotation(index: number) {
+    setManualSourceForm((currentForm) => ({
+      ...currentForm,
+      annotations: currentForm.annotations.filter((_, annotationIndex) => annotationIndex !== index)
+    }));
+  }
+
   function updateReviewForm(field: keyof ReviewForm, value: string) {
     setReviewForm((currentForm) =>
       currentForm === null ? currentForm : { ...currentForm, [field]: value }
@@ -906,11 +1116,20 @@ function App() {
               {workspaceRoute.name === "services" ? <h2>Services</h2> : null}
               {workspaceRoute.name === "providers" ? <h2>Providers</h2> : null}
               {workspaceRoute.name === "upload_review" ? <h2>Upload / Review</h2> : null}
+              {workspaceRoute.name === "purchase_line_detail" ? (
+                <h2>Purchase Line Detail</h2>
+              ) : null}
+              {workspaceRoute.name === "source_submission_detail" ? (
+                <h2>Source Submission Detail</h2>
+              ) : null}
             </div>
             <div className="workspace-tabs" role="tablist" aria-label="Project Workspace sections">
               <button
                 role="tab"
-                aria-selected={workspaceRoute.name === "purchase_lines"}
+                aria-selected={
+                  workspaceRoute.name === "purchase_lines" ||
+                  workspaceRoute.name === "purchase_line_detail"
+                }
                 onClick={() =>
                   navigateWorkspace(selectedPurchaseLines.project_workspace.id, {
                     name: "purchase_lines"
@@ -1084,27 +1303,92 @@ function App() {
                       />
                     </label>
                   </div>
-                  <div className="form-grid">
-                    <label>
-                      Purchase date
-                      <input
-                        type="date"
-                        value={manualSourceForm.purchaseDate}
-                        onChange={(event) =>
-                          updateManualSourceForm("purchaseDate", event.target.value)
-                        }
-                      />
-                    </label>
-                    <label>
-                      Remarks or terms
-                      <input
-                        value={manualSourceForm.remarksOrTerms}
-                        onChange={(event) =>
-                          updateManualSourceForm("remarksOrTerms", event.target.value)
-                        }
-                      />
-                    </label>
-                  </div>
+                  <label>
+                    Purchase date
+                    <input
+                      type="date"
+                      value={manualSourceForm.purchaseDate}
+                      onChange={(event) =>
+                        updateManualSourceForm("purchaseDate", event.target.value)
+                      }
+                    />
+                  </label>
+                  <section className="annotation-editor" aria-label="Structured annotations">
+                    <div className="evidence-heading">
+                      <div>
+                        <h4>Annotations</h4>
+                        <p>Capture each source term separately and choose what it describes.</p>
+                      </div>
+                      <button
+                        className="secondary-action"
+                        disabled={manualSourceForm.annotations.length >= 20}
+                        onClick={addManualAnnotation}
+                        type="button"
+                      >
+                        <Plus aria-hidden="true" size={16} />
+                        Add annotation
+                      </button>
+                    </div>
+                    {manualSourceForm.annotations.map((annotation, index) => (
+                      <div className="annotation-editor-row" key={index}>
+                        <label>
+                          Annotation text {index + 1}
+                          <input
+                            aria-label={`Annotation text ${index + 1}`}
+                            required
+                            value={annotation.text}
+                            onChange={(event) =>
+                              updateManualAnnotation(index, { text: event.target.value })
+                            }
+                          />
+                        </label>
+                        <label>
+                          Annotation type {index + 1}
+                          <select
+                            aria-label={`Annotation type ${index + 1}`}
+                            value={annotation.annotation_type}
+                            onChange={(event) =>
+                              updateManualAnnotation(index, {
+                                annotation_type: event.target.value as StructuredEvidenceAnnotationInput["annotation_type"]
+                              })
+                            }
+                          >
+                            {annotationTypes.map((annotationType) => (
+                              <option key={annotationType} value={annotationType}>
+                                {formatLabel(annotationType)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Annotation target {index + 1}
+                          <select
+                            aria-label={`Annotation target ${index + 1}`}
+                            value={annotation.target}
+                            onChange={(event) =>
+                              updateManualAnnotation(index, {
+                                target: event.target.value as StructuredEvidenceAnnotationInput["target"]
+                              })
+                            }
+                          >
+                            {annotationTargets.map((target) => (
+                              <option key={target} value={target}>
+                                {formatLabel(target)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <button
+                          aria-label={`Remove annotation ${index + 1}`}
+                          className="icon-action"
+                          onClick={() => removeManualAnnotation(index)}
+                          type="button"
+                        >
+                          <X aria-hidden="true" size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </section>
                 </>
               ) : (
                 <label>
@@ -1332,6 +1616,13 @@ function App() {
                     const taxonomyStatus = taxonomyStatusLabel(detailCandidate, reviewedPayload);
                     const spreadsheetEvidence = spreadsheetCandidateEvidence(detailCandidate);
                     const existingMemoryMatches = detailCandidate.existing_memory_matches ?? [];
+                    const originalAnnotations = proposedAnnotations(detailCandidate);
+                    const reviewedAnnotations = reviewedPayload.annotation_proposals ?? [];
+                    const availableAnnotationTargets = new Set<ReviewedAnnotationProposal["target"]>([
+                      "purchase_line",
+                      ...linkedConcepts.map((concept) => concept.concept_type),
+                      ...(providerState === "external" ? (["provider"] as const) : [])
+                    ]);
                     return (
                       <>
                         <div className="view-heading">
@@ -1555,17 +1846,13 @@ function App() {
                                 .join(" ") || "Price not provided"}
                             </p>
                             <p>{reviewedPayload.purchase_date ?? "Date not provided"}</p>
-                            {reviewedPayload.remarks_or_terms ? (
-                              <p>{reviewedPayload.remarks_or_terms}</p>
-                            ) : null}
                             {(
                               [
                                 ["quantity", "Quantity"],
                                 ["unit", "Unit"],
                                 ["price", "Price"],
                                 ["currency", "Currency"],
-                                ["purchase_date", "Purchase date"],
-                                ["remarks_or_terms", "Remarks or terms"]
+                                ["purchase_date", "Purchase date"]
                               ] as const
                             ).map(([field, label]) => (
                               <label key={field}>
@@ -1582,6 +1869,147 @@ function App() {
                                 />
                               </label>
                             ))}
+                          </section>
+                          <section className="annotation-editor" aria-label="Annotation review">
+                            <div className="evidence-heading">
+                              <div>
+                                <h4>Annotations</h4>
+                                <p>Review the source-grounded terms before import.</p>
+                              </div>
+                              <button
+                                className="secondary-action"
+                                disabled={reviewedAnnotations.length >= 20}
+                                onClick={() =>
+                                  updateCandidateReviewedPayload(detailCandidate, (payload) => ({
+                                    ...payload,
+                                    annotation_proposals: [
+                                      ...(payload.annotation_proposals ?? []),
+                                      reviewerAddedAnnotation(detailCandidate.id, reviewedAnnotations.length)
+                                    ]
+                                  }))
+                                }
+                                type="button"
+                              >
+                                <Plus aria-hidden="true" size={16} />
+                                Add annotation
+                              </button>
+                            </div>
+                            {reviewedAnnotations.length === 0 ? (
+                              <p className="status-message">No annotations proposed.</p>
+                            ) : null}
+                            {reviewedAnnotations.map((annotation, index) => {
+                              const original = originalAnnotations.find(
+                                (proposal) => proposal.proposal_id === annotation.proposal_id
+                              );
+                              const targetIsAvailable = availableAnnotationTargets.has(annotation.target);
+                              return (
+                                <div className="annotation-review-card" key={annotation.proposal_id}>
+                                  <div className="evidence-heading">
+                                    <span className="annotation-type">
+                                      {formatAnnotationProvenance(annotation.provenance)}
+                                    </span>
+                                    <button
+                                      aria-label={`Remove annotation ${index + 1}`}
+                                      className="icon-action"
+                                      onClick={() =>
+                                        updateCandidateReviewedPayload(detailCandidate, (payload) => ({
+                                          ...payload,
+                                          annotation_proposals: (payload.annotation_proposals ?? []).filter(
+                                            (proposal) => proposal.proposal_id !== annotation.proposal_id
+                                          )
+                                        }))
+                                      }
+                                      type="button"
+                                    >
+                                      <X aria-hidden="true" size={16} />
+                                    </button>
+                                  </div>
+                                  <label>
+                                    Annotation text {index + 1}
+                                    <input
+                                      aria-label={`Annotation text ${index + 1}`}
+                                      value={annotation.text}
+                                      onChange={(event) =>
+                                        updateCandidateAnnotation(
+                                          detailCandidate,
+                                          annotation.proposal_id,
+                                          { text: event.target.value }
+                                        )
+                                      }
+                                    />
+                                  </label>
+                                  <div className="form-grid">
+                                    <label>
+                                      Annotation type {index + 1}
+                                      <select
+                                        aria-label={`Annotation type ${index + 1}`}
+                                        value={annotation.annotation_type}
+                                        onChange={(event) =>
+                                          updateCandidateAnnotation(
+                                            detailCandidate,
+                                            annotation.proposal_id,
+                                            {
+                                              annotation_type: event.target.value as ReviewedAnnotationProposal["annotation_type"]
+                                            }
+                                          )
+                                        }
+                                      >
+                                        {annotationTypes.map((annotationType) => (
+                                          <option key={annotationType} value={annotationType}>
+                                            {formatLabel(annotationType)}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </label>
+                                    <label>
+                                      Annotation target {index + 1}
+                                      <select
+                                        aria-label={`Annotation target ${index + 1}`}
+                                        value={annotation.target}
+                                        onChange={(event) =>
+                                          updateCandidateAnnotation(
+                                            detailCandidate,
+                                            annotation.proposal_id,
+                                            {
+                                              target: event.target.value as ReviewedAnnotationProposal["target"]
+                                            }
+                                          )
+                                        }
+                                      >
+                                        {annotationTargets.map((target) => (
+                                          <option
+                                            disabled={!availableAnnotationTargets.has(target)}
+                                            key={target}
+                                            value={target}
+                                          >
+                                            {formatLabel(target)}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </label>
+                                  </div>
+                                  {original && original.annotation_type !== annotation.annotation_type ? (
+                                    <p className="status-message">
+                                      Changed from {formatLabel(original.annotation_type)}
+                                    </p>
+                                  ) : null}
+                                  {original && original.target !== annotation.target ? (
+                                    <p className="status-message">
+                                      Retargeted from {formatLabel(original.target)}
+                                    </p>
+                                  ) : null}
+                                  {!targetIsAvailable ? (
+                                    <p className="status-message error">
+                                      Target is not available on this candidate. Retarget or remove this annotation.
+                                    </p>
+                                  ) : null}
+                                  <blockquote>{annotation.source_excerpt}</blockquote>
+                                  <p className="source-locator">
+                                    Source locator: {JSON.stringify(annotation.source_locator)}
+                                  </p>
+                                </div>
+                              );
+                            })}
                           </section>
                           {(detailCandidate.taxonomy_gates ?? []).length > 0 ? (
                             <section>
@@ -1850,6 +2278,7 @@ function App() {
                         <th>Date</th>
                         <th>Category</th>
                         <th>Evidence</th>
+                        <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1857,7 +2286,17 @@ function App() {
                         <tr key={purchaseLine.id}>
                           <td>
                             {purchaseLine.linked_concepts.map((concept) => (
-                              <div key={concept.memory_record_id}>{concept.name}</div>
+                              <div key={concept.memory_record_id}>
+                                <a
+                                  href={`/projects/${selectedPurchaseLines.project_workspace.id}/purchase-lines/${purchaseLine.id}`}
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    void handleOpenPurchaseLineDetail(purchaseLine.id);
+                                  }}
+                                >
+                                  {concept.name}
+                                </a>
+                              </div>
                             ))}
                           </td>
                           <td>{purchaseLine.line_type}</td>
@@ -1878,7 +2317,20 @@ function App() {
                             ))}
                           </td>
                           <td>
-                            {purchaseLine.has_evidence ? purchaseLine.source_label : "No evidence"}
+                            {purchaseLine.has_evidence
+                              ? `${purchaseLine.evidence_count} ${purchaseLine.evidence_count === 1 ? "evidence" : "evidence records"} — ${purchaseLine.source_label}`
+                              : "No evidence"}
+                          </td>
+                          <td>
+                            <a
+                              href={`/projects/${selectedPurchaseLines.project_workspace.id}/purchase-lines/${purchaseLine.id}`}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                void handleOpenPurchaseLineDetail(purchaseLine.id);
+                              }}
+                            >
+                              View details
+                            </a>
                           </td>
                         </tr>
                       ))}
@@ -1886,6 +2338,177 @@ function App() {
                   </table>
                 </div>
               )
+            ) : null}
+
+            {workspaceRoute.name === "purchase_line_detail" && purchaseLineDetail ? (
+              <article className="detail-page" aria-label="Purchase Line Detail">
+                <div className="detail-grid">
+                  <section className="detail-card">
+                    <p className="eyebrow">Linked concepts</p>
+                    {purchaseLineDetail.linked_concepts.map((concept) => (
+                      <div key={concept.memory_record_id}>
+                        <strong>{concept.name}</strong>
+                        <p>{formatLabel(concept.concept_type)} · {concept.category_path}</p>
+                      </div>
+                    ))}
+                  </section>
+                  <section className="detail-card">
+                    <p className="eyebrow">Provider</p>
+                    {purchaseLineDetail.provider.record ? (
+                      <>
+                        <strong>{purchaseLineDetail.provider.record.name}</strong>
+                        <p>{purchaseLineDetail.provider.record.category_path}</p>
+                        <p>{purchaseLineDetail.provider.roles.map(formatProviderRole).join(", ")}</p>
+                      </>
+                    ) : (
+                      <strong>{formatLabel(purchaseLineDetail.provider.state)}</strong>
+                    )}
+                  </section>
+                  <section className="detail-card">
+                    <p className="eyebrow">Commercial values</p>
+                    <dl className="detail-values">
+                      <div><dt>Quantity</dt><dd>{purchaseLineDetail.quantity ?? "Unknown"}</dd></div>
+                      <div><dt>Unit</dt><dd>{purchaseLineDetail.unit ?? "Unknown"} ({purchaseLineDetail.unit_state})</dd></div>
+                      <div><dt>Price</dt><dd>{purchaseLineDetail.price ? `${purchaseLineDetail.currency ?? ""} ${purchaseLineDetail.price}`.trim() : "Unknown"} ({purchaseLineDetail.price_state})</dd></div>
+                      <div><dt>Date</dt><dd>{purchaseLineDetail.purchase_date ?? "Unknown"} ({purchaseLineDetail.date_state})</dd></div>
+                    </dl>
+                  </section>
+                </div>
+                <section className="evidence-section">
+                  <h3>Evidence Records ({purchaseLineDetail.evidence_records.length})</h3>
+                  {purchaseLineDetail.evidence_records.map((evidence) => (
+                    <article className="evidence-card" key={evidence.id}>
+                      <div className="evidence-heading">
+                        <a
+                          href={evidence.source_submission_href}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            void handleOpenSourceSubmissionDetail(evidence.source_submission_id);
+                          }}
+                        >
+                          {evidence.source_label}
+                        </a>
+                        <span>{formatLabel(evidence.source_type)}</span>
+                      </div>
+                      <EvidenceInspection
+                        annotations={evidence.annotations}
+                        detectedCount={evidence.annotation_detected_count}
+                        locator={evidence.locator}
+                        omittedCount={evidence.annotation_omitted_count}
+                        supportingContent={evidence.supporting_content}
+                      />
+                    </article>
+                  ))}
+                </section>
+                <section className="detail-card">
+                  <h3>Value History</h3>
+                  <p>No reviewed changes yet</p>
+                </section>
+              </article>
+            ) : null}
+
+            {workspaceRoute.name === "source_submission_detail" && sourceSubmissionDetail ? (
+              <article className="detail-page" aria-label="Source Submission Detail">
+                <div className="detail-grid">
+                  <section className="detail-card">
+                    <h3>Immutable source</h3>
+                    <p>{formatLabel(sourceSubmissionDetail.source.kind)}</p>
+                    {sourceSubmissionDetail.source.kind === "free_form_text" ? (
+                      <HighlightedSourceText
+                        annotations={sourceSubmissionDetail.imported_evidence.flatMap(
+                          (evidence) => evidence.annotations
+                        )}
+                        text={sourceSubmissionDetail.source.original_text ?? ""}
+                      />
+                    ) : sourceSubmissionDetail.source.kind === "structured_manual" ? (
+                      <pre className="source-content">
+                        {JSON.stringify(sourceSubmissionDetail.source.structured_payload, null, 2)}
+                      </pre>
+                    ) : sourceSubmissionDetail.source.source_file ? (
+                      <>
+                        <strong>{sourceSubmissionDetail.source.source_file.original_filename}</strong>
+                        <p>{formatFileSize(sourceSubmissionDetail.source.source_file.byte_size)}</p>
+                        {sourceSubmissionDetail.source.source_file.available ? (
+                          <a
+                            href={originalSourceFileUrl(
+                              sourceSubmissionDetail.project_workspace_id,
+                              sourceSubmissionDetail.id,
+                              sourceSubmissionDetail.source.source_file.id
+                            )}
+                          >
+                            Open original file
+                          </a>
+                        ) : (
+                          <p className="status-message error">Original file unavailable</p>
+                        )}
+                      </>
+                    ) : null}
+                  </section>
+                  <section className="detail-card">
+                    <h3>Processing outcome</h3>
+                    {sourceSubmissionDetail.processing_job ? (
+                      <>
+                        <strong>{sourceSubmissionDetail.processing_job.status}</strong>
+                        <p>{sourceSubmissionDetail.processing_job.processor_name}</p>
+                        {sourceSubmissionDetail.processing_job.error_message ? (
+                          <p>{sourceSubmissionDetail.processing_job.error_message}</p>
+                        ) : null}
+                      </>
+                    ) : (
+                      <p>No Processing Job</p>
+                    )}
+                  </section>
+                  <section className="detail-card">
+                    <h3>Review Batch</h3>
+                    {sourceSubmissionDetail.review_batch ? (
+                      <a href={sourceSubmissionDetail.review_batch.href}>
+                        Review Batch #{sourceSubmissionDetail.review_batch.id}
+                      </a>
+                    ) : (
+                      <p>No Review Batch</p>
+                    )}
+                  </section>
+                </div>
+                <section className="evidence-section">
+                  <h3>Imported evidence</h3>
+                  {sourceSubmissionDetail.empty_state ? (
+                    <div className="empty-state">{sourceSubmissionDetail.empty_state}</div>
+                  ) : null}
+                  {sourceSubmissionDetail.imported_evidence.map((evidence) => (
+                    <article className="evidence-card" key={evidence.id}>
+                      <div className="evidence-heading">
+                        <strong>{evidence.source_label}</strong>
+                        <span>Evidence Record #{evidence.id}</span>
+                      </div>
+                      {evidence.purchase_lines.map((purchaseLine) => (
+                        <div className="source-purchase-line" key={purchaseLine.id}>
+                          <a
+                            href={purchaseLine.href}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              void handleOpenPurchaseLineDetail(purchaseLine.id);
+                            }}
+                          >
+                            Purchase Line #{purchaseLine.id}
+                          </a>
+                          <p>
+                            {purchaseLine.linked_records
+                              .map((record) => `${record.name} · ${record.category_path}`)
+                              .join(", ")}
+                          </p>
+                        </div>
+                      ))}
+                      <EvidenceInspection
+                        annotations={evidence.annotations}
+                        detectedCount={evidence.annotation_detected_count}
+                        locator={evidence.locator}
+                        omittedCount={evidence.annotation_omitted_count}
+                        supportingContent={evidence.supporting_content}
+                      />
+                    </article>
+                  ))}
+                </section>
+              </article>
             ) : null}
           </>
         ) : (
@@ -1952,7 +2575,10 @@ function buildManualSourcePayload(
       currency: optionalText(form.currency),
       provider_name: optionalText(form.providerName),
       purchase_date: form.purchaseDate || null,
-      remarks_or_terms: optionalText(form.remarksOrTerms)
+      annotations: form.annotations.map((annotation) => ({
+        ...annotation,
+        text: annotation.text.trim()
+      }))
     }
   };
 }
@@ -1980,7 +2606,8 @@ function buildReviewForm(
     currency: String(proposedPayload.currency ?? fallbackForm.currency ?? ""),
     providerName: String(proposedPayload.provider_name ?? fallbackForm.providerName ?? ""),
     purchaseDate: String(proposedPayload.purchase_date ?? fallbackForm.purchaseDate ?? ""),
-    remarksOrTerms: String(proposedPayload.remarks_or_terms ?? fallbackForm.remarksOrTerms ?? ""),
+    annotations: fallbackForm.annotations,
+    remarksOrTerms: String(proposedPayload.remarks_or_terms ?? ""),
     topLevelCategory: defaultPath?.topLevelCategory ?? "",
     subcategory: defaultPath?.subcategory ?? ""
   };
@@ -2155,8 +2782,61 @@ function reviewedPayloadForCandidate(candidate: ExtractedCandidateRead): Reviewe
         : null,
     purchase_date:
       typeof proposedPayload.purchase_date === "string" ? proposedPayload.purchase_date : null,
-    remarks_or_terms: optionalText(String(proposedPayload.remarks_or_terms ?? ""))
+    remarks_or_terms: optionalText(String(proposedPayload.remarks_or_terms ?? "")),
+    annotation_proposals: proposedAnnotations(candidate)
   };
+}
+
+function proposedAnnotations(candidate: ExtractedCandidateRead): ReviewedAnnotationProposal[] {
+  const proposals = candidate.proposed_payload.annotation_proposals;
+  return Array.isArray(proposals)
+    ? proposals.filter(isReviewedAnnotationProposal).map((proposal) => ({ ...proposal }))
+    : [];
+}
+
+function isReviewedAnnotationProposal(value: unknown): value is ReviewedAnnotationProposal {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const proposal = value as Record<string, unknown>;
+  return (
+    typeof proposal.proposal_id === "string" &&
+    typeof proposal.text === "string" &&
+    annotationTypes.includes(
+      proposal.annotation_type as ReviewedAnnotationProposal["annotation_type"]
+    ) &&
+    annotationTargets.includes(proposal.target as ReviewedAnnotationProposal["target"]) &&
+    typeof proposal.source_excerpt === "string" &&
+    !!proposal.source_locator &&
+    typeof proposal.source_locator === "object" &&
+    ["source_field", "ai_suggested", "legacy_default", "reviewer_added"].includes(
+      String(proposal.provenance)
+    )
+  );
+}
+
+function reviewerAddedAnnotation(candidateId: number, index: number): ReviewedAnnotationProposal {
+  return {
+    proposal_id: `reviewer:${candidateId}:${Date.now()}:${index}`,
+    text: "",
+    annotation_type: "general_qualifier",
+    target: "purchase_line",
+    source_excerpt: "Reviewer-added annotation",
+    source_locator: { kind: "reviewer_entry" },
+    provenance: "reviewer_added"
+  };
+}
+
+function formatAnnotationProvenance(
+  provenance: ReviewedAnnotationProposal["provenance"]
+): string {
+  const labels: Record<ReviewedAnnotationProposal["provenance"], string> = {
+    source_field: "Source field",
+    ai_suggested: "AI suggested",
+    legacy_default: "Legacy default",
+    reviewer_added: "Reviewer added"
+  };
+  return labels[provenance];
 }
 
 type ReviewedConcept = {
@@ -2334,6 +3014,151 @@ function splitCategoryPath(
     return null;
   }
   return { topLevelCategory, subcategory };
+}
+
+function formatLabel(value: string): string {
+  const text = value.replaceAll("_", " ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function formatLocator(locator: Record<string, unknown>): string {
+  if (locator.kind === "text_span") {
+    return `Characters ${locator.start}–${locator.end}`;
+  }
+  if (locator.kind === "xlsx_cell") {
+    return `${locator.worksheet ?? "Worksheet"} · Cell ${locator.coordinate ?? "unknown"}`;
+  }
+  if (locator.kind === "xlsx_rows") {
+    return `${locator.worksheet ?? "Worksheet"} · Source rows`;
+  }
+  if (typeof locator.field_path === "string") {
+    return locator.field_path;
+  }
+  return "Precise locator unavailable";
+}
+
+type EvidenceAnnotationView =
+  PurchaseLineDetail["evidence_records"][number]["annotations"][number];
+
+function EvidenceInspection({
+  annotations,
+  detectedCount,
+  locator,
+  omittedCount,
+  supportingContent
+}: {
+  annotations: EvidenceAnnotationView[];
+  detectedCount: number;
+  locator: Record<string, unknown> | null;
+  omittedCount: number;
+  supportingContent: Record<string, unknown>;
+}) {
+  const rowSnapshot = Array.isArray(supportingContent.row_snapshot)
+    ? supportingContent.row_snapshot
+    : [];
+  return (
+    <div className="evidence-inspection">
+      {locator ? <code>{formatLocator(locator)}</code> : <p>Precise locator unavailable</p>}
+      {rowSnapshot.length > 0 ? (
+        <div className="xlsx-row-snapshot" role="table" aria-label="Source row snapshot">
+          {rowSnapshot.map((rawCell, index) => {
+            const cell = rawCell as Record<string, unknown>;
+            return (
+              <div className="xlsx-snapshot-cell" key={String(cell.coordinate ?? index)}>
+                <strong>{String(cell.header ?? cell.coordinate ?? `Column ${index + 1}`)}</strong>
+                {cell.annotation ? <mark>{String(cell.value ?? "")}</mark> : <span>{String(cell.value ?? "")}</span>}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <HighlightedEvidenceContent annotations={annotations} content={supportingContent} />
+      )}
+      {omittedCount > 0 ? (
+        <p className="status-message error">
+          Annotation extraction limit reached — 20 of {detectedCount} source-grounded annotation
+          proposals were retained. Review the source and add any omitted qualifiers that matter.
+        </p>
+      ) : null}
+      {annotations.map((annotation) => (
+        <div className="annotation-card" key={annotation.id}>
+          <span className="annotation-type">{formatLabel(annotation.annotation_type)}</span>
+          <strong>{annotation.text}</strong>
+          <p>
+            Target: {formatLabel(annotation.target.record_type)} · {annotation.target.name}
+          </p>
+          <blockquote>{annotation.source_excerpt}</blockquote>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HighlightedEvidenceContent({
+  annotations,
+  content
+}: {
+  annotations: EvidenceAnnotationView[];
+  content: Record<string, unknown>;
+}) {
+  const serialized = JSON.stringify(content, null, 2);
+  const excerpts = Array.from(
+    new Set(annotations.map((annotation) => annotation.source_excerpt).filter(Boolean))
+  );
+  if (excerpts.length === 0) {
+    return <pre className="source-content">{serialized}</pre>;
+  }
+  const matches = excerpts
+    .flatMap((excerpt) => {
+      const start = serialized.indexOf(excerpt);
+      return start >= 0 ? [{ start, end: start + excerpt.length }] : [];
+    })
+    .sort((left, right) => left.start - right.start);
+  const rendered: ReactNode[] = [];
+  let cursor = 0;
+  matches.forEach((match, index) => {
+    if (match.start < cursor) return;
+    rendered.push(serialized.slice(cursor, match.start));
+    rendered.push(
+      <mark key={`${match.start}:${index}`}>
+        {serialized.slice(match.start, match.end)}
+      </mark>
+    );
+    cursor = match.end;
+  });
+  rendered.push(serialized.slice(cursor));
+  return <pre className="source-content">{rendered}</pre>;
+}
+
+function HighlightedSourceText({
+  annotations,
+  text
+}: {
+  annotations: EvidenceAnnotationView[];
+  text: string;
+}) {
+  const spans = annotations
+    .map((annotation) => annotation.source_locator)
+    .filter(
+      (locator): locator is { kind: string; start: number; end: number } =>
+        locator.kind === "text_span" &&
+        typeof locator.start === "number" &&
+        typeof locator.end === "number"
+    )
+    .sort((left, right) => left.start - right.start);
+  if (spans.length === 0) {
+    return <pre className="source-content">{text}</pre>;
+  }
+  const content: ReactNode[] = [];
+  let cursor = 0;
+  spans.forEach((span, index) => {
+    if (span.start < cursor || span.start < 0 || span.end > text.length) return;
+    content.push(text.slice(cursor, span.start));
+    content.push(<mark key={`${span.start}:${span.end}:${index}`}>{text.slice(span.start, span.end)}</mark>);
+    cursor = span.end;
+  });
+  content.push(text.slice(cursor));
+  return <pre className="source-content">{content}</pre>;
 }
 
 export default App;

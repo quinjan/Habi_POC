@@ -54,6 +54,160 @@ def test_worker_processes_structured_row_job_to_review_ready(client):
     assert review["candidates"][0]["proposed_payload"]["name"] == "PVC pipe"
 
 
+def test_structured_annotation_is_preserved_and_proposed_for_review(client):
+    from backend.app.processing.worker import run_once
+
+    project = client.post(
+        "/api/project-workspaces",
+        json={
+            "project_name": "Arnaiz Residence Renovation",
+            "project_type": "Residential renovation",
+            "location": "Makati City",
+            "completion_year": 2025,
+            "contractor_assigned": "Internal",
+        },
+    ).json()
+    submission_response = client.post(
+        f"/api/project-workspaces/{project['id']}/manual-source-entries",
+        json={
+            "entry_type": "structured_row",
+            "structured_payload": {
+                "line_type": "material",
+                "name": "PVC pipe",
+                "annotations": [
+                    {
+                        "text": "Delivery included to Makati City",
+                        "annotation_type": "delivery_terms",
+                        "target": "purchase_line",
+                    }
+                ],
+            },
+        },
+    )
+
+    assert submission_response.status_code == 201
+    submission = submission_response.json()
+    assert submission["manual_source_entry"]["structured_payload"]["annotations"] == [
+        {
+            "text": "Delivery included to Makati City",
+            "annotation_type": "delivery_terms",
+            "target": "purchase_line",
+        }
+    ]
+
+    assert run_once(client.app.state.session_factory) == 1
+    job = client.get(
+        f"/api/project-workspaces/{project['id']}/processing-jobs/"
+        f"{submission['processing_job']['id']}"
+    ).json()
+    review = client.get(
+        f"/api/project-workspaces/{project['id']}/review-batches/"
+        f"{job['review_batch_id']}"
+    ).json()
+
+    assert review["candidates"][0]["proposed_payload"]["annotation_proposals"] == [
+        {
+            "proposal_id": "structured:annotations:0",
+            "text": "Delivery included to Makati City",
+            "annotation_type": "delivery_terms",
+            "target": "purchase_line",
+            "source_excerpt": "Delivery included to Makati City",
+            "source_locator": {
+                "kind": "structured_field",
+                "field_path": "structured_payload.annotations[0].text",
+            },
+            "provenance": "source_field",
+        }
+    ]
+
+
+def test_structured_annotation_rejects_a_target_absent_from_the_row(client):
+    project = client.post(
+        "/api/project-workspaces",
+        json={
+            "project_name": "Arnaiz Residence Renovation",
+            "project_type": "Residential renovation",
+            "location": "Makati City",
+            "completion_year": 2025,
+            "contractor_assigned": "Internal",
+        },
+    ).json()
+
+    response = client.post(
+        f"/api/project-workspaces/{project['id']}/manual-source-entries",
+        json={
+            "entry_type": "structured_row",
+            "structured_payload": {
+                "line_type": "material",
+                "name": "PVC pipe",
+                "annotations": [
+                    {
+                        "text": "Installation excludes wall chasing",
+                        "annotation_type": "condition_or_exclusion",
+                        "target": "service",
+                    }
+                ],
+            },
+        },
+    )
+    jobs = client.get(
+        f"/api/project-workspaces/{project['id']}/processing-jobs"
+    )
+
+    assert response.status_code == 422
+    assert jobs.json()["items"] == []
+
+
+def test_legacy_structured_remarks_become_a_general_qualifier_proposal(client):
+    from backend.app.processing.worker import run_once
+
+    project = client.post(
+        "/api/project-workspaces",
+        json={
+            "project_name": "Arnaiz Residence Renovation",
+            "project_type": "Residential renovation",
+            "location": "Makati City",
+            "completion_year": 2025,
+            "contractor_assigned": "Internal",
+        },
+    ).json()
+    submission = client.post(
+        f"/api/project-workspaces/{project['id']}/manual-source-entries",
+        json={
+            "entry_type": "structured_row",
+            "structured_payload": {
+                "line_type": "material",
+                "name": "PVC pipe",
+                "remarks_or_terms": "Price includes VAT",
+            },
+        },
+    ).json()
+
+    assert run_once(client.app.state.session_factory) == 1
+    job = client.get(
+        f"/api/project-workspaces/{project['id']}/processing-jobs/"
+        f"{submission['processing_job']['id']}"
+    ).json()
+    review = client.get(
+        f"/api/project-workspaces/{project['id']}/review-batches/"
+        f"{job['review_batch_id']}"
+    ).json()
+
+    proposal = review["candidates"][0]["proposed_payload"]["annotation_proposals"][0]
+    assert proposal == {
+        "proposal_id": "structured:remarks_or_terms",
+        "text": "Price includes VAT",
+        "annotation_type": "general_qualifier",
+        "target": "purchase_line",
+        "source_excerpt": "Price includes VAT",
+        "source_locator": {
+            "kind": "structured_field",
+            "field_path": "structured_payload.remarks_or_terms",
+        },
+        "provenance": "legacy_default",
+    }
+
+
 def test_worker_module_exposes_once_and_loop_commands():
     import subprocess
     import sys

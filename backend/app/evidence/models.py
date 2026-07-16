@@ -43,3 +43,7 @@ class EvidenceAnnotation(Base):
     memory_record_id: Mapped[int] = mapped_column(ForeignKey("memory_records.id"), nullable=False)
     annotation_type: Mapped[str] = mapped_column(String(100), nullable=False)
     text: Mapped[str] = mapped_column(String(2000), nullable=False)
+    proposal_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_excerpt: Mapped[str] = mapped_column(String(2000), nullable=False)
+    source_locator: Mapped[dict] = mapped_column(JSON, nullable=False)
+    provenance: Mapped[str] = mapped_column(String(50), nullable=False)

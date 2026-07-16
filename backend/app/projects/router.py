@@ -3,6 +3,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_session
+from backend.app.evidence.inspection import (
+    build_purchase_line_evidence_read,
+    source_submitted_at,
+)
 from backend.app.evidence.models import EvidenceRecord, MemoryRecordEvidenceLink
 from backend.app.memory.models import MemoryRecord, PurchaseLine, PurchaseLineConceptLink
 from backend.app.projects.models import ProjectWorkspace
@@ -18,6 +22,9 @@ from backend.app.projects.schemas import (
     ProviderMemoryRow,
     ProjectWorkspacePurchaseLinesView,
     ProjectWorkspaceRead,
+    PurchaseLineDetail,
+    PurchaseLineProviderRead,
+    PurchaseLineProviderRecordRead,
 )
 from backend.app.sources.models import ManualSourceEntry, SourceFile
 from backend.app.taxonomy.models import TaxonomyNode
@@ -77,8 +84,104 @@ def get_project_workspace_purchase_lines(
     )
 
 
+@router.get(
+    "/{project_workspace_id}/purchase-lines/{purchase_line_id}",
+    response_model=PurchaseLineDetail,
+)
+def get_purchase_line_detail(
+    project_workspace_id: int,
+    purchase_line_id: int,
+    session: Session = Depends(get_session),
+) -> PurchaseLineDetail:
+    _project_or_404(session, project_workspace_id)
+    purchase_line = session.scalar(
+        select(PurchaseLine).where(
+            PurchaseLine.id == purchase_line_id,
+            PurchaseLine.project_workspace_id == project_workspace_id,
+        )
+    )
+    if purchase_line is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Purchase Line not found",
+        )
+    purchase_record = session.get(MemoryRecord, purchase_line.memory_record_id)
+    if purchase_record is None or purchase_record.project_workspace_id != project_workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Purchase Line not found",
+        )
+
+    links = list(
+        session.scalars(
+            select(PurchaseLineConceptLink)
+            .where(PurchaseLineConceptLink.purchase_line_id == purchase_line.id)
+            .order_by(PurchaseLineConceptLink.id)
+        )
+    )
+    linked_concepts = [
+        _concept_read(session, link)
+        for link in sorted(links, key=lambda item: 0 if item.concept_type == "material" else 1)
+    ]
+    provider_record = (
+        session.get(MemoryRecord, purchase_line.provider_memory_record_id)
+        if purchase_line.provider_memory_record_id is not None
+        else None
+    )
+    evidence_records = list(
+        session.scalars(
+            select(EvidenceRecord)
+            .join(
+                MemoryRecordEvidenceLink,
+                MemoryRecordEvidenceLink.evidence_record_id == EvidenceRecord.id,
+            )
+            .where(MemoryRecordEvidenceLink.memory_record_id == purchase_record.id)
+            .order_by(EvidenceRecord.id)
+        )
+    )
+    evidence_views = [
+        build_purchase_line_evidence_read(
+            session,
+            project_workspace_id=project_workspace_id,
+            evidence=evidence,
+        )
+        for evidence in evidence_records
+    ]
+    evidence_views.sort(key=lambda item: (source_submitted_at(session, item.source_submission_id), item.id))
+    return PurchaseLineDetail(
+        id=purchase_line.id,
+        status=purchase_record.status,
+        line_type="bundled" if len(linked_concepts) == 2 else linked_concepts[0].concept_type,
+        linked_concepts=linked_concepts,
+        provider=PurchaseLineProviderRead(
+            state=purchase_line.provider_state,
+            record=(
+                PurchaseLineProviderRecordRead(
+                    memory_record_id=provider_record.id,
+                    name=provider_record.display_name,
+                    category_path=_taxonomy_path(session, provider_record.taxonomy_node_id),
+                )
+                if provider_record is not None
+                else None
+            ),
+            roles=_provider_roles(purchase_line.provider_state, linked_concepts),
+        ),
+        quantity=purchase_line.quantity,
+        unit=purchase_line.unit,
+        unit_state=purchase_line.unit_state,
+        price=purchase_line.price,
+        currency=purchase_line.currency,
+        price_state=purchase_line.price_state,
+        purchase_date=purchase_line.purchase_date,
+        date_state=purchase_line.date_state,
+        evidence_records=evidence_views,
+        value_history_available=False,
+    )
+
+
 def _purchase_line_row(session: Session, purchase_line: PurchaseLine) -> PurchaseLineRow:
-    source_label = _source_label(session, purchase_line)
+    evidence_records = _purchase_line_evidence_records(session, purchase_line)
+    source_label = evidence_records[0].source_label if evidence_records else None
     links = list(
         session.scalars(
             select(PurchaseLineConceptLink)
@@ -120,6 +223,7 @@ def _purchase_line_row(session: Session, purchase_line: PurchaseLine) -> Purchas
         purchase_date=purchase_line.purchase_date,
         date_state=purchase_line.date_state,
         has_evidence=source_label is not None,
+        evidence_count=len(evidence_records),
         source_label=source_label or "No evidence",
     )
 
@@ -346,13 +450,22 @@ def _taxonomy_path(session: Session, taxonomy_node_id: int) -> str:
 
 
 def _source_label(session: Session, purchase_line: PurchaseLine) -> str | None:
-    return session.scalar(
-        select(EvidenceRecord.source_label)
+    records = _purchase_line_evidence_records(session, purchase_line)
+    return records[0].source_label if records else None
+
+
+def _purchase_line_evidence_records(
+    session: Session,
+    purchase_line: PurchaseLine,
+) -> list[EvidenceRecord]:
+    return list(
+        session.scalars(
+            select(EvidenceRecord)
         .join(
             MemoryRecordEvidenceLink,
             MemoryRecordEvidenceLink.evidence_record_id == EvidenceRecord.id,
         )
         .where(MemoryRecordEvidenceLink.memory_record_id == purchase_line.memory_record_id)
         .order_by(EvidenceRecord.id)
-        .limit(1)
+        )
     )

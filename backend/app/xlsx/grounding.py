@@ -27,6 +27,24 @@ _HEADER_ALIASES: dict[str, tuple[str, ...]] = {
     "remarks_or_terms": ("remarks or terms", "remarks", "terms"),
 }
 
+_ANNOTATION_SUFFIX_TYPES: dict[str, str] = {
+    "delivery terms": "delivery_terms",
+    "payment terms": "payment_terms",
+    "validity terms": "validity_terms",
+    "validity": "validity_terms",
+    "warranty terms": "warranty_terms",
+    "warranty": "warranty_terms",
+    "availability terms": "availability_terms",
+    "availability": "availability_terms",
+    "condition or exclusion": "condition_or_exclusion",
+    "conditions": "condition_or_exclusion",
+    "exclusions": "condition_or_exclusion",
+    "remarks or terms": "general_qualifier",
+    "remarks": "general_qualifier",
+    "terms": "general_qualifier",
+    "notes": "general_qualifier",
+}
+
 
 def sanitize_profile_column_mappings(profile: dict, artifact: dict) -> tuple[dict, int]:
     sanitized = deepcopy(profile)
@@ -88,6 +106,14 @@ def ground_profile_to_source(profile: dict, artifact: dict) -> dict:
                     break
             else:
                 columns.setdefault(field, None)
+        for header, column in header_map.items():
+            annotation = _annotation_header(header)
+            if annotation is None:
+                continue
+            target, annotation_type = annotation
+            columns[
+                f"annotation__{target}__{annotation_type}__{column}"
+            ] = column
         region["columns"] = columns
     return grounded
 
@@ -181,6 +207,12 @@ def _candidate_from_explicit_row(
         provider_name = None
 
     row_number = row["row"]
+    annotation_proposals = _annotation_proposals(
+        cells=cells,
+        columns=columns,
+        worksheet_name=worksheet_name,
+        row_number=row_number,
+    )
     return {
         "linked_concepts": linked_concepts,
         "quantity": _cell_text(cells, columns.get("quantity")),
@@ -193,6 +225,7 @@ def _candidate_from_explicit_row(
         "provider_category_suggestion": provider_category,
         "purchase_date": _cell_text(cells, columns.get("purchase_date")),
         "remarks_or_terms": _cell_text(cells, columns.get("remarks_or_terms")),
+        "annotation_proposals": annotation_proposals,
         "confidence": 1.0,
         "evidence": {
             "source_submission_id": source_submission_id,
@@ -203,6 +236,58 @@ def _candidate_from_explicit_row(
             "locators": [{"row": row_number, "role": "body"}],
         },
     }
+
+
+def _annotation_header(header: str) -> tuple[str, str] | None:
+    for target in ("material", "service", "provider"):
+        prefix = f"{target} "
+        if header.startswith(prefix):
+            annotation_type = _ANNOTATION_SUFFIX_TYPES.get(header[len(prefix) :])
+            return (target, annotation_type) if annotation_type is not None else None
+    annotation_type = _ANNOTATION_SUFFIX_TYPES.get(header)
+    return ("purchase_line", annotation_type) if annotation_type is not None else None
+
+
+def _annotation_proposals(
+    *,
+    cells: dict[int, dict],
+    columns: dict,
+    worksheet_name: str,
+    row_number: int,
+) -> list[dict]:
+    mappings: list[tuple[int, str, str, str]] = []
+    for field, column in columns.items():
+        if not field.startswith("annotation__") or not isinstance(column, str):
+            continue
+        _, target, annotation_type, _ = field.split("__", 3)
+        mappings.append(
+            (column_index_from_string(column), column, target, annotation_type)
+        )
+
+    proposals: list[dict] = []
+    for _, column, target, annotation_type in sorted(mappings):
+        text = _cell_text(cells, column)
+        if text is None:
+            continue
+        coordinate = f"{column}{row_number}"
+        proposals.append(
+            {
+                "proposal_id": f"xlsx:{worksheet_name}:{coordinate}",
+                "text": text,
+                "annotation_type": annotation_type,
+                "target": target,
+                "source_excerpt": text,
+                "source_locator": {
+                    "kind": "xlsx_cell",
+                    "worksheet": worksheet_name,
+                    "row": row_number,
+                    "column": column,
+                    "coordinate": coordinate,
+                },
+                "provenance": "source_field",
+            }
+        )
+    return proposals
 
 
 def _cells_by_row_and_column(artifact: dict) -> dict[int, dict[int, dict]]:

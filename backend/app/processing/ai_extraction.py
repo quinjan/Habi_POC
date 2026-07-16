@@ -7,6 +7,16 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 CurrencyState = Literal["source_stated", "defaulted", "unknown"]
 LineType = Literal["material", "service"]
 ProviderState = Literal["external", "internal", "unknown"]
+EvidenceAnnotationType = Literal[
+    "delivery_terms",
+    "payment_terms",
+    "validity_terms",
+    "warranty_terms",
+    "availability_terms",
+    "condition_or_exclusion",
+    "general_qualifier",
+]
+EvidenceAnnotationTarget = Literal["purchase_line", "material", "service", "provider"]
 
 
 class AiExtractionProvider(Protocol):
@@ -53,6 +63,20 @@ class AiLinkedConcept(BaseModel):
         return value.strip() if isinstance(value, str) else value
 
 
+class AiAnnotationProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=2000)
+    annotation_type: EvidenceAnnotationType
+    target: EvidenceAnnotationTarget
+    source_excerpt: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("text", "source_excerpt", mode="before")
+    @classmethod
+    def strip_annotation_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
 class AiPurchaseLineCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -74,6 +98,9 @@ class AiPurchaseLineCandidate(BaseModel):
     confidence: float = Field(ge=0, le=1)
     category_suggestion: AiCategorySuggestion | None = None
     evidence: AiCandidateEvidence
+    # Entries are validated independently so a malformed AI annotation never drops
+    # an otherwise valid Purchase Line candidate.
+    annotation_proposals: list[dict] = Field(default_factory=list)
 
     @field_validator("name", mode="before")
     @classmethod
@@ -147,6 +174,110 @@ def validate_ai_candidates(
             continue
         valid.append(candidate.model_dump(mode="json"))
     return valid, dropped
+
+
+def ground_free_form_annotation_proposals(
+    payload: dict,
+    *,
+    original_text: str,
+) -> tuple[dict, int, dict[str, int]]:
+    raw_proposals = payload.get("annotation_proposals", [])
+    grounded: list[dict] = []
+    dropped_reasons: dict[str, int] = {}
+    seen: set[tuple[str, str, str, int, int]] = set()
+
+    for raw_proposal in raw_proposals:
+        try:
+            proposal = AiAnnotationProposal.model_validate(raw_proposal)
+        except ValidationError:
+            _count_reason(dropped_reasons, "invalid_shape")
+            continue
+        if _is_workflow_noise(proposal.text) or _is_workflow_noise(
+            proposal.source_excerpt
+        ):
+            _count_reason(dropped_reasons, "workflow_noise")
+            continue
+        if not _annotation_target_available(payload, proposal.target):
+            _count_reason(dropped_reasons, "target_unavailable")
+            continue
+        start = original_text.find(proposal.source_excerpt)
+        if start < 0:
+            _count_reason(dropped_reasons, "source_excerpt_not_found")
+            continue
+        end = start + len(proposal.source_excerpt)
+        duplicate_key = (
+            " ".join(proposal.text.casefold().split()),
+            proposal.annotation_type,
+            proposal.target,
+            start,
+            end,
+        )
+        if duplicate_key in seen:
+            _count_reason(dropped_reasons, "exact_duplicate")
+            continue
+        seen.add(duplicate_key)
+        if len(grounded) >= 20:
+            _count_reason(dropped_reasons, "annotation_limit")
+            continue
+        grounded.append(
+            {
+                "proposal_id": f"ai:annotation:{len(grounded)}",
+                "text": proposal.text,
+                "annotation_type": proposal.annotation_type,
+                "target": proposal.target,
+                "source_excerpt": proposal.source_excerpt,
+                "source_locator": {
+                    "kind": "text_span",
+                    "start": start,
+                    "end": end,
+                },
+                "provenance": "ai_suggested",
+            }
+        )
+
+    result = {**payload, "annotation_proposals": grounded}
+    omitted_count = dropped_reasons.get("annotation_limit", 0)
+    if omitted_count:
+        result["annotation_omitted_count"] = omitted_count
+        result["annotation_detected_count"] = len(grounded) + omitted_count
+    return result, sum(dropped_reasons.values()), dropped_reasons
+
+
+def _is_workflow_noise(value: str) -> bool:
+    normalized = " ".join(value.casefold().strip(" .!?:;-").split())
+    noise_phrases = {
+        "paid",
+        "paid already",
+        "already paid",
+        "for approval",
+        "pending approval",
+        "approved",
+        "rejected",
+        "call tomorrow",
+        "follow up",
+        "follow up tomorrow",
+        "follow-up",
+        "follow-up tomorrow",
+    }
+    return normalized in noise_phrases
+
+
+def _annotation_target_available(payload: dict, target: str) -> bool:
+    if target == "purchase_line":
+        return True
+    if target == "provider":
+        return payload.get("provider_state") == "external" and bool(payload.get("provider_name"))
+    linked_concepts = payload.get("linked_concepts")
+    if isinstance(linked_concepts, list) and linked_concepts:
+        return any(
+            isinstance(concept, dict) and concept.get("concept_type") == target
+            for concept in linked_concepts
+        )
+    return payload.get("line_type") == target
+
+
+def _count_reason(reasons: dict[str, int], reason: str) -> None:
+    reasons[reason] = reasons.get(reason, 0) + 1
 
 
 def apply_contractor_assigned_provider_default(

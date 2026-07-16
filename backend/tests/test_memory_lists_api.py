@@ -160,6 +160,7 @@ def test_reviewer_imports_one_bundled_purchase_line_with_two_linked_concepts(cli
             "purchase_date": "2025-07-12",
             "date_state": "known",
             "has_evidence": True,
+            "evidence_count": 1,
             "source_label": "Manual Source Entry",
         }
     ]

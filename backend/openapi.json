@@ -107,6 +107,57 @@
         }
       }
     },
+    "/api/project-workspaces/{project_workspace_id}/purchase-lines/{purchase_line_id}": {
+      "get": {
+        "tags": [
+          "project-workspaces"
+        ],
+        "summary": "Get Purchase Line Detail",
+        "operationId": "get_purchase_line_detail_api_project_workspaces__project_workspace_id__purchase_lines__purchase_line_id__get",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          },
+          {
+            "name": "purchase_line_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Purchase Line Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseLineDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/project-workspaces/{project_workspace_id}/materials": {
       "get": {
         "tags": [
@@ -232,6 +283,110 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project-workspaces/{project_workspace_id}/source-submissions/{source_submission_id}": {
+      "get": {
+        "tags": [
+          "manual-source-entries"
+        ],
+        "summary": "Get Source Submission Detail",
+        "operationId": "get_source_submission_detail_api_project_workspaces__project_workspace_id__source_submissions__source_submission_id__get",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          },
+          {
+            "name": "source_submission_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Source Submission Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceSubmissionDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/project-workspaces/{project_workspace_id}/source-submissions/{source_submission_id}/source-files/{source_file_id}/original": {
+      "get": {
+        "tags": [
+          "manual-source-entries"
+        ],
+        "summary": "Get Original Source File",
+        "operationId": "get_original_source_file_api_project_workspaces__project_workspace_id__source_submissions__source_submission_id__source_files__source_file_id__original_get",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          },
+          {
+            "name": "source_submission_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Source Submission Id"
+            }
+          },
+          {
+            "name": "source_file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Source File Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -1702,6 +1857,77 @@
         ],
         "title": "EntityMemoryRow"
       },
+      "EvidenceAnnotationRead": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "proposal_id": {
+            "type": "string",
+            "title": "Proposal Id"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "annotation_type": {
+            "type": "string",
+            "title": "Annotation Type"
+          },
+          "target": {
+            "$ref": "#/components/schemas/EvidenceAnnotationTargetRead"
+          },
+          "source_excerpt": {
+            "type": "string",
+            "title": "Source Excerpt"
+          },
+          "source_locator": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Source Locator"
+          },
+          "provenance": {
+            "type": "string",
+            "title": "Provenance"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "proposal_id",
+          "text",
+          "annotation_type",
+          "target",
+          "source_excerpt",
+          "source_locator",
+          "provenance"
+        ],
+        "title": "EvidenceAnnotationRead"
+      },
+      "EvidenceAnnotationTargetRead": {
+        "properties": {
+          "memory_record_id": {
+            "type": "integer",
+            "title": "Memory Record Id"
+          },
+          "record_type": {
+            "type": "string",
+            "title": "Record Type"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "memory_record_id",
+          "record_type",
+          "name"
+        ],
+        "title": "EvidenceAnnotationTargetRead"
+      },
       "ExistingMemoryMatchRead": {
         "properties": {
           "subject_type": {
@@ -2564,6 +2790,255 @@
         ],
         "title": "PurchaseLineConceptRead"
       },
+      "PurchaseLineDetail": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "line_type": {
+            "type": "string",
+            "title": "Line Type"
+          },
+          "linked_concepts": {
+            "items": {
+              "$ref": "#/components/schemas/PurchaseLineConceptRead"
+            },
+            "type": "array",
+            "title": "Linked Concepts"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/PurchaseLineProviderRead"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "unit_state": {
+            "type": "string",
+            "title": "Unit State"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "price_state": {
+            "type": "string",
+            "title": "Price State"
+          },
+          "purchase_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purchase Date"
+          },
+          "date_state": {
+            "type": "string",
+            "title": "Date State"
+          },
+          "evidence_records": {
+            "items": {
+              "$ref": "#/components/schemas/PurchaseLineEvidenceRead"
+            },
+            "type": "array",
+            "title": "Evidence Records"
+          },
+          "value_history_available": {
+            "type": "boolean",
+            "title": "Value History Available",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "line_type",
+          "linked_concepts",
+          "provider",
+          "quantity",
+          "unit",
+          "unit_state",
+          "price",
+          "currency",
+          "price_state",
+          "purchase_date",
+          "date_state",
+          "evidence_records"
+        ],
+        "title": "PurchaseLineDetail"
+      },
+      "PurchaseLineEvidenceRead": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "source_submission_id": {
+            "type": "integer",
+            "title": "Source Submission Id"
+          },
+          "source_label": {
+            "type": "string",
+            "title": "Source Label"
+          },
+          "source_type": {
+            "type": "string",
+            "title": "Source Type"
+          },
+          "source_submission_href": {
+            "type": "string",
+            "title": "Source Submission Href"
+          },
+          "locator": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locator"
+          },
+          "supporting_content": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Supporting Content"
+          },
+          "annotations": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceAnnotationRead"
+            },
+            "type": "array",
+            "title": "Annotations"
+          },
+          "annotation_omitted_count": {
+            "type": "integer",
+            "title": "Annotation Omitted Count",
+            "default": 0
+          },
+          "annotation_detected_count": {
+            "type": "integer",
+            "title": "Annotation Detected Count",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "source_submission_id",
+          "source_label",
+          "source_type",
+          "source_submission_href",
+          "locator",
+          "supporting_content",
+          "annotations"
+        ],
+        "title": "PurchaseLineEvidenceRead"
+      },
+      "PurchaseLineProviderRead": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "record": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PurchaseLineProviderRecordRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Roles"
+          }
+        },
+        "type": "object",
+        "required": [
+          "state",
+          "record",
+          "roles"
+        ],
+        "title": "PurchaseLineProviderRead"
+      },
+      "PurchaseLineProviderRecordRead": {
+        "properties": {
+          "memory_record_id": {
+            "type": "integer",
+            "title": "Memory Record Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "category_path": {
+            "type": "string",
+            "title": "Category Path"
+          }
+        },
+        "type": "object",
+        "required": [
+          "memory_record_id",
+          "name",
+          "category_path"
+        ],
+        "title": "PurchaseLineProviderRecordRead"
+      },
       "PurchaseLineRow": {
         "properties": {
           "id": {
@@ -2686,6 +3161,10 @@
             "type": "boolean",
             "title": "Has Evidence"
           },
+          "evidence_count": {
+            "type": "integer",
+            "title": "Evidence Count"
+          },
           "source_label": {
             "type": "string",
             "title": "Source Label"
@@ -2709,6 +3188,7 @@
           "purchase_date",
           "date_state",
           "has_evidence",
+          "evidence_count",
           "source_label"
         ],
         "title": "PurchaseLineRow"
@@ -2858,6 +3338,78 @@
           "subcategory"
         ],
         "title": "ReviewBatchTaxonomyMappingRequest"
+      },
+      "ReviewedAnnotationProposal": {
+        "properties": {
+          "proposal_id": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Proposal Id"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "annotation_type": {
+            "type": "string",
+            "enum": [
+              "delivery_terms",
+              "payment_terms",
+              "validity_terms",
+              "warranty_terms",
+              "availability_terms",
+              "condition_or_exclusion",
+              "general_qualifier"
+            ],
+            "title": "Annotation Type"
+          },
+          "target": {
+            "type": "string",
+            "enum": [
+              "purchase_line",
+              "material",
+              "service",
+              "provider"
+            ],
+            "title": "Target"
+          },
+          "source_excerpt": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Source Excerpt"
+          },
+          "source_locator": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Source Locator"
+          },
+          "provenance": {
+            "type": "string",
+            "enum": [
+              "source_field",
+              "ai_suggested",
+              "legacy_default",
+              "reviewer_added"
+            ],
+            "title": "Provenance"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "proposal_id",
+          "text",
+          "annotation_type",
+          "target",
+          "source_excerpt",
+          "source_locator",
+          "provenance"
+        ],
+        "title": "ReviewedAnnotationProposal"
       },
       "ReviewedConceptPayload": {
         "properties": {
@@ -3096,10 +3648,69 @@
               }
             ],
             "title": "Remarks Or Terms"
+          },
+          "annotation_proposals": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewedAnnotationProposal"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Annotation Proposals"
           }
         },
         "type": "object",
         "title": "ReviewedPurchaseLinePayload"
+      },
+      "SourceFileInspectionRead": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "original_filename": {
+            "type": "string",
+            "title": "Original Filename"
+          },
+          "byte_size": {
+            "type": "integer",
+            "title": "Byte Size"
+          },
+          "declared_mime_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Declared Mime Type"
+          },
+          "uploaded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Uploaded At"
+          },
+          "sha256_checksum": {
+            "type": "string",
+            "title": "Sha256 Checksum"
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "original_filename",
+          "byte_size",
+          "declared_mime_type",
+          "uploaded_at",
+          "sha256_checksum",
+          "available"
+        ],
+        "title": "SourceFileInspectionRead"
       },
       "SourceFileQueuedSubmission": {
         "properties": {
@@ -3228,6 +3839,277 @@
         ],
         "title": "SourceFileSummary"
       },
+      "SourceImportedEvidenceRead": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "source_label": {
+            "type": "string",
+            "title": "Source Label"
+          },
+          "locator": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locator"
+          },
+          "supporting_content": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Supporting Content"
+          },
+          "annotations": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceAnnotationRead"
+            },
+            "type": "array",
+            "title": "Annotations"
+          },
+          "purchase_lines": {
+            "items": {
+              "$ref": "#/components/schemas/SourcePurchaseLineLinkRead"
+            },
+            "type": "array",
+            "title": "Purchase Lines"
+          },
+          "annotation_omitted_count": {
+            "type": "integer",
+            "title": "Annotation Omitted Count",
+            "default": 0
+          },
+          "annotation_detected_count": {
+            "type": "integer",
+            "title": "Annotation Detected Count",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "source_label",
+          "locator",
+          "supporting_content",
+          "annotations",
+          "purchase_lines"
+        ],
+        "title": "SourceImportedEvidenceRead"
+      },
+      "SourceLinkedRecordRead": {
+        "properties": {
+          "memory_record_id": {
+            "type": "integer",
+            "title": "Memory Record Id"
+          },
+          "record_type": {
+            "type": "string",
+            "title": "Record Type"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "category_path": {
+            "type": "string",
+            "title": "Category Path"
+          }
+        },
+        "type": "object",
+        "required": [
+          "memory_record_id",
+          "record_type",
+          "name",
+          "category_path"
+        ],
+        "title": "SourceLinkedRecordRead"
+      },
+      "SourcePurchaseLineLinkRead": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "href": {
+            "type": "string",
+            "title": "Href"
+          },
+          "linked_records": {
+            "items": {
+              "$ref": "#/components/schemas/SourceLinkedRecordRead"
+            },
+            "type": "array",
+            "title": "Linked Records"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "href",
+          "linked_records"
+        ],
+        "title": "SourcePurchaseLineLinkRead"
+      },
+      "SourceReviewBatchLinkRead": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "href": {
+            "type": "string",
+            "title": "Href"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "href"
+        ],
+        "title": "SourceReviewBatchLinkRead"
+      },
+      "SourceSubmissionContentRead": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "structured_manual",
+              "free_form_text",
+              "xlsx"
+            ],
+            "title": "Kind"
+          },
+          "structured_payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Structured Payload"
+          },
+          "original_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Text"
+          },
+          "source_file": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceFileInspectionRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "title": "SourceSubmissionContentRead"
+      },
+      "SourceSubmissionDetail": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "project_workspace_id": {
+            "type": "integer",
+            "title": "Project Workspace Id"
+          },
+          "submission_type": {
+            "type": "string",
+            "title": "Submission Type"
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Submitted At"
+          },
+          "source": {
+            "$ref": "#/components/schemas/SourceSubmissionContentRead"
+          },
+          "processing_job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProcessingJobRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "review_batch": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceReviewBatchLinkRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "imported_evidence": {
+            "items": {
+              "$ref": "#/components/schemas/SourceImportedEvidenceRead"
+            },
+            "type": "array",
+            "title": "Imported Evidence"
+          },
+          "empty_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Empty State"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_workspace_id",
+          "submission_type",
+          "submitted_at",
+          "source",
+          "processing_job",
+          "review_batch",
+          "imported_evidence",
+          "empty_state"
+        ],
+        "title": "SourceSubmissionDetail"
+      },
       "SourceSubmissionRead": {
         "properties": {
           "id": {
@@ -3293,6 +4175,46 @@
           "submitted_at"
         ],
         "title": "SourceSubmissionSummary"
+      },
+      "StructuredEvidenceAnnotationInput": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "annotation_type": {
+            "type": "string",
+            "enum": [
+              "delivery_terms",
+              "payment_terms",
+              "validity_terms",
+              "warranty_terms",
+              "availability_terms",
+              "condition_or_exclusion",
+              "general_qualifier"
+            ],
+            "title": "Annotation Type"
+          },
+          "target": {
+            "type": "string",
+            "enum": [
+              "purchase_line",
+              "material",
+              "service",
+              "provider"
+            ],
+            "title": "Target"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text",
+          "annotation_type",
+          "target"
+        ],
+        "title": "StructuredEvidenceAnnotationInput"
       },
       "StructuredManualSourcePayload": {
         "properties": {
@@ -3393,6 +4315,14 @@
               }
             ],
             "title": "Remarks Or Terms"
+          },
+          "annotations": {
+            "items": {
+              "$ref": "#/components/schemas/StructuredEvidenceAnnotationInput"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Annotations"
           }
         },
         "type": "object",
