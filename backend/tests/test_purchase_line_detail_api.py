@@ -2,7 +2,10 @@ from sqlalchemy import select
 
 from backend.app.evidence.models import EvidenceAnnotation
 from backend.app.processing.worker import run_once
-from backend.tests.manual_submission_helpers import accept_all_taxonomy_gates
+from backend.tests.manual_submission_helpers import (
+    accept_all_taxonomy_gates,
+    create_review_ready_manual_submission,
+)
 
 
 def _create_project(client, name="Arnaiz Residence Renovation"):
@@ -267,6 +270,158 @@ def test_reviewed_annotation_imports_and_appears_in_purchase_line_detail(client)
             ],
         }
     ]
+
+    from backend.app.memory.models import MemoryRecord, PurchaseLine
+
+    with client.app.state.session_factory() as session, session.begin():
+        purchase_line = session.get(PurchaseLine, purchase_line_id)
+        session.get(MemoryRecord, purchase_line.memory_record_id).status = "archived"
+
+    archived_detail = client.get(
+        f"/api/project-workspaces/{project['id']}/purchase-lines/{purchase_line_id}"
+    )
+    active_grid = client.get(f"/api/project-workspaces/{project['id']}/purchase-lines")
+    assert archived_detail.status_code == 200
+    assert archived_detail.json()["status"] == "archived"
+    assert active_grid.json()["items"] == []
+
+
+def test_all_annotation_types_and_valid_targets_import_on_their_original_evidence(client):
+    project = _create_project(client)
+    annotation_types = [
+        "delivery_terms",
+        "payment_terms",
+        "validity_terms",
+        "warranty_terms",
+        "availability_terms",
+        "condition_or_exclusion",
+        "general_qualifier",
+    ]
+    targets = [
+        "purchase_line",
+        "material",
+        "service",
+        "provider",
+        "purchase_line",
+        "service",
+        "material",
+    ]
+    source_annotations = [
+        {
+            "text": f"Source qualifier {index}",
+            "annotation_type": annotation_type,
+            "target": target,
+        }
+        for index, (annotation_type, target) in enumerate(
+            zip(annotation_types, targets, strict=True)
+        )
+    ]
+    submission = create_review_ready_manual_submission(
+        client,
+        project_workspace_id=project["id"],
+        structured_payload={
+            "line_type": "material",
+            "name": "PVC pipe",
+            "annotations": source_annotations,
+        },
+    )
+    candidate_id = submission["candidates"][0]["id"]
+    review_batch_id = submission["review_batch"]["id"]
+    proposals = [
+        {
+            "proposal_id": f"structured:annotations:{index}",
+            "text": annotation["text"],
+            "annotation_type": annotation["annotation_type"],
+            "target": annotation["target"],
+            "source_excerpt": annotation["text"],
+            "source_locator": {
+                "kind": "structured_field",
+                "field_path": f"structured_payload.annotations[{index}].text",
+            },
+            "provenance": "source_field",
+        }
+        for index, annotation in enumerate(source_annotations)
+    ]
+    with client.app.state.session_factory() as session, session.begin():
+        from backend.app.review.models import ExtractedCandidate
+
+        candidate = session.get(ExtractedCandidate, candidate_id)
+        candidate.proposed_payload = {
+            "linked_concepts": [
+                {
+                    "concept_type": "material",
+                    "name": "PVC pipe",
+                    "category_suggestion": {
+                        "top_level_category": "Plumbing",
+                        "subcategory": "Pipes",
+                    },
+                },
+                {
+                    "concept_type": "service",
+                    "name": "PVC pipe installation",
+                    "category_suggestion": {
+                        "top_level_category": "Trade services",
+                        "subcategory": "Pipe installation",
+                    },
+                },
+            ],
+            "provider_state": "external",
+            "provider_name": "ABC Trading",
+            "provider_category_suggestion": {
+                "top_level_category": "Providers",
+                "subcategory": "General",
+            },
+            "annotation_proposals": proposals,
+        }
+
+    reviewed_payload = {
+        "linked_concepts": [
+            {
+                "concept_type": "material",
+                "name": "PVC pipe",
+                "top_level_category": "Plumbing",
+                "subcategory": "Pipes",
+            },
+            {
+                "concept_type": "service",
+                "name": "PVC pipe installation",
+                "top_level_category": "Trade services",
+                "subcategory": "Pipe installation",
+            },
+        ],
+        "provider_state": "external",
+        "provider_name": "ABC Trading",
+        "provider_top_level_category": "Providers",
+        "provider_subcategory": "General",
+        "annotation_proposals": proposals,
+    }
+    decision = client.post(
+        f"/api/project-workspaces/{project['id']}/review-batches/{review_batch_id}/"
+        f"candidates/{candidate_id}/decision",
+        json={"decision": "approved", "reviewed_payload": reviewed_payload},
+    )
+    assert decision.status_code == 200, decision.json()
+    accept_all_taxonomy_gates(
+        client,
+        project_workspace_id=project["id"],
+        review_batch_id=review_batch_id,
+    )
+    imported = client.post(
+        f"/api/project-workspaces/{project['id']}/review-batches/{review_batch_id}/import"
+    )
+    assert imported.status_code == 200, imported.json()
+    purchase_line_id = imported.json()["imported_purchase_lines"][0]["id"]
+    annotations = client.get(
+        f"/api/project-workspaces/{project['id']}/purchase-lines/{purchase_line_id}"
+    ).json()["evidence_records"][0]["annotations"]
+
+    assert [annotation["annotation_type"] for annotation in annotations] == annotation_types
+    assert {annotation["target"]["record_type"] for annotation in annotations} == {
+        "purchase_line",
+        "material",
+        "service",
+        "provider",
+    }
 
 
 def test_free_form_annotation_limit_warning_persists_through_import_and_detail(client):

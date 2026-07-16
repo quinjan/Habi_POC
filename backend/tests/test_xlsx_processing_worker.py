@@ -135,6 +135,20 @@ def test_explicit_xlsx_annotation_columns_create_exact_cell_grounded_proposals(
         f"/api/project-workspaces/{project['id']}/review-batches/{job['review_batch_id']}"
     ).json()
 
+    grounding = review["candidates"][0]["source_grounding"]
+    assert grounding["kind"] == "xlsx"
+    assert grounding["original_text"] is None
+    assert {
+        "source_excerpt": "Delivery included",
+        "source_locator": {
+            "kind": "xlsx_cell",
+            "worksheet": "Purchases",
+            "row": 2,
+            "column": 6,
+            "coordinate": "F2",
+        },
+    } in grounding["options"]
+
     assert review["candidates"][0]["proposed_payload"]["annotation_proposals"] == [
         {
             "proposal_id": "xlsx:Purchases:F2",

@@ -117,6 +117,11 @@ def test_free_form_annotations_require_exact_quotes_and_receive_character_spans(
     ).json()
 
     start = original_text.index("Delivery included to Makati City")
+    assert review["candidates"][0]["source_grounding"] == {
+        "kind": "free_form_text",
+        "original_text": original_text,
+        "options": [],
+    }
     assert review["candidates"][0]["proposed_payload"]["annotation_proposals"] == [
         {
             "proposal_id": "ai:annotation:0",
