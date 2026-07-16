@@ -27,7 +27,10 @@ def is_workflow_noise(value: str) -> bool:
     return bool(
         re.fullmatch(
             r"(?:payment|invoice) (?:received|paid|complete|completed|processed|settled)"
-            r"|(?:follow[ -]?up|call|email|contact|remind|check with|ask)\b.*",
+            r"|(?:follow[ -]?up|remind|check with)\b.*"
+            r"|(?:call|email|contact|ask)\b.*\b(?:today|tomorrow|later|asap|now|urgently|"
+            r"next (?:business )?(?:day|week)|to (?:approve|review|confirm|submit|send|process)|"
+            r"for (?:approval|review|follow[ -]?up))\b.*",
             normalized,
         )
     )
