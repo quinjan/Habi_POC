@@ -43,6 +43,7 @@ from backend.app.review.models import (
 )
 from backend.app.review.schemas import (
     CandidateDecisionRequest,
+    CandidateSourceGroundingRead,
     CandidateTaxonomyGateRead,
     DuplicateCandidateGroupCreate,
     DuplicateCandidateGroupMembersRequest,
@@ -1082,12 +1083,73 @@ def _candidate_read(session: Session, candidate: ExtractedCandidate) -> Extracte
     return candidate_read.model_copy(
         update={
             "source_file": source_file_summary,
+            "source_grounding": _candidate_source_grounding(session, candidate),
             "taxonomy_gate": _taxonomy_gate_for_candidate(session, candidate),
             "taxonomy_gates": _taxonomy_gates_for_candidate(session, candidate),
             "existing_memory_matches": _existing_memory_matches(session, candidate),
             "taxonomy_default": _taxonomy_default_for_candidate(session, candidate),
         }
     )
+
+
+def _candidate_source_grounding(
+    session: Session,
+    candidate: ExtractedCandidate,
+) -> CandidateSourceGroundingRead | None:
+    source = candidate_source_evidence(session=session, candidate=candidate)
+    if source is None:
+        return None
+    original_text = source.content.get("original_text")
+    if isinstance(original_text, str):
+        return CandidateSourceGroundingRead(
+            kind="free_form_text",
+            original_text=original_text,
+        )
+
+    options: list[dict] = []
+    row_snapshot = source.content.get("row_snapshot")
+    if isinstance(row_snapshot, list):
+        worksheet = source.content.get("worksheet")
+        row = source.content.get("primary_body_row")
+        for cell in row_snapshot:
+            if not isinstance(cell, dict):
+                continue
+            excerpt = str(cell.get("value") or "").strip()
+            coordinate = cell.get("coordinate")
+            if excerpt and isinstance(coordinate, str):
+                options.append(
+                    {
+                        "source_excerpt": excerpt,
+                        "source_locator": {
+                            "kind": "xlsx_cell",
+                            "worksheet": worksheet,
+                            "row": row,
+                            "column": cell.get("column"),
+                            "coordinate": coordinate,
+                        },
+                    }
+                )
+        kind = "xlsx"
+    else:
+        for proposal in candidate.proposed_payload.get("annotation_proposals", []):
+            if not isinstance(proposal, dict):
+                continue
+            excerpt = proposal.get("source_excerpt")
+            locator = proposal.get("source_locator")
+            if isinstance(excerpt, str) and isinstance(locator, dict):
+                options.append(
+                    {"source_excerpt": excerpt, "source_locator": locator}
+                )
+        kind = "structured_manual"
+
+    unique_options: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for option in options:
+        key = (option["source_excerpt"], repr(sorted(option["source_locator"].items())))
+        if key not in seen:
+            seen.add(key)
+            unique_options.append(option)
+    return CandidateSourceGroundingRead(kind=kind, options=unique_options)
 
 
 def _get_candidates_by_id(

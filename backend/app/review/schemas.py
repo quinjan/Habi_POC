@@ -18,6 +18,17 @@ class ReviewBatchRead(BaseModel):
     status: str
 
 
+class AnnotationGroundingOptionRead(BaseModel):
+    source_excerpt: str
+    source_locator: dict
+
+
+class CandidateSourceGroundingRead(BaseModel):
+    kind: Literal["structured_manual", "free_form_text", "xlsx"]
+    original_text: str | None = None
+    options: list[AnnotationGroundingOptionRead] = Field(default_factory=list)
+
+
 class ExtractedCandidateRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -31,6 +42,7 @@ class ExtractedCandidateRead(BaseModel):
     merged_into_candidate_id: int | None
     reviewed_payload: dict | None
     source_file: SourceFileSummary | None = None
+    source_grounding: CandidateSourceGroundingRead | None = None
     taxonomy_gate: "TaxonomyGateRead | None" = None
     taxonomy_gates: list["CandidateTaxonomyGateRead"] = Field(default_factory=list)
     existing_memory_matches: list["ExistingMemoryMatchRead"] = Field(default_factory=list)
