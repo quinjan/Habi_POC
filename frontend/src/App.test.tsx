@@ -190,14 +190,29 @@ describe("Project Workspace app shell", () => {
             },
             provenance: "source_field"
           };
+          const freeText = "Earlier purchasing context. Delivery included in the quoted price.";
+          const freeTextStart = freeText.indexOf("Delivery included");
+          const sourceAnnotation =
+            sourceSubmissionId === 32
+              ? {
+                  ...annotation,
+                  proposal_id: "ai:annotation:0",
+                  source_locator: {
+                    kind: "text_span",
+                    start: freeTextStart,
+                    end: freeTextStart + "Delivery included".length
+                  },
+                  provenance: "ai_suggested"
+                }
+              : annotation;
           return jsonResponse({
             id: sourceSubmissionId,
             project_workspace_id: projectId,
             submission_type: "manual_source_entry",
             submitted_at: "2025-07-12T10:00:00Z",
             source: {
-              kind: "structured_manual",
-              structured_payload: {
+              kind: sourceSubmissionId === 32 ? "free_form_text" : "structured_manual",
+              structured_payload: sourceSubmissionId === 32 ? null : {
                 line_type: "material",
                 name: "PVC pipe",
                 annotations: [
@@ -208,7 +223,7 @@ describe("Project Workspace app shell", () => {
                   }
                 ]
               },
-              original_text: null,
+              original_text: sourceSubmissionId === 32 ? freeText : null,
               source_file: null
             },
             processing_job: {
@@ -240,7 +255,7 @@ describe("Project Workspace app shell", () => {
                   line_type: "material",
                   name: "PVC pipe"
                 },
-                annotations: [annotation],
+                annotations: [sourceAnnotation],
                 purchase_lines: [
                   {
                     id: 1,
@@ -1203,6 +1218,23 @@ describe("Project Workspace app shell", () => {
       await screen.findByRole("heading", { name: "Purchase Lines" })
     ).toBeInTheDocument();
     expect(window.location.pathname).toBe("/projects/1/purchase-lines");
+  });
+
+  test("free-text source inspection scrolls the exact highlighted span into view", async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView
+    });
+    window.history.pushState({}, "", "/projects/1/sources/32");
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Source Submission Detail" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("Delivery included", { selector: "mark" })).toBeInTheDocument();
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "center" }));
   });
 
   test("bundled candidate detail separates Linked Concepts, Provider, and Purchase Details", async () => {
