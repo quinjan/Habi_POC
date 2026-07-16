@@ -105,7 +105,21 @@ def test_structured_annotation_is_preserved_and_proposed_for_review(client):
         f"{job['review_batch_id']}"
     ).json()
 
-    assert review["candidates"][0]["proposed_payload"]["annotation_proposals"] == [
+    candidate = review["candidates"][0]
+    assert candidate["source_grounding"] == {
+        "kind": "structured_manual",
+        "original_text": None,
+        "options": [
+            {
+                "source_excerpt": "Delivery included to Makati City",
+                "source_locator": {
+                    "kind": "structured_field",
+                    "field_path": "structured_payload.annotations[0].text",
+                },
+            }
+        ],
+    }
+    assert candidate["proposed_payload"]["annotation_proposals"] == [
         {
             "proposal_id": "structured:annotations:0",
             "text": "Delivery included to Makati City",
