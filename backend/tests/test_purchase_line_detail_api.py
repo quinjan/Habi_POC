@@ -271,6 +271,25 @@ def test_reviewed_annotation_imports_and_appears_in_purchase_line_detail(client)
         }
     ]
 
+    with client.app.state.session_factory() as session, session.begin():
+        annotations = list(
+            session.scalars(select(EvidenceAnnotation).order_by(EvidenceAnnotation.id))
+        )
+        annotations[0].source_locator = {"kind": "text_span", "start": -1, "end": -1}
+        annotations[1].source_locator = {
+            "kind": "xlsx_cell",
+            "worksheet": "Purchases",
+            "coordinate": "",
+        }
+
+    damaged_locator_detail = client.get(
+        f"/api/project-workspaces/{project['id']}/purchase-lines/{purchase_line_id}"
+    )
+    assert damaged_locator_detail.status_code == 200
+    assert damaged_locator_detail.json()["evidence_records"][0]["locator"] == {
+        "kind": "structured_manual"
+    }
+
     from backend.app.memory.models import MemoryRecord, PurchaseLine
 
     with client.app.state.session_factory() as session, session.begin():
