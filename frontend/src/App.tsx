@@ -218,6 +218,7 @@ function App() {
     { id: number; path: string }[]
   >([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const pendingScrollYRef = useRef<number | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -311,6 +312,8 @@ function App() {
       ) {
         return;
       }
+      const scrollY = (event.state as { scrollY?: unknown } | null)?.scrollY;
+      pendingScrollYRef.current = typeof scrollY === "number" ? scrollY : null;
       setWorkspaceRoute(parsed.route);
       if (parsed.route.name === "purchase_line_detail") {
         setPurchaseLineDetail(
@@ -321,16 +324,19 @@ function App() {
           await getSourceSubmissionDetail(parsed.projectId, parsed.route.sourceSubmissionId)
         );
       }
-      const scrollY = (event.state as { scrollY?: unknown } | null)?.scrollY;
-      if (typeof scrollY === "number") {
-        window.scrollTo({ behavior: "auto", top: scrollY });
-      }
     }
 
     const listener = (event: PopStateEvent) => void handlePopState(event);
     window.addEventListener("popstate", listener);
     return () => window.removeEventListener("popstate", listener);
   }, [selectedPurchaseLines]);
+
+  useEffect(() => {
+    const top = pendingScrollYRef.current;
+    if (top === null) return;
+    pendingScrollYRef.current = null;
+    window.scrollTo({ behavior: "auto", top });
+  }, [workspaceRoute]);
 
   useEffect(() => {
     if (selectedPurchaseLines === null) {
