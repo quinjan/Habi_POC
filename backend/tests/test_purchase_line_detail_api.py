@@ -75,6 +75,44 @@ def test_reviewed_annotation_imports_and_appears_in_purchase_line_detail(client)
     assert tampered.status_code == 400
     assert tampered.json()["detail"] == "Annotation source grounding is immutable"
 
+    fabricated_reviewer_annotation = {
+        "proposal_id": "reviewer:1",
+        "text": "Reviewer invented this qualifier",
+        "annotation_type": "general_qualifier",
+        "target": "purchase_line",
+        "source_excerpt": "Reviewer-added annotation",
+        "source_locator": {"kind": "reviewer_entry"},
+        "provenance": "reviewer_added",
+    }
+    fabricated = client.post(
+        f"/api/project-workspaces/{project['id']}/review-batches/"
+        f"{job['review_batch_id']}/candidates/{candidate['id']}/decision",
+        json={
+            "decision": "approved",
+            "reviewed_payload": {
+                "line_type": "material",
+                "name": "PVC pipe",
+                "top_level_category": "Plumbing",
+                "subcategory": "Pipes",
+                "provider_state": "unknown",
+                "annotation_proposals": [fabricated_reviewer_annotation],
+            },
+        },
+    )
+    assert fabricated.status_code == 400
+    assert fabricated.json()["detail"] == (
+        "Reviewer-added annotations must quote and locate preserved source content"
+    )
+
+    grounded_reviewer_annotation = {
+        **fabricated_reviewer_annotation,
+        "source_excerpt": "Delivery included",
+        "source_locator": {
+            "kind": "structured_field",
+            "field_path": "structured_payload.annotations[0].text",
+        },
+    }
+
     saved = client.put(
         f"/api/project-workspaces/{project['id']}/review-batches/"
         f"{job['review_batch_id']}/review-draft",
@@ -93,7 +131,10 @@ def test_reviewed_annotation_imports_and_appears_in_purchase_line_detail(client)
                         "price": "1500",
                         "currency": "PHP",
                         "provider_state": "unknown",
-                        "annotation_proposals": [reviewed_annotation],
+                        "annotation_proposals": [
+                            reviewed_annotation,
+                            grounded_reviewer_annotation,
+                        ],
                     },
                 }
             ]
@@ -101,7 +142,8 @@ def test_reviewed_annotation_imports_and_appears_in_purchase_line_detail(client)
     )
     assert saved.status_code == 200, saved.json()
     assert saved.json()["candidates"][0]["reviewed_payload"]["annotation_proposals"] == [
-        reviewed_annotation
+        reviewed_annotation,
+        grounded_reviewer_annotation,
     ]
 
     accept_all_taxonomy_gates(
