@@ -50,6 +50,14 @@ class StructuredManualSourcePayload(BaseModel):
 
     @model_validator(mode="after")
     def validate_annotation_targets(self) -> "StructuredManualSourcePayload":
+        legacy_annotation_count = int(
+            self.remarks_or_terms is not None and self.remarks_or_terms.strip() != ""
+        )
+        if len(self.annotations) + legacy_annotation_count > 20:
+            raise ValueError(
+                "Structured manual source entries allow at most 20 annotations "
+                "including legacy remarks or terms"
+            )
         available_targets = {"purchase_line", self.line_type}
         if self.provider_name is not None and self.provider_name.strip() != "":
             available_targets.add("provider")
