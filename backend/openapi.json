@@ -1511,6 +1511,25 @@
   },
   "components": {
     "schemas": {
+      "AnnotationGroundingOptionRead": {
+        "properties": {
+          "source_excerpt": {
+            "type": "string",
+            "title": "Source Excerpt"
+          },
+          "source_locator": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Source Locator"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_excerpt",
+          "source_locator"
+        ],
+        "title": "AnnotationGroundingOptionRead"
+      },
       "Body_create_source_file_api_project_workspaces__project_workspace_id__source_files_post": {
         "properties": {
           "files": {
@@ -1573,6 +1592,42 @@
           "decision"
         ],
         "title": "CandidateDecisionRequest"
+      },
+      "CandidateSourceGroundingRead": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "structured_manual",
+              "free_form_text",
+              "xlsx"
+            ],
+            "title": "Kind"
+          },
+          "original_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Text"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/AnnotationGroundingOptionRead"
+            },
+            "type": "array",
+            "title": "Options"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "title": "CandidateSourceGroundingRead"
       },
       "CandidateTaxonomyGateRead": {
         "properties": {
@@ -2021,6 +2076,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/SourceFileSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_grounding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CandidateSourceGroundingRead"
               },
               {
                 "type": "null"

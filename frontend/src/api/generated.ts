@@ -468,6 +468,15 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AnnotationGroundingOptionRead */
+        AnnotationGroundingOptionRead: {
+            /** Source Excerpt */
+            source_excerpt: string;
+            /** Source Locator */
+            source_locator: {
+                [key: string]: unknown;
+            };
+        };
         /** Body_create_source_file_api_project_workspaces__project_workspace_id__source_files_post */
         Body_create_source_file_api_project_workspaces__project_workspace_id__source_files_post: {
             /** Files */
@@ -480,6 +489,18 @@ export interface components {
             reviewed_payload?: components["schemas"]["ReviewedPurchaseLinePayload"] | null;
             /** Merged Into Candidate Id */
             merged_into_candidate_id?: number | null;
+        };
+        /** CandidateSourceGroundingRead */
+        CandidateSourceGroundingRead: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "structured_manual" | "free_form_text" | "xlsx";
+            /** Original Text */
+            original_text?: string | null;
+            /** Options */
+            options?: components["schemas"]["AnnotationGroundingOptionRead"][];
         };
         /** CandidateTaxonomyGateRead */
         CandidateTaxonomyGateRead: {
@@ -636,6 +657,7 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             source_file?: components["schemas"]["SourceFileSummary"] | null;
+            source_grounding?: components["schemas"]["CandidateSourceGroundingRead"] | null;
             taxonomy_gate?: components["schemas"]["TaxonomyGateRead"] | null;
             /** Taxonomy Gates */
             taxonomy_gates?: components["schemas"]["CandidateTaxonomyGateRead"][];

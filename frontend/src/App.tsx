@@ -1618,6 +1618,14 @@ function App() {
                     const existingMemoryMatches = detailCandidate.existing_memory_matches ?? [];
                     const originalAnnotations = proposedAnnotations(detailCandidate);
                     const reviewedAnnotations = reviewedPayload.annotation_proposals ?? [];
+                    const sourceGrounding = detailCandidate.source_grounding;
+                    const sourceGroundingOptions = sourceGrounding?.options ?? [];
+                    const canAddGroundedAnnotation = Boolean(
+                      sourceGrounding &&
+                        ((sourceGrounding.kind === "free_form_text" &&
+                          sourceGrounding.original_text) ||
+                          sourceGroundingOptions.length > 0)
+                    );
                     const availableAnnotationTargets = new Set<ReviewedAnnotationProposal["target"]>([
                       "purchase_line",
                       ...linkedConcepts.map((concept) => concept.concept_type),
@@ -1676,6 +1684,10 @@ function App() {
                           <div>
                             <dt>Provider</dt>
                             <dd>{providerName}</dd>
+                          </div>
+                          <div>
+                            <dt>AI Confidence</dt>
+                            <dd>{formatCandidateConfidence(detailCandidate.proposed_payload.confidence)}</dd>
                           </div>
                         </dl>
                         <div className="candidate-detail-sections">
@@ -1878,13 +1890,18 @@ function App() {
                               </div>
                               <button
                                 className="secondary-action"
-                                disabled={reviewedAnnotations.length >= 20}
+                                disabled={
+                                  reviewedAnnotations.length >= 20 || !canAddGroundedAnnotation
+                                }
                                 onClick={() =>
                                   updateCandidateReviewedPayload(detailCandidate, (payload) => ({
                                     ...payload,
                                     annotation_proposals: [
                                       ...(payload.annotation_proposals ?? []),
-                                      reviewerAddedAnnotation(detailCandidate.id, reviewedAnnotations.length)
+                                      reviewerAddedAnnotation(
+                                        detailCandidate,
+                                        reviewedAnnotations.length
+                                      )
                                     ]
                                   }))
                                 }
@@ -1894,6 +1911,12 @@ function App() {
                                 Add annotation
                               </button>
                             </div>
+                            {annotationLimitWarning(detailCandidate.proposed_payload)}
+                            {!canAddGroundedAnnotation ? (
+                              <p className="status-message">
+                                No precise source grounding is available for another annotation.
+                              </p>
+                            ) : null}
                             {reviewedAnnotations.length === 0 ? (
                               <p className="status-message">No annotations proposed.</p>
                             ) : null}
@@ -1938,6 +1961,59 @@ function App() {
                                       }
                                     />
                                   </label>
+                                  {annotation.provenance === "reviewer_added" &&
+                                  sourceGrounding?.kind === "free_form_text" ? (
+                                    <label>
+                                      Source quote {index + 1}
+                                      <input
+                                        aria-label={`Source quote ${index + 1}`}
+                                        value={annotation.source_excerpt}
+                                        onChange={(event) => {
+                                          const quote = event.target.value;
+                                          const sourceText = sourceGrounding.original_text ?? "";
+                                          const start = sourceText.indexOf(quote);
+                                          updateCandidateAnnotation(
+                                            detailCandidate,
+                                            annotation.proposal_id,
+                                            {
+                                              source_excerpt: quote,
+                                              source_locator: {
+                                                kind: "text_span",
+                                                start,
+                                                end: start < 0 ? -1 : start + quote.length
+                                              }
+                                            }
+                                          );
+                                        }}
+                                      />
+                                    </label>
+                                  ) : annotation.provenance === "reviewer_added" &&
+                                    sourceGrounding &&
+                                    sourceGroundingOptions.length > 0 ? (
+                                    <label>
+                                      Annotation source {index + 1}
+                                      <select
+                                        aria-label={`Annotation source ${index + 1}`}
+                                        value={groundingOptionIndex(sourceGroundingOptions, annotation)}
+                                        onChange={(event) => {
+                                          const option = sourceGroundingOptions[Number(event.target.value)];
+                                          if (option) {
+                                            updateCandidateAnnotation(
+                                              detailCandidate,
+                                              annotation.proposal_id,
+                                              option
+                                            );
+                                          }
+                                        }}
+                                      >
+                                        {sourceGroundingOptions.map((option, optionIndex) => (
+                                          <option key={optionIndex} value={optionIndex}>
+                                            {option.source_excerpt}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </label>
+                                  ) : null}
                                   <div className="form-grid">
                                     <label>
                                       Annotation type {index + 1}
@@ -2005,8 +2081,14 @@ function App() {
                                   ) : null}
                                   <blockquote>{annotation.source_excerpt}</blockquote>
                                   <p className="source-locator">
-                                    Source locator: {JSON.stringify(annotation.source_locator)}
+                                    Source locator: {formatLocator(annotation.source_locator)}
                                   </p>
+                                  {annotation.provenance === "reviewer_added" &&
+                                  !validReviewerGrounding(annotation) ? (
+                                    <p className="status-message error">
+                                      Select or quote exact preserved source content.
+                                    </p>
+                                  ) : null}
                                 </div>
                               );
                             })}
@@ -2815,16 +2897,69 @@ function isReviewedAnnotationProposal(value: unknown): value is ReviewedAnnotati
   );
 }
 
-function reviewerAddedAnnotation(candidateId: number, index: number): ReviewedAnnotationProposal {
+function reviewerAddedAnnotation(
+  candidate: ExtractedCandidateRead,
+  index: number
+): ReviewedAnnotationProposal {
+  const grounding = candidate.source_grounding;
+  const option = grounding?.options?.[0];
   return {
-    proposal_id: `reviewer:${candidateId}:${Date.now()}:${index}`,
+    proposal_id: `reviewer:${candidate.id}:${Date.now()}:${index}`,
     text: "",
     annotation_type: "general_qualifier",
     target: "purchase_line",
-    source_excerpt: "Reviewer-added annotation",
-    source_locator: { kind: "reviewer_entry" },
+    source_excerpt: option?.source_excerpt ?? "",
+    source_locator: option?.source_locator ?? { kind: "text_span", start: -1, end: -1 },
     provenance: "reviewer_added"
   };
+}
+
+function groundingOptionIndex(
+  options: NonNullable<
+    NonNullable<ExtractedCandidateRead["source_grounding"]>["options"]
+  >,
+  annotation: ReviewedAnnotationProposal
+): number {
+  const index = options.findIndex(
+    (option) =>
+      option.source_excerpt === annotation.source_excerpt &&
+      JSON.stringify(option.source_locator) === JSON.stringify(annotation.source_locator)
+  );
+  return index < 0 ? 0 : index;
+}
+
+function validReviewerGrounding(annotation: ReviewedAnnotationProposal): boolean {
+  const locator = annotation.source_locator;
+  if (!annotation.source_excerpt.trim()) return false;
+  if (locator.kind === "text_span") {
+    return (
+      typeof locator.start === "number" &&
+      typeof locator.end === "number" &&
+      locator.start >= 0 &&
+      locator.end > locator.start
+    );
+  }
+  return locator.kind === "structured_field" || locator.kind === "xlsx_cell";
+}
+
+function formatCandidateConfidence(value: unknown): string {
+  return typeof value === "number" && value >= 0 && value <= 1
+    ? `${Math.round(value * 100)}%`
+    : "Not available";
+}
+
+function annotationLimitWarning(payload: Record<string, unknown>): ReactNode {
+  const omitted = payload.annotation_omitted_count;
+  const detected = payload.annotation_detected_count;
+  if (typeof omitted !== "number" || omitted <= 0 || typeof detected !== "number") {
+    return null;
+  }
+  return (
+    <p className="status-message error">
+      Annotation extraction limit reached — 20 of {detected} source-grounded annotation proposals
+      were retained. Review the source and add any omitted qualifiers that matter.
+    </p>
+  );
 }
 
 function formatAnnotationProvenance(

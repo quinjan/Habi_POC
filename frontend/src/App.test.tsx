@@ -1678,7 +1678,9 @@ describe("Project Workspace app shell", () => {
     expect(within(detail).getByText("Changed from Delivery terms")).toBeInTheDocument();
     await user.click(within(detail).getByRole("button", { name: "Add annotation" }));
     await user.type(within(detail).getByLabelText("Source quote 2"), "Delivery included");
-    expect(within(detail).getByText("Source locator: Characters 0–17")).toBeInTheDocument();
+    expect(
+      within(detail).getAllByText("Source locator: Characters 0–17")
+    ).toHaveLength(2);
     expect(within(detail).queryByText("Reviewer-added annotation")).not.toBeInTheDocument();
   });
 
