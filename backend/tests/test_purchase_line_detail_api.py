@@ -254,6 +254,7 @@ def test_reviewed_annotation_imports_and_appears_in_purchase_line_detail(client)
     assert len(source_detail["imported_evidence"]) == 1
     source_evidence = source_detail["imported_evidence"][0]
     assert source_evidence["id"] == evidence["id"]
+    assert source_evidence["locator"] == evidence["locator"]
     assert source_evidence["annotations"] == evidence["annotations"]
     assert source_evidence["purchase_lines"] == [
         {
