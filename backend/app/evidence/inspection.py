@@ -128,39 +128,9 @@ def strongest_evidence_locator(
 
 def _locator_strength(source_content: dict, locator: dict) -> int:
     kind = locator.get("kind")
-    if kind == "text_span":
-        original_text = source_content.get("original_text")
-        start = locator.get("start")
-        end = locator.get("end")
-        if (
-            isinstance(original_text, str)
-            and type(start) is int
-            and type(end) is int
-            and 0 <= start < end <= len(original_text)
-        ):
-            return 40
-        return 0
-    if kind == "xlsx_cell":
-        worksheet = locator.get("worksheet")
-        coordinate = locator.get("coordinate")
-        if (
-            isinstance(worksheet, str)
-            and worksheet.strip()
-            and isinstance(coordinate, str)
-            and re.fullmatch(r"\$?[A-Z]{1,3}\$?[1-9]\d*", coordinate.strip(), re.IGNORECASE)
-            and worksheet == source_content.get("worksheet")
-            and any(
-                isinstance(cell, dict)
-                and isinstance(cell.get("coordinate"), str)
-                and cell["coordinate"].upper() == coordinate.strip().replace("$", "").upper()
-                for cell in source_content.get("row_snapshot", [])
-            )
-        ):
-            return 40
-        return 0
-    if kind == "structured_field" and _structured_source_value(
-        source_content, locator.get("field_path")
-    ) is not _MISSING:
+    if kind in {"text_span", "xlsx_cell", "structured_field"} and (
+        source_excerpt_at_locator(source_content, locator) is not None
+    ):
         return 40
     if (
         kind == "xlsx_rows"
@@ -187,6 +157,56 @@ def _locator_strength(source_content: dict, locator: dict) -> int:
 
 
 _MISSING = object()
+
+
+def source_excerpt_at_locator(source_content: dict, locator: dict) -> str | None:
+    kind = locator.get("kind")
+    if kind == "text_span":
+        original_text = source_content.get("original_text")
+        start = locator.get("start")
+        end = locator.get("end")
+        if (
+            isinstance(original_text, str)
+            and type(start) is int
+            and type(end) is int
+            and 0 <= start < end <= len(original_text)
+        ):
+            return original_text[start:end]
+        return None
+
+    if kind == "xlsx_cell":
+        worksheet = locator.get("worksheet")
+        coordinate = _normalized_xlsx_coordinate(locator.get("coordinate"))
+        if (
+            not isinstance(worksheet, str)
+            or not worksheet.strip()
+            or worksheet != source_content.get("worksheet")
+            or coordinate is None
+        ):
+            return None
+        for cell in source_content.get("row_snapshot", []):
+            if not isinstance(cell, dict):
+                continue
+            if _normalized_xlsx_coordinate(cell.get("coordinate")) == coordinate:
+                return str(cell.get("value") or "")
+        return None
+
+    if kind == "structured_field":
+        value = _structured_source_value(source_content, locator.get("field_path"))
+        return value if isinstance(value, str) else None
+
+    return None
+
+
+def _normalized_xlsx_coordinate(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    coordinate = value.strip()
+    if not re.fullmatch(
+        r"\$?[A-Z]{1,3}\$?[1-9]\d*", coordinate, re.IGNORECASE
+    ):
+        return None
+    return coordinate.replace("$", "").upper()
 
 
 def _structured_source_value(content: dict, field_path: object) -> object:

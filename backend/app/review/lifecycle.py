@@ -1,8 +1,7 @@
-import re
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.app.evidence.inspection import source_excerpt_at_locator
 from backend.app.evidence.sources import candidate_source_evidence
 from backend.app.memory.models import MemoryRecord
 from backend.app.review.models import (
@@ -153,54 +152,7 @@ def _reviewer_annotation_matches_source(
     if source is None or not isinstance(excerpt, str) or not isinstance(locator, dict):
         return False
 
-    if locator.get("kind") == "text_span":
-        original_text = source.content.get("original_text")
-        start = locator.get("start")
-        end = locator.get("end")
-        return (
-            isinstance(original_text, str)
-            and isinstance(start, int)
-            and not isinstance(start, bool)
-            and isinstance(end, int)
-            and not isinstance(end, bool)
-            and 0 <= start < end <= len(original_text)
-            and original_text[start:end] == excerpt
-        )
-
-    if locator.get("kind") == "structured_field":
-        field_path = locator.get("field_path")
-        value = _structured_source_value(source.content, field_path)
-        return isinstance(value, str) and value == excerpt
-
-    if locator.get("kind") == "xlsx_cell":
-        coordinate = locator.get("coordinate")
-        worksheet = locator.get("worksheet")
-        if worksheet != source.content.get("worksheet") or not isinstance(coordinate, str):
-            return False
-        return any(
-            isinstance(cell, dict)
-            and cell.get("coordinate") == coordinate
-            and str(cell.get("value") or "") == excerpt
-            for cell in source.content.get("row_snapshot", [])
-        )
-
-    return False
-
-
-def _structured_source_value(content: dict, field_path: object) -> object:
-    if not isinstance(field_path, str) or not field_path.startswith("structured_payload."):
-        return None
-    current: object = content
-    for name, index_text in re.findall(r"([A-Za-z_][A-Za-z0-9_]*)(?:\[(\d+)\])?", field_path)[1:]:
-        if not isinstance(current, dict) or name not in current:
-            return None
-        current = current[name]
-        if index_text:
-            index = int(index_text)
-            if not isinstance(current, list) or index >= len(current):
-                return None
-            current = current[index]
-    return current
+    return source_excerpt_at_locator(source.content, locator) == excerpt
 
 
 def detect_duplicate_conflicts(*, session: Session, review_batch: ReviewBatch) -> list[str]:
