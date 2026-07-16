@@ -6,7 +6,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_session
-from backend.app.evidence.inspection import evidence_annotation_reads, evidence_locator
+from backend.app.evidence.inspection import (
+    evidence_annotation_reads,
+    evidence_locator,
+    strongest_evidence_locator,
+)
 from backend.app.evidence.models import EvidenceRecord, MemoryRecordEvidenceLink
 from backend.app.memory.models import MemoryRecord, PurchaseLine, PurchaseLineConceptLink
 from backend.app.processing.models import ProcessingJob
@@ -200,6 +204,12 @@ def _source_imported_evidence_read(
     project_workspace_id: int,
     evidence: EvidenceRecord,
 ) -> SourceImportedEvidenceRead:
+    annotations = evidence_annotation_reads(session, evidence.id)
+    locator = strongest_evidence_locator(
+        evidence.content,
+        evidence_locator(evidence.content),
+        *(annotation.source_locator for annotation in annotations),
+    )
     linked_record_ids = set(
         session.scalars(
             select(MemoryRecordEvidenceLink.memory_record_id).where(
@@ -256,9 +266,9 @@ def _source_imported_evidence_read(
     return SourceImportedEvidenceRead(
         id=evidence.id,
         source_label=evidence.source_label,
-        locator=evidence_locator(evidence.content),
+        locator=locator,
         supporting_content=evidence.content,
-        annotations=evidence_annotation_reads(session, evidence.id),
+        annotations=annotations,
         purchase_lines=purchase_line_links,
         annotation_omitted_count=int(evidence.content.get("annotation_omitted_count", 0)),
         annotation_detected_count=int(evidence.content.get("annotation_detected_count", 0)),
