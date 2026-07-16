@@ -206,6 +206,7 @@ def decide_candidate(
             else None
         )
         validate_annotation_source_grounding(
+            session=session,
             candidate=candidate,
             reviewed_payload=reviewed_payload,
         )
@@ -516,6 +517,7 @@ def save_review_batch_draft(
             )
             if item.included:
                 validate_annotation_source_grounding(
+                    session=session,
                     candidate=candidates_by_id[item.candidate_id],
                     reviewed_payload=reviewed_payload,
                 )

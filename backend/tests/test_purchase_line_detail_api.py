@@ -201,7 +201,26 @@ def test_reviewed_annotation_imports_and_appears_in_purchase_line_detail(client)
                 "field_path": "structured_payload.annotations[0].text",
             },
             "provenance": "source_field",
-        }
+        },
+        {
+            "id": evidence["annotations"][1]["id"],
+            "proposal_id": "reviewer:1",
+            "text": "Reviewer invented this qualifier",
+            "annotation_type": "general_qualifier",
+            "target": {
+                "memory_record_id": evidence["annotations"][1]["target"][
+                    "memory_record_id"
+                ],
+                "record_type": "purchase_line",
+                "name": "PVC pipe",
+            },
+            "source_excerpt": "Delivery included",
+            "source_locator": {
+                "kind": "structured_field",
+                "field_path": "structured_payload.annotations[0].text",
+            },
+            "provenance": "reviewer_added",
+        },
     ]
 
     source_detail = client.get(
