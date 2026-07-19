@@ -19,5 +19,5 @@
     ],
     "required_omissions": ["Ceiling installation", "For approval", "Invoice marked paid", "Follow up with Mario", "TBD"]
   },
-  "human_approval": {"status": "pending", "reviewer": "pending domain reviewer", "approval_date": null, "fixture_version": 1, "rationale": "Drafted from the issue #36 baseline scorecard; exact normalized names, excerpts, ranges, and annotations require human sign-off."}
+  "human_approval": {"status": "approved", "reviewer": "Quinjan", "approval_date": "2026-07-19", "fixture_version": 1, "rationale": "Approved as the single representative POC evaluation fixture for PRD #36."}
 }

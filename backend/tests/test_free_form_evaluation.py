@@ -1,38 +1,86 @@
-import json
-
-import pytest
+from pathlib import Path
+import subprocess
+import sys
 
 from backend.app.evaluation.free_form import (
-    EvaluationContractError,
-    FIXTURE_ORDER,
-    PROMOTION_ORDER,
+    FIXTURE_ID,
     compare_domain_output,
-    content_sha256,
-    load_fixture_manifests,
+    load_fixture_manifest,
     output_affecting_change,
-    sanitized_artifact_digest,
-    validate_promotion_record,
+    render_markdown_scorecard,
 )
 
 
-def test_exactly_eight_versioned_manifests_have_complete_draft_contracts():
-    manifests = load_fixture_manifests(
-        __import__("pathlib").Path("backend/evals/free-form/fixtures"),
+def test_poc_evaluation_loads_one_mixed_baseline_fixture():
+    manifest = load_fixture_manifest(
+        Path("backend/evals/free-form/fixtures"),
         require_approved=False,
     )
 
-    assert [manifest["fixture_id"] for manifest in manifests] == list(FIXTURE_ORDER)
-    assert all(manifest["fixture_version"] >= 1 for manifest in manifests)
-    assert all("candidates" in manifest["expected_result"] for manifest in manifests)
-    assert len({content_sha256(manifest) for manifest in manifests}) == 8
+    assert manifest["fixture_id"] == FIXTURE_ID == "mixed-completed-project-baseline"
 
 
-def test_promotion_loader_refuses_a_manifest_pending_human_approval():
-    with pytest.raises(EvaluationContractError, match="needs human approval"):
-        load_fixture_manifests(
-            __import__("pathlib").Path("backend/evals/free-form/fixtures"),
-            require_approved=True,
-        )
+def test_poc_fixture_has_human_approval_for_its_current_version():
+    manifest = load_fixture_manifest(
+        Path("backend/evals/free-form/fixtures"),
+        require_approved=True,
+    )
+
+    assert manifest["human_approval"] == {
+        "status": "approved",
+        "reviewer": "Quinjan",
+        "approval_date": "2026-07-19",
+        "fixture_version": 1,
+        "rationale": "Approved as the single representative POC evaluation fixture for PRD #36.",
+    }
+
+
+def test_poc_evaluation_command_requires_named_human_approval():
+    result = subprocess.run(
+        [sys.executable, "backend/scripts/run_free_form_evaluation.py"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "--approved-by" in result.stderr
+
+
+def test_poc_evaluation_renders_a_short_pr_scorecard():
+    manifest = {
+        "fixture_id": "mixed-completed-project-baseline",
+        "fixture_version": 1,
+        "expected_result": {
+            "candidates": [{}, {}, {}, {}],
+            "required_omissions": ["planned work"],
+        },
+    }
+    actual = {
+        "candidates": [{}, {}, {}, {}],
+        "required_omissions": ["planned work"],
+    }
+
+    assert render_markdown_scorecard(
+        prd_issue=36,
+        manifest=manifest,
+        model="gpt-5.5-2026-04-23",
+        actual=actual,
+        differences=[],
+        model_call_count=1,
+        paid_call_approved_by="Quinjan",
+    ) == (
+        "## Real-Model Evaluation\n\n"
+        "- PRD: #36\n"
+        "- Fixture: mixed-completed-project-baseline v1\n"
+        "- Model: gpt-5.5-2026-04-23\n"
+        "- Model calls: 1\n"
+        "- Paid call approved by: Quinjan\n"
+        "- Result: PASS\n"
+        "- Purchase Lines: 4/4\n"
+        "- Required exclusions: PASS\n"
+        "- Human merge review: required"
+    )
 
 
 def test_comparator_is_order_strict_and_only_normalizes_documented_transport_fields():
@@ -47,42 +95,6 @@ def test_comparator_is_order_strict_and_only_normalizes_documented_transport_fie
 
     assert compare_domain_output(expected, equivalent) == []
     assert compare_domain_output(expected, reordered)
-
-
-def test_artifact_sanitization_removes_credentials_before_hashing():
-    sanitized, digest = sanitized_artifact_digest(
-        {"authorization": "Bearer dangerous", "metrics": {"tokens": 42}}
-    )
-
-    assert sanitized["authorization"] == "[REDACTED]"
-    assert "dangerous" not in json.dumps(sanitized)
-    assert len(digest) == 64
-
-
-def test_promotion_record_requires_the_exact_ten_call_matrix():
-    attempts = [
-        {
-            "fixture_id": fixture_id,
-            "model_call_count": 1,
-            "retry_enabled": False,
-            "outcome": "pass",
-            "strict_comparison_passed": True,
-        }
-        for fixture_id in PROMOTION_ORDER
-    ]
-    record = {
-        "attempts": attempts,
-        "fingerprints": {
-            "prompt_template_sha256": "a" * 64,
-            "response_schema_sha256": "b" * 64,
-            "request_config_sha256": "c" * 64,
-        },
-    }
-
-    validate_promotion_record(record)
-    record["attempts"] = attempts[:-1]
-    with pytest.raises(EvaluationContractError, match="exactly 10"):
-        validate_promotion_record(record)
 
 
 def test_output_affecting_change_detection_keeps_paid_suite_explicit():
