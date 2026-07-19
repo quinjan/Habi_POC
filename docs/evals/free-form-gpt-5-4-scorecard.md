@@ -8,7 +8,6 @@ The sole fixture is `backend/evals/free-form/fixtures/01-mixed-completed-project
 
 - a bundled supply-and-install Purchase Line;
 - a material-only Purchase Line;
-- a separately priced delivery Service Purchase Line;
 - an internal service Purchase Line;
 - an unknown-provider material Purchase Line;
 - a specification-bearing reinforcing-steel Purchase Line;
@@ -16,6 +15,8 @@ The sole fixture is `backend/evals/free-form/fixtures/01-mixed-completed-project
 - Project Memory context and a memory-only distractor;
 - delivery, payment, warranty, availability, exclusion, and Provider annotations; and
 - workflow and future-work noise that must not become candidates.
+
+Fixture v7 intentionally excludes separately priced delivery from the paid POC scenario and scorecard while its domain model is being revised. Production delivery behavior remains governed by ADR 0152 and is not removed by this fixture change.
 
 The fixture manifest is the complete evaluation input and golden result. Do not read ambient development or production Project Memory. Changing the fixture or expected result requires a new version and fresh human approval.
 
@@ -51,7 +52,7 @@ The command seeds an isolated Project Workspace, submits the fixture through the
 The check passes only when:
 
 - exactly one model call occurs;
-- the seven expected Purchase Lines match in order and essential fields;
+- the six expected Purchase Lines match in order and essential fields;
 - concept-name comparison treats hyphens and spaces as equivalent punctuation only;
 - meaningful singular and plural scope in Service names still matches exactly;
 - the expected Provider States, names, prices, and annotation counts match; and
@@ -63,12 +64,12 @@ The command prints a short Markdown scorecard:
 ## Real-Model Evaluation
 
 - PRD: #36
-- Fixture: mixed-completed-project-baseline v6
+- Fixture: mixed-completed-project-baseline v7
 - Model: gpt-5.4-2026-03-05
 - Model calls: 1
 - Paid call approved by: Quinjan
 - Result: PASS
-- Purchase Lines: 7/7
+- Purchase Lines: 6/6
 - Required exclusions: PASS
 - Human merge review: required
 ```

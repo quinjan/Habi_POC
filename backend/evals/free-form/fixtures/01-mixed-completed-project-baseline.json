@@ -1,8 +1,8 @@
 {
   "fixture_id": "mixed-completed-project-baseline",
-  "fixture_version": 6,
+  "fixture_version": 7,
   "family": "Mixed completed-project baseline",
-  "source_text": "COMPLETED PURCHASES — ARNAIZ RESIDENCE\nCoolAir Mechanical Services supplied and installed one Daikin split-type air-conditioning package for PHP 120,000. Delivery and unloading included; 50% down, balance after testing and commissioning. Price valid 30 calendar days. Five-year compressor warranty, one-year installation workmanship warranty, units from local stock, feeder wiring beyond five metres excluded. CoolAir is an authorized Daikin installer.\n\nBuildMart Trading: 100 mm PVC pressure pipe, PHP 32,500 final purchase. Delivery is charged separately at PHP 1,500. Immediate warehouse release; returns only for unopened, undamaged bundles within seven days.\n\nOur own crew completed final site cleanup for PHP 18,000; hazardous-waste hauling and disposal excluded, weekdays only. Non-shrink grout was bought for PHP 8,500, supplier not recorded; store bags dry and covered, same-day pickup.\n\nMetroSteel supplied 24 lengths of 16 mm Grade 60 deformed reinforcing bars for PHP 28,800 as the final purchase.\n\nOur own crew completed final pressure testing of the domestic water lines for PHP 9,000.\n\nFor approval. Invoice marked paid. Follow up with Mario. Ceiling installation remains a possible future item. Supplier field: TBD.",
+  "source_text": "COMPLETED PURCHASES — ARNAIZ RESIDENCE\nCoolAir Mechanical Services supplied and installed one Daikin split-type air-conditioning package for PHP 120,000. Delivery and unloading included; 50% down, balance after testing and commissioning. Price valid 30 calendar days. Five-year compressor warranty, one-year installation workmanship warranty, units from local stock, feeder wiring beyond five metres excluded. CoolAir is an authorized Daikin installer.\n\nBuildMart Trading: 100 mm PVC pressure pipe, PHP 32,500 final purchase. Immediate warehouse release; returns only for unopened, undamaged bundles within seven days.\n\nOur own crew completed final site cleanup for PHP 18,000; hazardous-waste hauling and disposal excluded, weekdays only. Non-shrink grout was bought for PHP 8,500, supplier not recorded; store bags dry and covered, same-day pickup.\n\nMetroSteel supplied 24 lengths of 16 mm Grade 60 deformed reinforcing bars for PHP 28,800 as the final purchase.\n\nOur own crew completed final pressure testing of the domestic water lines for PHP 9,000.\n\nFor approval. Invoice marked paid. Follow up with Mario. Ceiling installation remains a possible future item. Supplier field: TBD.",
   "contractor_assigned": "Internal",
   "project_memory": [
     {"record_id": 101, "record_type": "material", "name": "Daikin split-type air conditioner", "category_path": "Electrical / Air Conditioning Equipment"},
@@ -14,7 +14,6 @@
     "candidates": [
       {"shape": "bundled", "concept_names": ["Daikin split-type air conditioner", "Air conditioning installation"], "provider_state": "external", "provider_name": "CoolAir Mechanical Services", "price": "120000", "annotation_count": 8},
       {"shape": "material", "concept_names": ["100 mm PVC pressure pipe"], "provider_state": "external", "provider_name": "BuildMart Trading", "price": "32500", "annotation_count": 2},
-      {"shape": "service", "concept_names": ["PVC pressure pipe delivery"], "provider_state": "external", "provider_name": "BuildMart Trading", "price": "1500", "annotation_count": 0},
       {"shape": "service", "concept_names": ["Site cleanup"], "provider_state": "internal", "provider_name": null, "price": "18000", "annotation_count": 2},
       {"shape": "material", "concept_names": ["Non-shrink grout"], "provider_state": "unknown", "provider_name": null, "price": "8500", "annotation_count": 2},
       {"shape": "material", "concept_names": ["16 mm Grade 60 deformed reinforcing bar"], "provider_state": "external", "provider_name": "MetroSteel", "price": "28800", "annotation_count": 0},
@@ -22,5 +21,5 @@
     ],
     "required_omissions": ["Ceiling installation", "For approval", "Invoice marked paid", "Follow up with Mario", "TBD"]
   },
-  "human_approval": {"status": "approved", "reviewer": "Quinjan", "approval_date": "2026-07-19", "fixture_version": 6, "rationale": "Approved fixture v6 separating commercial package wording from Material identity and naming delivery by its worked-on subject."}
+  "human_approval": {"status": "approved", "reviewer": "Quinjan", "approval_date": "2026-07-19", "fixture_version": 7, "rationale": "Approved fixture v7 removing separately priced delivery from the POC fixture and scorecard pending the planned delivery model."}
 }

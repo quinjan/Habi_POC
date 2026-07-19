@@ -30,12 +30,13 @@ def test_poc_fixture_has_human_approval_for_its_current_version():
         "status": "approved",
         "reviewer": "Quinjan",
         "approval_date": "2026-07-19",
-        "fixture_version": 6,
+        "fixture_version": 7,
         "rationale": (
-            "Approved fixture v6 separating commercial package wording from Material "
-            "identity and naming delivery by its worked-on subject."
+            "Approved fixture v7 removing separately priced delivery from the POC "
+            "fixture and scorecard pending the planned delivery model."
         ),
     }
+    assert "Delivery is charged separately" not in manifest["source_text"]
     assert manifest["expected_result"]["candidates"] == [
         {
             "shape": "bundled",
@@ -55,14 +56,6 @@ def test_poc_fixture_has_human_approval_for_its_current_version():
             "provider_name": "BuildMart Trading",
             "price": "32500",
             "annotation_count": 2,
-        },
-        {
-            "shape": "service",
-            "concept_names": ["PVC pressure pipe delivery"],
-            "provider_state": "external",
-            "provider_name": "BuildMart Trading",
-            "price": "1500",
-            "annotation_count": 0,
         },
         {
             "shape": "service",
@@ -145,14 +138,14 @@ def test_poc_evaluation_refuses_a_non_eval_database_name_before_connecting():
 def test_poc_evaluation_renders_a_short_pr_scorecard():
     manifest = {
         "fixture_id": "mixed-completed-project-baseline",
-        "fixture_version": 6,
+        "fixture_version": 7,
         "expected_result": {
-            "candidates": [{}, {}, {}, {}, {}, {}, {}],
+            "candidates": [{}, {}, {}, {}, {}, {}],
             "required_omissions": ["planned work"],
         },
     }
     actual = {
-        "candidates": [{}, {}, {}, {}, {}, {}, {}],
+        "candidates": [{}, {}, {}, {}, {}, {}],
         "required_omissions": ["planned work"],
     }
 
@@ -167,12 +160,12 @@ def test_poc_evaluation_renders_a_short_pr_scorecard():
     ) == (
         "## Real-Model Evaluation\n\n"
         "- PRD: #36\n"
-        "- Fixture: mixed-completed-project-baseline v6\n"
+        "- Fixture: mixed-completed-project-baseline v7\n"
         "- Model: gpt-5.4-2026-03-05\n"
         "- Model calls: 1\n"
         "- Paid call approved by: Quinjan\n"
         "- Result: PASS\n"
-        "- Purchase Lines: 7/7\n"
+        "- Purchase Lines: 6/6\n"
         "- Required exclusions: PASS\n"
         "- Human merge review: required"
     )
