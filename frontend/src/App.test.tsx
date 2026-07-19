@@ -493,6 +493,21 @@ describe("Project Workspace app shell", () => {
           });
         }
 
+        if (url === "/api/project-workspaces/1/review-batches/14" && method === "GET") {
+          return jsonResponse({
+            review_batch: {
+              id: 14,
+              project_workspace_id: 1,
+              source_submission_id: 34,
+              status: "review_pending"
+            },
+            candidates: [buildUnknownProviderCandidate()],
+            duplicate_groups: [],
+            duplicate_conflicts: [],
+            taxonomy_decisions: []
+          });
+        }
+
         if (
           url === "/api/project-workspaces/1/review-batches/13/review-draft" &&
           method === "PUT"
@@ -553,6 +568,56 @@ describe("Project Workspace app shell", () => {
                 existing_memory_matches: candidate.existing_memory_matches.filter(
                   (match) => match.subject_type !== newSubject.type
                 )
+              }
+            ],
+            duplicate_groups: [],
+            duplicate_conflicts: [],
+            taxonomy_decisions: []
+          });
+        }
+
+        if (
+          url === "/api/project-workspaces/1/review-batches/14/review-draft" &&
+          method === "PUT"
+        ) {
+          const body = JSON.parse(String(init?.body));
+          const reviewedPayload = body.candidates[0].reviewed_payload;
+          const candidate = buildUnknownProviderCandidate();
+          return jsonResponse({
+            review_batch: {
+              id: 14,
+              project_workspace_id: 1,
+              source_submission_id: 34,
+              status: "review_in_progress"
+            },
+            candidates: [
+              {
+                ...candidate,
+                status: "approved_for_import",
+                decision: "approved",
+                reviewed_payload: reviewedPayload,
+                taxonomy_gates: [
+                  {
+                    id: 906,
+                    active: true,
+                    subject_type: "provider",
+                    subject_name: reviewedPayload.provider_name,
+                    status: "needs_decision",
+                    reason: "candidate_acceptance_required",
+                    suggested_category_path: "Providers / General",
+                    original_ai_category_path: "Providers / General",
+                    reviewer_draft_category_path: null,
+                    selected_proposal: "ai_suggestion",
+                    selected_category_path: "Providers / General",
+                    resolved_category_path: null,
+                    accepted_category_path: null,
+                    accepted_source: null,
+                    decision: null,
+                    taxonomy_decision_id: null,
+                    prior_rejection: null,
+                    decision_history: []
+                  }
+                ]
               }
             ],
             duplicate_groups: [],
@@ -1078,6 +1143,50 @@ describe("Project Workspace app shell", () => {
         },
         source_file: null,
         review_batch_id: 13
+      }
+    ]);
+    const user = userEvent.setup();
+    render(<App />);
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+    await user.click(screen.getByRole("tab", { name: "Upload / Review" }));
+    await user.click(await screen.findByRole("button", { name: "Open Review Batch" }));
+    await user.click((await screen.findAllByRole("button", { name: "Details" }))[0]);
+    return {
+      user,
+      detail: await screen.findByRole("dialog", { name: "Candidate Detail" })
+    };
+  }
+
+  async function openUnknownProviderCandidate() {
+    processingJobsByProject.set(1, [
+      {
+        processing_job: {
+          id: 54,
+          project_workspace_id: 1,
+          source_submission_id: 34,
+          status: "review_ready",
+          source_type: "manual_source_entry",
+          processor_name: "ai_manual_free_form_v1",
+          created_at: "2026-07-13T00:00:00Z",
+          started_at: "2026-07-13T00:00:01Z",
+          finished_at: "2026-07-13T00:00:02Z",
+          error_message: null,
+          diagnostics: null,
+          candidate_count: 1,
+          review_batch_id: 14
+        },
+        source_submission: {
+          id: 34,
+          submission_type: "manual_source_entry",
+          submitted_at: "2026-07-13T00:00:00Z"
+        },
+        source_file: null,
+        review_batch_id: 14
       }
     ]);
     const user = userEvent.setup();
@@ -1653,6 +1762,55 @@ describe("Project Workspace app shell", () => {
     expect(within(editor).getByLabelText("Subcategory")).toHaveValue("General");
   });
 
+  test("new Provider entered for an Unknown candidate exposes a pending Taxonomy Gate", async () => {
+    const { user, detail } = await openUnknownProviderCandidate();
+    await user.selectOptions(within(detail).getByLabelText("Provider State"), "external");
+    await user.type(
+      within(detail).getByRole("combobox", { name: "Provider name" }),
+      "New Provider"
+    );
+
+    expect(within(detail).getByText("Taxonomy Status").parentElement).toHaveTextContent(
+      "Needs decision"
+    );
+    const gates = within(detail).getByRole("region", { name: "Taxonomy Gates" });
+    expect(gates).toHaveTextContent("Provider: New Provider");
+    expect(gates).toHaveTextContent("AI suggestion: Providers / General");
+    await user.click(within(gates).getByRole("button", { name: "Adjust category" }));
+
+    const editor = await screen.findByRole("dialog", { name: "Edit Taxonomy Gate" });
+    expect(within(editor).getByLabelText("Top-Level Category")).toHaveValue("Providers");
+    expect(within(editor).getByLabelText("Subcategory")).toHaveValue("General");
+  });
+
+  test("existing Provider selected for an Unknown candidate skips taxonomy review", async () => {
+    const { user, detail } = await openUnknownProviderCandidate();
+    await user.selectOptions(within(detail).getByLabelText("Provider State"), "external");
+    await user.type(
+      within(detail).getByRole("combobox", { name: "Provider name" }),
+      "ABC Trading"
+    );
+
+    expect(within(detail).getByText("Taxonomy Status").parentElement).toHaveTextContent(
+      "Accepted"
+    );
+    expect(within(detail).queryByRole("region", { name: "Taxonomy Gates" })).not.toBeInTheDocument();
+    expect(within(detail).getByRole("group", { name: "Provider taxonomy" })).toHaveTextContent(
+      "Read-only"
+    );
+  });
+
+  test("Internal Provider selected for an Unknown candidate skips taxonomy review", async () => {
+    const { user, detail } = await openUnknownProviderCandidate();
+    await user.selectOptions(within(detail).getByLabelText("Provider State"), "internal");
+
+    expect(within(detail).getByText("Taxonomy Status").parentElement).toHaveTextContent(
+      "Accepted"
+    );
+    expect(within(detail).queryByRole("region", { name: "Taxonomy Gates" })).not.toBeInTheDocument();
+    expect(within(detail).queryByLabelText("Provider name")).not.toBeInTheDocument();
+  });
+
   test("bundled candidate taxonomy status becomes Accepted only after every active gate is accepted", async () => {
     processingJobsByProject.set(1, [
       {
@@ -1960,7 +2118,9 @@ describe("Project Workspace app shell", () => {
     await user.click(screen.getByRole("checkbox", { name: "Include PVC elbow" }));
     await user.click(screen.getAllByRole("button", { name: "Details" })[0]);
     const detail = await screen.findByRole("dialog", { name: "Candidate Detail" });
-    await user.click(within(detail).getByRole("button", { name: "Adjust category" }));
+    await user.click(
+      within(detail).getAllByRole("button", { name: "Adjust category" })[0]
+    );
 
     const taxonomy = await screen.findByRole("dialog", { name: "Edit Taxonomy Gate" });
     const applyToSimilar = within(taxonomy).getByLabelText(
@@ -2020,7 +2180,7 @@ describe("Project Workspace app shell", () => {
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Accept selected category" })).not.toBeInTheDocument();
     expect(within(detail).getByText("Taxonomy Status").parentElement).toHaveTextContent(
-      "Accepted"
+      "Needs decision"
     );
   });
 
@@ -2495,5 +2655,26 @@ function buildExistingMemoryCandidate() {
       }
     ],
     taxonomy_default: null
+  };
+}
+
+function buildUnknownProviderCandidate() {
+  const candidate = buildExistingMemoryCandidate();
+  return {
+    ...candidate,
+    id: 44,
+    review_batch_id: 14,
+    source_submission_id: 34,
+    proposed_payload: {
+      ...candidate.proposed_payload,
+      provider_state: "unknown",
+      provider_name: null,
+      observed_provider_text: null,
+      provider_memory_record_id: null,
+      provider_category_suggestion: null
+    },
+    existing_memory_matches: candidate.existing_memory_matches.filter(
+      (match) => match.subject_type !== "provider"
+    )
   };
 }

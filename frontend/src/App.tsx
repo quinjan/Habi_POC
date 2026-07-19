@@ -1720,7 +1720,6 @@ function App() {
                       )
                       .join("; ");
                     const newRecordTaxonomySubjects = taxonomySubjectsForNewRecords(
-                      detailCandidate,
                       reviewedPayload
                     );
                     const activeTaxonomyGates = (detailCandidate.taxonomy_gates ?? []).filter(
@@ -3499,7 +3498,7 @@ function taxonomyStatusLabel(
   candidate: ExtractedCandidateRead,
   reviewedPayload: ReviewedPurchaseLinePayload
 ): string {
-  const newRecordSubjects = taxonomySubjectsForNewRecords(candidate, reviewedPayload);
+  const newRecordSubjects = taxonomySubjectsForNewRecords(reviewedPayload);
   const activeGates = (candidate.taxonomy_gates ?? []).filter((gate) => gate.active);
   return newRecordSubjects.every((subject) =>
     activeGates.some(
@@ -3511,7 +3510,6 @@ function taxonomyStatusLabel(
 }
 
 function taxonomySubjectsForNewRecords(
-  candidate: ExtractedCandidateRead,
   reviewedPayload: ReviewedPurchaseLinePayload
 ): ReviewTaxonomySubject[] {
   const subjects: ReviewTaxonomySubject[] = reviewedConcepts(reviewedPayload)
@@ -3526,9 +3524,7 @@ function taxonomySubjectsForNewRecords(
   if (
     reviewedPayload.provider_state === "external" &&
     reviewedPayload.provider_memory_record_id == null &&
-    reviewedPayload.provider_name?.trim() &&
-    candidate.proposed_payload.provider_category_suggestion &&
-    typeof candidate.proposed_payload.provider_category_suggestion === "object"
+    reviewedPayload.provider_name?.trim()
   ) {
     subjects.push({
       subjectType: "provider",
