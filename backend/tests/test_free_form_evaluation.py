@@ -30,10 +30,10 @@ def test_poc_fixture_has_human_approval_for_its_current_version():
         "status": "approved",
         "reviewer": "Quinjan",
         "approval_date": "2026-07-19",
-        "fixture_version": 2,
+        "fixture_version": 3,
         "rationale": (
-            "Approved six-candidate PRD #36 fixture for specification preservation "
-            "and lifecycle-qualifier normalization."
+            "Approved seven-candidate PRD #36 fixture with separately priced delivery "
+            "and normalized reusable concept names."
         ),
     }
     assert manifest["expected_result"]["candidates"] == [
@@ -55,6 +55,14 @@ def test_poc_fixture_has_human_approval_for_its_current_version():
             "provider_name": "BuildMart Trading",
             "price": "32500",
             "annotation_count": 3,
+        },
+        {
+            "shape": "service",
+            "concept_names": ["Delivery"],
+            "provider_state": "external",
+            "provider_name": "BuildMart Trading",
+            "price": "1500",
+            "annotation_count": 0,
         },
         {
             "shape": "service",
@@ -137,14 +145,14 @@ def test_poc_evaluation_refuses_a_non_eval_database_name_before_connecting():
 def test_poc_evaluation_renders_a_short_pr_scorecard():
     manifest = {
         "fixture_id": "mixed-completed-project-baseline",
-        "fixture_version": 2,
+        "fixture_version": 3,
         "expected_result": {
-            "candidates": [{}, {}, {}, {}, {}, {}],
+            "candidates": [{}, {}, {}, {}, {}, {}, {}],
             "required_omissions": ["planned work"],
         },
     }
     actual = {
-        "candidates": [{}, {}, {}, {}, {}, {}],
+        "candidates": [{}, {}, {}, {}, {}, {}, {}],
         "required_omissions": ["planned work"],
     }
 
@@ -159,12 +167,12 @@ def test_poc_evaluation_renders_a_short_pr_scorecard():
     ) == (
         "## Real-Model Evaluation\n\n"
         "- PRD: #36\n"
-        "- Fixture: mixed-completed-project-baseline v2\n"
+        "- Fixture: mixed-completed-project-baseline v3\n"
         "- Model: gpt-5.5-2026-04-23\n"
         "- Model calls: 1\n"
         "- Paid call approved by: Quinjan\n"
         "- Result: PASS\n"
-        "- Purchase Lines: 6/6\n"
+        "- Purchase Lines: 7/7\n"
         "- Required exclusions: PASS\n"
         "- Human merge review: required"
     )

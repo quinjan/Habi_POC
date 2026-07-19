@@ -117,8 +117,8 @@ The reviewed Material, Service, or external Provider name selected through a sea
 _Avoid_: Plain text-only name, closed dropdown, implicit fuzzy match
 
 **Normalized Concept Name**:
-The reusable Material or Service name proposed for review and eventual Project Memory. It preserves identity-defining source details such as dimensions, grade, brand, and model while normalizing punctuation and omitting transaction or lifecycle qualifiers such as completed or final; the exact supporting source wording remains separately preserved as Observed Name Text.
-_Avoid_: Exact source transcription, specification-stripped name, transaction description
+The reusable Material or Service name proposed for review and eventual Project Memory; a Material preserves source-backed identity details and uses a singular noun form when quantity expresses multiplicity. A standalone Service preserves source-backed work details and uses `worked-on subject + performed work` when both are known, while a Service in a bundle avoids duplicating specifications already represented by linked Materials; all names normalize punctuation, omit transaction or lifecycle qualifiers such as completed or final, and preserve exact source wording separately as Observed Name Text.
+_Avoid_: Exact source transcription, specification-stripped name, duplicated linked-Material identity, transaction description
 
 **Archived Memory Record**:
 A previously imported memory record removed from active Project Memory browsing and search while remaining preserved for history, evidence, and audit.
@@ -127,6 +127,10 @@ _Avoid_: Deleted record, deactivated record
 **Purchase Line**:
 A final/as-used project purchasing fact with source support for at least one Material or Service and for its purchasing status. It may connect those concepts to quantity, unit, price, supplier or provider, date, and other source evidence when available; those commercial fields alone do not establish a Purchase Line.
 _Avoid_: Bid estimate line, unselected canvass quote
+
+**Shared Delivery Charge**:
+A single source-stated delivery amount that applies to two or more Purchase Lines without a source-backed allocation among them. It remains one cost related to every covered line, is excluded from each line's individual total, and is counted once in the encompassing purchase and project totals.
+_Avoid_: Per-line delivery charge, duplicated cost, inferred allocation
 
 **Purchase Line Evidence Span**:
 An exact, source-ordered character range in a free-form Manual Source Entry that contains evidence for one plausible Purchase Line. AI emits the exact source excerpt with its candidate, while Habi derives and verifies the character range against the preserved source text before the candidate can enter review.
