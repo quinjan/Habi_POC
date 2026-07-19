@@ -87,9 +87,9 @@ def test_openai_provider_config_separates_free_form_model_and_reasoning(monkeypa
     config = OpenAiProviderConfig.from_env()
 
     assert config.model == "xlsx-model"
-    assert config.free_form_model == "gpt-5.5-2026-04-23"
-    assert config.free_form_reasoning_effort == "high"
-    assert config.free_form_retry_reasoning_effort == "xhigh"
+    assert config.free_form_model == "gpt-5.4-2026-03-05"
+    assert config.free_form_reasoning_effort == "medium"
+    assert config.free_form_retry_reasoning_effort == "high"
     assert config.free_form_retries_enabled is True
 
 
@@ -291,8 +291,8 @@ def test_openai_provider_requests_strict_structured_output():
     )
 
     call = client.responses.calls[0]
-    assert call["model"] == "gpt-5.5-2026-04-23"
-    assert call["reasoning"] == {"effort": "high"}
+    assert call["model"] == "gpt-5.4-2026-03-05"
+    assert call["reasoning"] == {"effort": "medium"}
     assert "text" in call
     assert call["text"]["format"]["type"] == "json_schema"
     assert call["text"]["format"]["strict"] is True
@@ -324,7 +324,7 @@ def test_openai_provider_requests_strict_structured_output():
     assert "exact quote" in system_prompt
 
 
-def test_free_form_openai_request_uses_gpt55_grounded_multi_concept_contract():
+def test_free_form_openai_request_uses_gpt54_grounded_multi_concept_contract():
     from backend.app.processing.openai_provider import (
         OpenAiExtractionProvider,
         OpenAiProviderConfig,
@@ -335,7 +335,7 @@ def test_free_form_openai_request_uses_gpt55_grounded_multi_concept_contract():
         config=OpenAiProviderConfig(
             api_key="test-key",
             model="xlsx-model",
-            free_form_model="gpt-5.5-2026-04-23",
+            free_form_model="gpt-5.4-2026-03-05",
         ),
         client=client,
     )
@@ -362,7 +362,7 @@ def test_free_form_openai_request_uses_gpt55_grounded_multi_concept_contract():
     candidate_properties = candidate_schema["properties"]
     system_prompt = call["input"][0]["content"].lower()
 
-    assert call["model"] == "gpt-5.5-2026-04-23"
+    assert call["model"] == "gpt-5.4-2026-03-05"
     assert call["reasoning"] == {"effort": "xhigh"}
     assert "maxItems" not in concept_schema
     assert {
@@ -395,6 +395,7 @@ def test_free_form_openai_request_uses_gpt55_grounded_multi_concept_contract():
     assert "included or unpriced delivery" in system_prompt
     assert "singular noun form" in system_prompt
     assert "worked-on subject followed by the performed work" in system_prompt
+    assert "preserving meaningful singular or plural scope" in system_prompt
     assert "do not repeat linked material identity" in system_prompt
     assert "copy its supplied canonical name and category exactly" in system_prompt
     assert "return a null record id" in system_prompt

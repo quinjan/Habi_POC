@@ -62,7 +62,7 @@ class ContextRecordingAiProvider:
 
 class SequencedFreeFormProvider:
     provider_name = "fake"
-    model = "gpt-5.5-test-snapshot"
+    model = "gpt-5.4-test-snapshot"
 
     def __init__(self, results):
         self.results = list(results)
@@ -98,7 +98,7 @@ def test_free_form_worker_confirms_an_initial_empty_result_once(client, monkeypa
     assert run_once(client.app.state.session_factory, ai_provider=provider) == 1
 
     job = get_job(client, project["id"], submission["processing_job"]["id"])
-    assert provider.reasoning_efforts == ["high", "xhigh"]
+    assert provider.reasoning_efforts == ["medium", "high"]
     assert provider.repair_contexts == [
         None,
         {"kind": "zero_confirmation", "message": "Confirm that the source has no eligible candidates."},
@@ -1320,7 +1320,7 @@ def test_free_form_worker_retries_one_invalid_result_and_persists_only_the_repai
         f"/api/project-workspaces/{project['id']}/review-batches/{job['review_batch_id']}"
     ).json()
 
-    assert provider.reasoning_efforts == ["high", "xhigh"]
+    assert provider.reasoning_efforts == ["medium", "high"]
     assert job["status"] == "review_ready"
     assert job["candidate_count"] == 1
     assert job["diagnostics"]["attempt_count"] == 2
@@ -1403,7 +1403,7 @@ def test_free_form_worker_fails_atomically_with_safe_grounding_detail_when_retri
     job = get_job(client, project["id"], submission["processing_job"]["id"])
     paid_start = original_text.index("Paid already")
 
-    assert provider.reasoning_efforts == ["high"]
+    assert provider.reasoning_efforts == ["medium"]
     assert job["status"] == "failed"
     assert job["candidate_count"] == 0
     assert job["review_batch_id"] is None

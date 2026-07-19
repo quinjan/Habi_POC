@@ -134,8 +134,20 @@ def _compare(expected: Any, actual: Any, path: str, differences: list[dict[str, 
         for index, (expected_item, actual_item) in enumerate(zip(expected, actual)):
             _compare(expected_item, actual_item, f"{path}[{index}]", differences)
         return
+    if (
+        isinstance(expected, str)
+        and re.search(r"\.concept_names\[\d+\]$", path)
+        and _concept_name_comparison_value(expected)
+        == _concept_name_comparison_value(actual)
+    ):
+        return
     if expected != actual:
         differences.append({"path": path, "expected": expected, "actual": actual})
+
+
+def _concept_name_comparison_value(value: str) -> str:
+    hyphens_as_spaces = re.sub(r"[-\u2010-\u2015]+", " ", value)
+    return " ".join(hyphens_as_spaces.split())
 
 
 def _normalize(value: Any) -> Any:

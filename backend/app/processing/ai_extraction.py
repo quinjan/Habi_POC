@@ -497,7 +497,7 @@ def _annotation_validation_failure(
 
 
 def ground_free_form_candidate(payload: dict, *, original_text: str) -> dict:
-    """Derive review-visible shape and exact text ranges for the GPT-5.5 contract."""
+    """Derive review-visible shape and exact text ranges for the free-form contract."""
     linked_concepts = payload.get("linked_concepts")
     if not isinstance(linked_concepts, list) or not linked_concepts:
         return payload

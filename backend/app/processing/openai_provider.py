@@ -26,7 +26,8 @@ EXTRACTION_SYSTEM_PROMPT = (
     "For normalized reusable concept names, preserve identity-defining source details such as "
     "dimensions, grade, brand, and model. Use a singular noun form for a Material when its "
     "quantity expresses multiplicity. Name a standalone Service as the worked-on subject "
-    "followed by the performed work when both are known. In a bundle, do not repeat linked "
+    "followed by the performed work when both are known, preserving meaningful singular or "
+    "plural scope from the source for that subject. In a bundle, do not repeat linked "
     "Material identity in the Service name; name the work itself. Normalize punctuation and "
     "omit transaction or lifecycle qualifiers such as completed or final; keep the exact "
     "supporting wording in observed_name_text. "
@@ -552,9 +553,9 @@ _xlsx_candidate_properties["evidence"] = {
 class OpenAiProviderConfig:
     api_key: str
     model: str = "gpt-5.4-nano"
-    free_form_model: str = "gpt-5.5-2026-04-23"
-    free_form_reasoning_effort: str = "high"
-    free_form_retry_reasoning_effort: str = "xhigh"
+    free_form_model: str = "gpt-5.4-2026-03-05"
+    free_form_reasoning_effort: str = "medium"
+    free_form_retry_reasoning_effort: str = "high"
     free_form_retries_enabled: bool = True
     base_url: str | None = None
     store_responses: bool = True
@@ -570,13 +571,13 @@ class OpenAiProviderConfig:
             api_key=api_key,
             model=os.getenv("OPENAI_MODEL", "gpt-5.4-nano"),
             free_form_model=os.getenv(
-                "OPENAI_FREE_FORM_MODEL", "gpt-5.5-2026-04-23"
+                "OPENAI_FREE_FORM_MODEL", "gpt-5.4-2026-03-05"
             ),
             free_form_reasoning_effort=os.getenv(
-                "OPENAI_FREE_FORM_REASONING_EFFORT", "high"
+                "OPENAI_FREE_FORM_REASONING_EFFORT", "medium"
             ),
             free_form_retry_reasoning_effort=os.getenv(
-                "OPENAI_FREE_FORM_RETRY_REASONING_EFFORT", "xhigh"
+                "OPENAI_FREE_FORM_RETRY_REASONING_EFFORT", "high"
             ),
             free_form_retries_enabled=_env_bool(
                 "OPENAI_FREE_FORM_RETRIES_ENABLED", default=True

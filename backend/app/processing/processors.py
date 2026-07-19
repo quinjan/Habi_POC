@@ -160,10 +160,10 @@ def process_ai_manual_free_form(
         )
     retries_enabled = _env_bool("OPENAI_FREE_FORM_RETRIES_ENABLED", default=True)
     initial_reasoning_effort = os.getenv(
-        "OPENAI_FREE_FORM_REASONING_EFFORT", "high"
+        "OPENAI_FREE_FORM_REASONING_EFFORT", "medium"
     ).strip()
     retry_reasoning_effort = os.getenv(
-        "OPENAI_FREE_FORM_RETRY_REASONING_EFFORT", "xhigh"
+        "OPENAI_FREE_FORM_RETRY_REASONING_EFFORT", "high"
     ).strip()
     max_attempts = 2 if retries_enabled else 1
     raw_candidates: list[dict] = []

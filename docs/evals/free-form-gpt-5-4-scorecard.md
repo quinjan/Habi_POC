@@ -1,4 +1,4 @@
-# Free-Form GPT-5.5 POC Evaluation
+# Free-Form GPT-5.4 POC Evaluation
 
 Habi uses one explicit paid evaluation to check output-affecting free-form extraction changes before a human decides whether to merge them. This is a POC confidence check, not a statistically reliable model benchmark or deployment system.
 
@@ -35,8 +35,8 @@ Use a dedicated disposable Postgres evaluation database and the pinned retry-dis
 
 ```powershell
 $env:HABI_EVAL_DATABASE_URL = "postgresql+psycopg://.../habi_eval_free_form"
-$env:OPENAI_FREE_FORM_MODEL = "gpt-5.5-2026-04-23"
-$env:OPENAI_FREE_FORM_REASONING_EFFORT = "high"
+$env:OPENAI_FREE_FORM_MODEL = "gpt-5.4-2026-03-05"
+$env:OPENAI_FREE_FORM_REASONING_EFFORT = "medium"
 $env:OPENAI_FREE_FORM_RETRIES_ENABLED = "false"
 $env:OPENAI_CLIENT_MAX_RETRIES = "0"
 python backend/scripts/run_free_form_evaluation.py --approved-by "<human name>" --prd-issue 36
@@ -52,6 +52,8 @@ The check passes only when:
 
 - exactly one model call occurs;
 - the seven expected Purchase Lines match in order and essential fields;
+- concept-name comparison treats hyphens and spaces as equivalent punctuation only;
+- meaningful singular and plural scope in Service names still matches exactly;
 - the expected Provider States, names, prices, and annotation counts match; and
 - every required workflow, future-work, placeholder, and Project-Memory-only omission remains absent.
 
@@ -61,8 +63,8 @@ The command prints a short Markdown scorecard:
 ## Real-Model Evaluation
 
 - PRD: #36
-- Fixture: mixed-completed-project-baseline v4
-- Model: gpt-5.5-2026-04-23
+- Fixture: mixed-completed-project-baseline v5
+- Model: gpt-5.4-2026-03-05
 - Model calls: 1
 - Paid call approved by: Quinjan
 - Result: PASS

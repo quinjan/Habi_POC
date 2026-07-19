@@ -30,10 +30,10 @@ def test_poc_fixture_has_human_approval_for_its_current_version():
         "status": "approved",
         "reviewer": "Quinjan",
         "approval_date": "2026-07-19",
-        "fixture_version": 4,
+        "fixture_version": 5,
         "rationale": (
-            "Approved seven-candidate PRD #36 fixture preserving meaningful plural "
-            "scope in standalone Service names."
+            "Approved GPT-5.4 seven-candidate PRD #36 fixture with nonduplicated "
+            "delivery evidence and strict Service scope."
         ),
     }
     assert manifest["expected_result"]["candidates"] == [
@@ -54,7 +54,7 @@ def test_poc_fixture_has_human_approval_for_its_current_version():
             "provider_state": "external",
             "provider_name": "BuildMart Trading",
             "price": "32500",
-            "annotation_count": 3,
+            "annotation_count": 2,
         },
         {
             "shape": "service",
@@ -119,8 +119,8 @@ def test_poc_evaluation_refuses_a_non_eval_database_name_before_connecting():
                 "postgresql+psycopg://test-user@127.0.0.1:1/production"
             ),
             "OPENAI_API_KEY": "test-only-placeholder",
-            "OPENAI_FREE_FORM_MODEL": "gpt-5.5-2026-04-23",
-            "OPENAI_FREE_FORM_REASONING_EFFORT": "high",
+            "OPENAI_FREE_FORM_MODEL": "gpt-5.4-2026-03-05",
+            "OPENAI_FREE_FORM_REASONING_EFFORT": "medium",
             "OPENAI_FREE_FORM_RETRIES_ENABLED": "false",
             "OPENAI_CLIENT_MAX_RETRIES": "0",
         }
@@ -145,7 +145,7 @@ def test_poc_evaluation_refuses_a_non_eval_database_name_before_connecting():
 def test_poc_evaluation_renders_a_short_pr_scorecard():
     manifest = {
         "fixture_id": "mixed-completed-project-baseline",
-        "fixture_version": 4,
+        "fixture_version": 5,
         "expected_result": {
             "candidates": [{}, {}, {}, {}, {}, {}, {}],
             "required_omissions": ["planned work"],
@@ -159,7 +159,7 @@ def test_poc_evaluation_renders_a_short_pr_scorecard():
     assert render_markdown_scorecard(
         prd_issue=36,
         manifest=manifest,
-        model="gpt-5.5-2026-04-23",
+        model="gpt-5.4-2026-03-05",
         actual=actual,
         differences=[],
         model_call_count=1,
@@ -167,8 +167,8 @@ def test_poc_evaluation_renders_a_short_pr_scorecard():
     ) == (
         "## Real-Model Evaluation\n\n"
         "- PRD: #36\n"
-        "- Fixture: mixed-completed-project-baseline v4\n"
-        "- Model: gpt-5.5-2026-04-23\n"
+        "- Fixture: mixed-completed-project-baseline v5\n"
+        "- Model: gpt-5.4-2026-03-05\n"
         "- Model calls: 1\n"
         "- Paid call approved by: Quinjan\n"
         "- Result: PASS\n"
@@ -190,3 +190,39 @@ def test_comparator_is_order_strict_and_only_normalizes_documented_transport_fie
 
     assert compare_domain_output(expected, equivalent) == []
     assert compare_domain_output(expected, reordered)
+
+
+def test_comparator_treats_hyphens_as_spaces_only_in_concept_names():
+    expected = {
+        "candidates": [
+            {
+                "concept_names": [
+                    "Air conditioning installation",
+                    "Domestic water lines pressure testing",
+                ]
+            }
+        ]
+    }
+    punctuation_variant = {
+        "candidates": [
+            {
+                "concept_names": [
+                    "Air-conditioning installation",
+                    "Domestic water lines pressure testing",
+                ]
+            }
+        ]
+    }
+    singular_variant = {
+        "candidates": [
+            {
+                "concept_names": [
+                    "Air-conditioning installation",
+                    "Domestic water line pressure testing",
+                ]
+            }
+        ]
+    }
+
+    assert compare_domain_output(expected, punctuation_variant) == []
+    assert compare_domain_output(expected, singular_variant)

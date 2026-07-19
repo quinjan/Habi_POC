@@ -288,8 +288,8 @@ def _require_one_call_configuration() -> None:
     if not os.getenv("OPENAI_API_KEY"):
         raise RuntimeError("OPENAI_API_KEY is required and is never printed")
     required = {
-        "OPENAI_FREE_FORM_MODEL": "gpt-5.5-2026-04-23",
-        "OPENAI_FREE_FORM_REASONING_EFFORT": "high",
+        "OPENAI_FREE_FORM_MODEL": "gpt-5.4-2026-03-05",
+        "OPENAI_FREE_FORM_REASONING_EFFORT": "medium",
         "OPENAI_FREE_FORM_RETRIES_ENABLED": "false",
         "OPENAI_CLIENT_MAX_RETRIES": "0",
     }

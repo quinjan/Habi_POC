@@ -12,7 +12,7 @@ Each implementation session receives:
 - exactly one implementation issue number; and
 - a clear instruction to implement only that issue's scope.
 
-For the current Per-Project Memory Lab POC, use issue `#1` as product context unless a focused successor PRD applies. Free-form GPT-5.5 work uses issue `#36` as its focused PRD.
+For the current Per-Project Memory Lab POC, use issue `#1` as product context unless a focused successor PRD applies. Free-form GPT-5.4 work uses issue `#36` as its focused PRD.
 
 ## Required TDD discipline
 
@@ -45,7 +45,7 @@ The POC uses one checked-in fixture: `mixed-completed-project-baseline`. The exp
 - seeds an isolated Postgres Project Workspace from that fixture;
 - submits its preserved free-form text through the production Manual Source Entry boundary;
 - runs the production `ai_manual_free_form_v1` worker path;
-- makes exactly one retry-disabled `gpt-5.5-2026-04-23` call at `high` reasoning;
+- makes exactly one retry-disabled `gpt-5.4-2026-03-05` call at `medium` reasoning;
 - compares the persisted candidates with the Human-Approved Golden Result; and
 - prints a short Markdown PASS-or-FAIL Evaluation Scorecard for the pull request.
 
@@ -55,8 +55,8 @@ Use this command only after offline tests pass:
 
 ```powershell
 $env:HABI_EVAL_DATABASE_URL = "postgresql+psycopg://.../habi_eval_free_form"
-$env:OPENAI_FREE_FORM_MODEL = "gpt-5.5-2026-04-23"
-$env:OPENAI_FREE_FORM_REASONING_EFFORT = "high"
+$env:OPENAI_FREE_FORM_MODEL = "gpt-5.4-2026-03-05"
+$env:OPENAI_FREE_FORM_REASONING_EFFORT = "medium"
 $env:OPENAI_FREE_FORM_RETRIES_ENABLED = "false"
 $env:OPENAI_CLIENT_MAX_RETRIES = "0"
 python backend/scripts/run_free_form_evaluation.py --approved-by "<human name>" --prd-issue 36
