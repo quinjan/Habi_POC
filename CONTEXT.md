@@ -185,8 +185,8 @@ The automated PASS-or-FAIL Markdown summary produced by one Real-Model Evaluatio
 _Avoid_: Promotion record, deployment approval, raw model response
 
 **Human-Approved Golden Result**:
-The exact expected domain output of the POC Evaluation Fixture, approved by a human reviewer with identity, date, fixture version, and rationale. A model may assist drafting but cannot automatically create, overwrite, approve, or snapshot-update the golden used to score itself.
-_Avoid_: Recorded current output, model-as-judge expectation, unreviewed snapshot
+The human-approved expected subset of domain output scored by the POC Evaluation Fixture, with reviewer identity, date, fixture version, and rationale. It covers the scorecard's agreed essential fields rather than every persisted candidate field; a model may assist drafting but cannot automatically create, overwrite, approve, or snapshot-update it.
+_Avoid_: Exhaustive production contract, recorded current output, model-as-judge expectation, unreviewed snapshot
 
 **Provider**:
 An external company or person that supplied materials, provided services, or handled bundled supply-and-install work for the completed project. A Provider has its own reviewer-selected Resolved Category Path and is not categorized by the Material or Service categories of a linked Purchase Line.

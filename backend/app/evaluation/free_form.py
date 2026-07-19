@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 import json
 from pathlib import Path
 import re
-from typing import Any, Iterable
+from typing import Any
 
 
 FIXTURE_ID = "mixed-completed-project-baseline"
@@ -20,14 +20,6 @@ IGNORED_COMPARISON_FIELDS = frozenset(
         "proposal_id",
     }
 )
-OUTPUT_AFFECTING_PREFIXES = (
-    "backend/app/processing/",
-    "backend/app/evaluation/",
-    "backend/evals/free-form/fixtures/",
-    "backend/requirements.txt",
-)
-
-
 class EvaluationContractError(ValueError):
     pass
 
@@ -163,12 +155,3 @@ def _normalize(value: Any) -> Any:
         rendered = format(decimal, "f")
         return rendered.rstrip("0").rstrip(".") if "." in rendered else rendered
     return value
-
-
-def output_affecting_change(paths: Iterable[str]) -> bool:
-    normalized_paths = [path.replace("\\", "/").lstrip("./") for path in paths]
-    return any(
-        path.startswith(prefix)
-        for path in normalized_paths
-        for prefix in OUTPUT_AFFECTING_PREFIXES
-    )

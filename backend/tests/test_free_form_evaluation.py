@@ -6,7 +6,6 @@ from backend.app.evaluation.free_form import (
     FIXTURE_ID,
     compare_domain_output,
     load_fixture_manifest,
-    output_affecting_change,
     render_markdown_scorecard,
 )
 
@@ -95,9 +94,3 @@ def test_comparator_is_order_strict_and_only_normalizes_documented_transport_fie
 
     assert compare_domain_output(expected, equivalent) == []
     assert compare_domain_output(expected, reordered)
-
-
-def test_output_affecting_change_detection_keeps_paid_suite_explicit():
-    assert output_affecting_change(["backend/app/processing/openai_provider.py"])
-    assert output_affecting_change(["backend/evals/free-form/fixtures/mixed.json"])
-    assert not output_affecting_change(["frontend/src/styles.css", "docs/readme.md"])
