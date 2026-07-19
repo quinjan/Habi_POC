@@ -392,11 +392,14 @@ def test_free_form_openai_request_uses_gpt54_grounded_multi_concept_contract():
     assert "normalize punctuation" in system_prompt
     assert "transaction or lifecycle qualifiers" in system_prompt
     assert "separately priced final/as-used delivery" in system_prompt
+    assert "include the clearly known delivered subject" in system_prompt
     assert "included or unpriced delivery" in system_prompt
     assert "singular noun form" in system_prompt
     assert "worked-on subject followed by the performed work" in system_prompt
     assert "preserving meaningful singular or plural scope" in system_prompt
     assert "do not repeat linked material identity" in system_prompt
+    assert "commercial package" in system_prompt
+    assert "technical product type" in system_prompt
     assert "copy its supplied canonical name and category exactly" in system_prompt
     assert "return a null record id" in system_prompt
 

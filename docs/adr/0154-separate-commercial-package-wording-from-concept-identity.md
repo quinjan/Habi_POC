@@ -1,0 +1,5 @@
+# Separate Commercial Package Wording From Concept Identity
+
+When `package`, `bundle`, or `lot` describes the combined commercial pricing of a free-form Purchase Line, Habi excludes that wording from the normalized reusable Material identity. The wording remains preserved in Observed Name Text and source evidence. Habi retains `packaged` or `package` only when the source clearly uses it as part of a technical product type, such as a packaged rooftop unit. A supply-and-install package therefore names its supplied product independently from its linked installation Service instead of creating a Material whose reusable name describes the transaction bundle.
+
+A separately priced delivery remains an independent Service Purchase Line under ADR 0152. When its delivered subject is clear from source context, its normalized standalone Service name uses that subject plus the performed work, such as `PVC pressure pipe delivery`, rather than the generic `Delivery`. This makes the delivery cost searchable without linking the separately priced Service back into the Material Purchase Line as a bundle.

@@ -30,10 +30,10 @@ def test_poc_fixture_has_human_approval_for_its_current_version():
         "status": "approved",
         "reviewer": "Quinjan",
         "approval_date": "2026-07-19",
-        "fixture_version": 5,
+        "fixture_version": 6,
         "rationale": (
-            "Approved GPT-5.4 seven-candidate PRD #36 fixture with nonduplicated "
-            "delivery evidence and strict Service scope."
+            "Approved fixture v6 separating commercial package wording from Material "
+            "identity and naming delivery by its worked-on subject."
         ),
     }
     assert manifest["expected_result"]["candidates"] == [
@@ -58,7 +58,7 @@ def test_poc_fixture_has_human_approval_for_its_current_version():
         },
         {
             "shape": "service",
-            "concept_names": ["Delivery"],
+            "concept_names": ["PVC pressure pipe delivery"],
             "provider_state": "external",
             "provider_name": "BuildMart Trading",
             "price": "1500",
@@ -145,7 +145,7 @@ def test_poc_evaluation_refuses_a_non_eval_database_name_before_connecting():
 def test_poc_evaluation_renders_a_short_pr_scorecard():
     manifest = {
         "fixture_id": "mixed-completed-project-baseline",
-        "fixture_version": 5,
+        "fixture_version": 6,
         "expected_result": {
             "candidates": [{}, {}, {}, {}, {}, {}, {}],
             "required_omissions": ["planned work"],
@@ -167,7 +167,7 @@ def test_poc_evaluation_renders_a_short_pr_scorecard():
     ) == (
         "## Real-Model Evaluation\n\n"
         "- PRD: #36\n"
-        "- Fixture: mixed-completed-project-baseline v5\n"
+        "- Fixture: mixed-completed-project-baseline v6\n"
         "- Model: gpt-5.4-2026-03-05\n"
         "- Model calls: 1\n"
         "- Paid call approved by: Quinjan\n"

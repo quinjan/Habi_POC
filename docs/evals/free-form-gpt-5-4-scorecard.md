@@ -63,7 +63,7 @@ The command prints a short Markdown scorecard:
 ## Real-Model Evaluation
 
 - PRD: #36
-- Fixture: mixed-completed-project-baseline v5
+- Fixture: mixed-completed-project-baseline v6
 - Model: gpt-5.4-2026-03-05
 - Model calls: 1
 - Paid call approved by: Quinjan
