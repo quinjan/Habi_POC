@@ -30,10 +30,10 @@ def test_poc_fixture_has_human_approval_for_its_current_version():
         "status": "approved",
         "reviewer": "Quinjan",
         "approval_date": "2026-07-19",
-        "fixture_version": 3,
+        "fixture_version": 4,
         "rationale": (
-            "Approved seven-candidate PRD #36 fixture with separately priced delivery "
-            "and normalized reusable concept names."
+            "Approved seven-candidate PRD #36 fixture preserving meaningful plural "
+            "scope in standalone Service names."
         ),
     }
     assert manifest["expected_result"]["candidates"] == [
@@ -90,7 +90,7 @@ def test_poc_fixture_has_human_approval_for_its_current_version():
         },
         {
             "shape": "service",
-            "concept_names": ["Domestic water-line pressure testing"],
+            "concept_names": ["Domestic water lines pressure testing"],
             "provider_state": "internal",
             "provider_name": None,
             "price": "9000",
@@ -145,7 +145,7 @@ def test_poc_evaluation_refuses_a_non_eval_database_name_before_connecting():
 def test_poc_evaluation_renders_a_short_pr_scorecard():
     manifest = {
         "fixture_id": "mixed-completed-project-baseline",
-        "fixture_version": 3,
+        "fixture_version": 4,
         "expected_result": {
             "candidates": [{}, {}, {}, {}, {}, {}, {}],
             "required_omissions": ["planned work"],
@@ -167,7 +167,7 @@ def test_poc_evaluation_renders_a_short_pr_scorecard():
     ) == (
         "## Real-Model Evaluation\n\n"
         "- PRD: #36\n"
-        "- Fixture: mixed-completed-project-baseline v3\n"
+        "- Fixture: mixed-completed-project-baseline v4\n"
         "- Model: gpt-5.5-2026-04-23\n"
         "- Model calls: 1\n"
         "- Paid call approved by: Quinjan\n"
