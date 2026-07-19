@@ -46,12 +46,24 @@ class PurchaseLineConceptRead(BaseModel):
     concept_type: str
     name: str
     category_path: str
+    concept_key: str | None = None
+    quantity: str | None = None
+    unit: str | None = None
+    component_unit_price: str | None = None
+
+
+class InstallationRelationshipRead(BaseModel):
+    service_concept_key: str
+    material_concept_key: str
+    source_excerpt: str
+    source_locator: dict
 
 
 class PurchaseLineRow(BaseModel):
     id: int
     line_type: str
     linked_concepts: list[PurchaseLineConceptRead]
+    installation_relationships: list[InstallationRelationshipRead] = Field(default_factory=list)
     provider_state: str
     provider_name: str | None
     provider_category_path: str | None
@@ -121,6 +133,7 @@ class PurchaseLineDetail(BaseModel):
     status: str
     line_type: str
     linked_concepts: list[PurchaseLineConceptRead]
+    installation_relationships: list[InstallationRelationshipRead] = Field(default_factory=list)
     provider: PurchaseLineProviderRead
     quantity: str | None
     unit: str | None

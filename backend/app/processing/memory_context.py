@@ -3,7 +3,12 @@ import re
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.memory.models import MemoryRecord, PurchaseLine, PurchaseLineConceptLink
+from backend.app.memory.models import (
+    MemoryRecord,
+    PurchaseLine,
+    PurchaseLineConceptLink,
+    PurchaseLineInstallationRelationship,
+)
 from backend.app.projects.models import ProjectWorkspace
 from backend.app.taxonomy.models import TaxonomyNode
 
@@ -21,6 +26,8 @@ def build_project_memory_context(
     session: Session,
     project_workspace_id: int,
     source_text: str,
+    complete: bool = False,
+    include_record_ids: bool = False,
 ) -> tuple[dict, dict[str, int]]:
     project = session.get(ProjectWorkspace, project_workspace_id)
     if project is None:
@@ -32,18 +39,24 @@ def build_project_memory_context(
         project_workspace_id=project_workspace_id,
         record_type="material",
         source_tokens=source_tokens,
+        limit=None if complete else ENTITY_CONTEXT_LIMIT,
+        include_record_ids=include_record_ids,
     )
     services, service_omitted = _ranked_entity_context(
         session=session,
         project_workspace_id=project_workspace_id,
         record_type="service",
         source_tokens=source_tokens,
+        limit=None if complete else ENTITY_CONTEXT_LIMIT,
+        include_record_ids=include_record_ids,
     )
     providers, provider_omitted = _ranked_entity_context(
         session=session,
         project_workspace_id=project_workspace_id,
         record_type="provider",
         source_tokens=source_tokens,
+        limit=None if complete else ENTITY_CONTEXT_LIMIT,
+        include_record_ids=include_record_ids,
     )
     return (
         {
@@ -67,6 +80,8 @@ def _ranked_entity_context(
     project_workspace_id: int,
     record_type: str,
     source_tokens: set[str],
+    limit: int | None,
+    include_record_ids: bool,
 ) -> tuple[list[dict], int]:
     records = list(
         session.scalars(
@@ -77,27 +92,33 @@ def _ranked_entity_context(
             )
         )
     )
-    records.sort(
-        key=lambda record: (
-            -len(_tokens(record.display_name).intersection(source_tokens)),
-            record.normalized_name,
-            record.id,
+    if limit is None:
+        records.sort(key=lambda record: (record.normalized_name, record.id))
+        selected = records
+    else:
+        records.sort(
+            key=lambda record: (
+                -len(_tokens(record.display_name).intersection(source_tokens)),
+                record.normalized_name,
+                record.id,
+            )
         )
-    )
-    selected = records[:ENTITY_CONTEXT_LIMIT]
+        selected = records[:limit]
     items = []
     for record in selected:
         item = {
             "name": record.display_name,
             "category_path": _taxonomy_path(session, record.taxonomy_node_id),
         }
+        if include_record_ids:
+            item["record_id"] = record.id
         if record_type == "provider":
-            item["roles"] = _provider_roles(session, record.id)
+            item["roles"] = provider_roles(session, record.id)
         items.append(item)
     return items, max(0, len(records) - len(selected))
 
 
-def _provider_roles(session: Session, provider_memory_record_id: int) -> list[str]:
+def provider_roles(session: Session, provider_memory_record_id: int) -> list[str]:
     roles: set[str] = set()
     purchase_lines = session.scalars(
         select(PurchaseLine).where(
@@ -119,7 +140,14 @@ def _provider_roles(session: Session, provider_memory_record_id: int) -> list[st
             roles.add("material_supplier")
         if "service" in concept_types:
             roles.add("service_provider")
-        if concept_types == {"material", "service"}:
+        has_installation_relationship = session.scalar(
+            select(PurchaseLineInstallationRelationship.id)
+            .where(
+                PurchaseLineInstallationRelationship.purchase_line_id == purchase_line.id
+            )
+            .limit(1)
+        ) is not None
+        if has_installation_relationship:
             roles.add("supply_and_install_provider")
     return [role for role in ROLE_ORDER if role in roles]
 

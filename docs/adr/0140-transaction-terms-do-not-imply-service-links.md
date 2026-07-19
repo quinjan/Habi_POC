@@ -5,3 +5,5 @@ Delivery, payment processing, warranty coverage, validity, availability, exclusi
 This complements ADR 0139: GPT-5.5 must distinguish the core supplied or performed subject from its commercial qualifications in both directions. The prompt and scorecard must include incidental-term negative examples so Project Memory names such as `Delivery service` cannot promote an annotation into an unsupported Service link.
 
 The presence of an ancillary amount does not by itself change annotation targeting or Purchase Line shape; the exact charge remains inside the grounded annotation and is not copied into the qualified Purchase Line's structured price.
+
+ADR 0152 supersedes the separately priced BuildMart delivery example and the ancillary-amount conclusion above. The remaining rule still applies to included, unpriced, or merely operational delivery language.

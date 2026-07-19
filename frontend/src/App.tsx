@@ -20,6 +20,7 @@ import {
   listTaxonomyLeafPaths,
   listProjectWorkspaces,
   originalSourceFileUrl,
+  resetCandidate,
   saveReviewBatchDraft,
   saveTaxonomyGateReviewerDraft,
   selectTaxonomyGateProposal,
@@ -80,6 +81,12 @@ type ManualSourceForm = {
 type ManualEntryMode = "structured_row" | "free_form_text";
 
 type CandidateTaxonomyGate = NonNullable<ExtractedCandidateRead["taxonomy_gates"]>[number];
+
+type ReviewTaxonomySubject = {
+  subjectType: "material" | "service" | "provider";
+  subjectName: string;
+  categoryPath: string | null;
+};
 
 const emptyManualSourceForm: ManualSourceForm = {
   lineType: "material",
@@ -709,6 +716,30 @@ function App() {
     return detail;
   }
 
+  async function handleAdjustDraftTaxonomy(
+    candidate: ExtractedCandidateRead,
+    subject: ReviewTaxonomySubject
+  ) {
+    setIsApprovingCandidate(true);
+    setErrorMessage(null);
+    try {
+      const detail = await handleSaveReviewDraft();
+      const refreshedCandidate = detail?.candidates.find((item) => item.id === candidate.id);
+      const persistedGate = refreshedCandidate?.taxonomy_gates?.find(
+        (gate) => gate.active && taxonomyGateMatchesSubject(gate, subject)
+      );
+      if (!refreshedCandidate || !persistedGate) {
+        setErrorMessage("Taxonomy Gate could not be created for the new record.");
+        return;
+      }
+      openTaxonomyDialog(refreshedCandidate, persistedGate);
+    } catch {
+      setErrorMessage("Taxonomy Gate could not be created for the new record.");
+    } finally {
+      setIsApprovingCandidate(false);
+    }
+  }
+
   function openTaxonomyDialog(candidate: ExtractedCandidateRead, gate: CandidateTaxonomyGate) {
     const selectedPath = splitCategoryPath(
       gate.reviewer_draft_category_path ?? gate.selected_category_path
@@ -799,12 +830,14 @@ function App() {
     if (selectedPurchaseLines === null || activeReviewBatch === null) return;
     setIsApprovingCandidate(true);
     try {
+      await handleSaveReviewDraft();
       const detail = await acceptTaxonomyGate(
         selectedPurchaseLines.project_workspace.id,
         activeReviewBatch.review_batch.id,
         gate.id
       );
       applyReviewBatchDetail(detail);
+      setCandidateDrafts(initialDraftsForCandidates(detail.candidates));
       await refreshTaxonomyLeafPaths(selectedPurchaseLines.project_workspace.id);
     } catch {
       setErrorMessage("Selected taxonomy category could not be accepted.");
@@ -896,6 +929,50 @@ function App() {
       setIsCandidateApproved(false);
     } catch {
       setErrorMessage("Candidate could not be removed from import.");
+    } finally {
+      setIsApprovingCandidate(false);
+    }
+  }
+
+  async function handleResetCandidate(candidate: ExtractedCandidateRead) {
+    if (
+      selectedPurchaseLines === null ||
+      activeReviewBatch === null ||
+      !window.confirm("Reset this candidate to the original extraction proposal?")
+    ) {
+      return;
+    }
+
+    setIsApprovingCandidate(true);
+    setErrorMessage(null);
+    try {
+      const updatedCandidate = await resetCandidate(
+        selectedPurchaseLines.project_workspace.id,
+        activeReviewBatch.review_batch.id,
+        candidate.id
+      );
+      setActiveReviewBatch((currentBatch) =>
+        currentBatch === null
+          ? currentBatch
+          : {
+              ...currentBatch,
+              candidates: currentBatch.candidates.map((existingCandidate) =>
+                existingCandidate.id === updatedCandidate.id
+                  ? updatedCandidate
+                  : existingCandidate
+              )
+            }
+      );
+      setCandidateDrafts((currentDrafts) => ({
+        ...currentDrafts,
+        [updatedCandidate.id]: {
+          included: updatedCandidate.decision !== "rejected",
+          reviewedPayload: reviewedPayloadForCandidate(updatedCandidate)
+        }
+      }));
+      setToastMessage("Candidate reset to the original extraction proposal.");
+    } catch {
+      setErrorMessage("Candidate could not be reset.");
     } finally {
       setIsApprovingCandidate(false);
     }
@@ -1644,9 +1721,39 @@ function App() {
                         "Needs taxonomy"
                       )
                       .join("; ");
+                    const newRecordTaxonomySubjects = taxonomySubjectsForNewRecords(
+                      reviewedPayload
+                    );
+                    const activeTaxonomyGates = (detailCandidate.taxonomy_gates ?? []).filter(
+                      (gate) =>
+                        gate.active &&
+                        newRecordTaxonomySubjects.some((subject) =>
+                          taxonomyGateMatchesSubject(gate, subject)
+                        )
+                    );
+                    const draftTaxonomySubjects = newRecordTaxonomySubjects.filter(
+                      (subject) =>
+                        !activeTaxonomyGates.some((gate) =>
+                          taxonomyGateMatchesSubject(gate, subject)
+                        )
+                    );
                     const taxonomyStatus = taxonomyStatusLabel(detailCandidate, reviewedPayload);
                     const spreadsheetEvidence = spreadsheetCandidateEvidence(detailCandidate);
                     const existingMemoryMatches = detailCandidate.existing_memory_matches ?? [];
+                    const memoryOptions = detailCandidate.memory_options ?? [];
+                    const existingProviderMemory =
+                      (reviewedPayload.provider_memory_record_id
+                        ? memoryOptions.find(
+                            (option) =>
+                              option.subject_type === "provider" &&
+                              option.record_id === reviewedPayload.provider_memory_record_id
+                          )
+                        : null) ??
+                      existingMemoryMatches.find(
+                        (match) =>
+                          match.subject_type === "provider" &&
+                          match.subject_name === reviewedPayload.provider_name
+                      );
                     const originalAnnotations = proposedAnnotations(detailCandidate);
                     const reviewedAnnotations = reviewedPayload.annotation_proposals ?? [];
                     const sourceGrounding = detailCandidate.source_grounding;
@@ -1724,46 +1831,112 @@ function App() {
                         <div className="candidate-detail-sections">
                           <section>
                             <h4>Linked Concepts</h4>
-                            {linkedConcepts.map((concept, index) => (
-                              <div key={`${concept.concept_type}-${concept.name}-${index}`}>
+                            {linkedConcepts.map((concept, index) => {
+                              const conceptMemoryOptions = memoryOptions.filter(
+                                (option) => option.subject_type === concept.concept_type
+                              );
+                              const matchedMemory = concept.project_memory_record_id
+                                ? conceptMemoryOptions.find(
+                                    (option) => option.record_id === concept.project_memory_record_id
+                                  )
+                                : null;
+                              const existingMemoryMatch =
+                                matchedMemory ??
+                                existingMemoryMatches.find(
+                                  (match) =>
+                                    match.subject_type === concept.concept_type &&
+                                    match.subject_name === concept.name
+                                );
+                              const originalConcept = Array.isArray(
+                                detailCandidate.proposed_payload.linked_concepts
+                              )
+                                ? proposedConcept(
+                                    detailCandidate.proposed_payload.linked_concepts[index]
+                                  )
+                                : null;
+                              const listId = `candidate-${detailCandidate.id}-${concept.concept_id ?? index}-memory`;
+                              return (
+                              <div key={concept.concept_id ?? `${concept.concept_type}-${index}`}>
                                 <p><strong>{concept.name || "Unnamed concept"}</strong></p>
                                 <p>{formatConceptType(concept.concept_type)}</p>
-                                <p>
-                                  {categoryPath(
-                                    concept.top_level_category,
-                                    concept.subcategory
-                                  ) ?? "Needs taxonomy"}
-                                </p>
-                                {existingMemoryMatches.find(
-                                  (match) => match.subject_type === concept.concept_type
-                                ) ? (
+                                {concept.observed_name_text ? (
                                   <p className="status-message">
-                                    Matched existing memory: {existingMemoryMatches.find(
-                                      (match) => match.subject_type === concept.concept_type
-                                    )?.subject_name} - existing category will be preserved.
+                                    Observed source: {concept.observed_name_text}
                                   </p>
                                 ) : null}
+                                {!concept.project_memory_record_id ? (
+                                  <p className="status-message">
+                                    New Project Memory record — taxonomy approval required.
+                                  </p>
+                                ) : null}
+                                {existingMemoryMatch ? (
+                                  <div
+                                    aria-label={`${formatConceptType(concept.concept_type)} taxonomy`}
+                                    className="taxonomy-gate taxonomy-readonly"
+                                    role="group"
+                                  >
+                                    <p><strong>Resolved Category Path</strong></p>
+                                    <p>{existingMemoryMatch.category_path}</p>
+                                    <p className="status-message">
+                                      Read-only — inherited from existing Project Memory.
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <p>
+                                    {categoryPath(
+                                      concept.top_level_category,
+                                      concept.subcategory
+                                    ) ?? "Needs taxonomy"}
+                                  </p>
+                                )}
                                 <label>
                                   {formatConceptType(concept.concept_type)} name
                                   <input
-                                    onChange={(event) =>
+                                    list={listId}
+                                    onChange={(event) => {
+                                      const value = event.target.value;
+                                      const option = conceptMemoryOptions.find(
+                                        (candidateOption) =>
+                                          normalizeName(candidateOption.subject_name) === normalizeName(value)
+                                      );
+                                      const selectedCategory = option
+                                        ? splitCategoryPath(option.category_path)
+                                        : null;
                                       updateCandidateReviewedPayload(
                                         detailCandidate,
                                         (payload) => ({
                                           ...payload,
-                                          linked_concepts: reviewedConcepts(payload).map((item) =>
-                                            item.concept_type === concept.concept_type
-                                              ? { ...item, name: event.target.value }
+                                          linked_concepts: reviewedConcepts(payload).map((item, itemIndex) =>
+                                            itemIndex === index
+                                              ? {
+                                                  ...item,
+                                                  name: option?.subject_name ?? value,
+                                                  project_memory_record_id: option?.record_id ?? null,
+                                                  top_level_category:
+                                                    selectedCategory?.topLevelCategory ??
+                                                    originalConcept?.top_level_category ??
+                                                    item.top_level_category,
+                                                  subcategory:
+                                                    selectedCategory?.subcategory ??
+                                                    originalConcept?.subcategory ?? item.subcategory
+                                                }
                                               : item
                                           )
                                         })
-                                      )
-                                    }
+                                      );
+                                    }}
                                     value={concept.name}
                                   />
+                                  <datalist id={listId}>
+                                    {conceptMemoryOptions.map((option) => (
+                                      <option key={option.record_id} value={option.subject_name}>
+                                        {option.category_path}
+                                      </option>
+                                    ))}
+                                  </datalist>
                                 </label>
                               </div>
-                            ))}
+                            );})}
                             <div className="review-actions">
                               {(["material", "service"] as const).map((conceptType) => {
                                 const isLinked = linkedConcepts.some(
@@ -1787,7 +1960,10 @@ function App() {
                                                   ...reviewedConcepts(payload),
                                                   {
                                                     concept_type: conceptType,
+                                                    concept_id: `reviewer-${conceptType}-${Date.now()}`,
                                                     name: "",
+                                                    observed_name_text: null,
+                                                    project_memory_record_id: null,
                                                     top_level_category: null,
                                                     subcategory: null
                                                   }
@@ -1822,6 +1998,10 @@ function App() {
                                     provider_state: nextState,
                                     provider_name:
                                       nextState === "external" ? payload.provider_name : null,
+                                    provider_memory_record_id:
+                                      nextState === "external"
+                                        ? payload.provider_memory_record_id
+                                        : null,
                                     provider_top_level_category:
                                       nextState === "external"
                                         ? payload.provider_top_level_category ?? "Providers"
@@ -1842,35 +2022,73 @@ function App() {
                             {providerState === "external" ? (
                               <>
                                 <p>{providerName}</p>
-                                <p>
-                                  {categoryPath(
-                                    reviewedPayload.provider_top_level_category,
-                                    reviewedPayload.provider_subcategory
-                                  ) ?? "Providers / General"}
-                                </p>
-                                {existingMemoryMatches.find(
-                                  (match) => match.subject_type === "provider"
-                                ) ? (
+                                {reviewedPayload.observed_provider_text ? (
                                   <p className="status-message">
-                                    Matched existing memory: {existingMemoryMatches.find(
-                                      (match) => match.subject_type === "provider"
-                                    )?.subject_name} - existing category will be preserved.
+                                    Observed source: {reviewedPayload.observed_provider_text}
                                   </p>
                                 ) : null}
+                                {existingProviderMemory ? (
+                                  <div
+                                    aria-label="Provider taxonomy"
+                                    className="taxonomy-gate taxonomy-readonly"
+                                    role="group"
+                                  >
+                                    <p><strong>Resolved Category Path</strong></p>
+                                    <p>{existingProviderMemory.category_path}</p>
+                                    <p className="status-message">
+                                      Read-only — inherited from existing Project Memory.
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <p>
+                                    {categoryPath(
+                                      reviewedPayload.provider_top_level_category,
+                                      reviewedPayload.provider_subcategory
+                                    ) ?? "Providers / General"}
+                                  </p>
+                                )}
                                 <label>
                                   Provider name
                                   <input
-                                    onChange={(event) =>
+                                    list={`candidate-${detailCandidate.id}-provider-memory`}
+                                    onChange={(event) => {
+                                      const value = event.target.value;
+                                      const option = memoryOptions.find(
+                                        (candidateOption) =>
+                                          candidateOption.subject_type === "provider" &&
+                                          normalizeName(candidateOption.subject_name) === normalizeName(value)
+                                      );
+                                      const selectedCategory = option
+                                        ? splitCategoryPath(option.category_path)
+                                        : null;
                                       updateCandidateReviewedPayload(
                                         detailCandidate,
                                         (payload) => ({
                                           ...payload,
-                                          provider_name: event.target.value || null
+                                          provider_name: option?.subject_name ?? (value || null),
+                                          provider_memory_record_id: option?.record_id ?? null,
+                                          provider_top_level_category:
+                                            selectedCategory?.topLevelCategory ??
+                                            payload.provider_top_level_category,
+                                          provider_subcategory:
+                                            selectedCategory?.subcategory ??
+                                            payload.provider_subcategory
                                         })
-                                      )
-                                    }
+                                      );
+                                    }}
                                     value={reviewedPayload.provider_name ?? ""}
                                   />
+                                  <datalist id={`candidate-${detailCandidate.id}-provider-memory`}>
+                                    {memoryOptions
+                                      .filter((option) => option.subject_type === "provider")
+                                      .map((option) => (
+                                        <option key={option.record_id} value={option.subject_name}>
+                                          {[option.category_path, ...(option.provider_roles ?? [])]
+                                            .filter(Boolean)
+                                            .join(" — ")}
+                                        </option>
+                                      ))}
+                                  </datalist>
                                 </label>
                               </>
                             ) : null}
@@ -1888,6 +2106,16 @@ function App() {
                                 .filter(Boolean)
                                 .join(" ") || "Price not provided"}
                             </p>
+                            {reviewedPayload.calculation ? (
+                              <p className="status-message">
+                                Calculated: {String(reviewedPayload.calculation.formula)} = {String(reviewedPayload.calculation.result)}
+                              </p>
+                            ) : null}
+                            {reviewedPayload.variance_warning ? (
+                              <p className="status-message error">
+                                Source total {String(reviewedPayload.variance_warning.source_stated_total)} differs from calculated total {String(reviewedPayload.variance_warning.calculated_total)} by {String(reviewedPayload.variance_warning.variance)}.
+                              </p>
+                            ) : null}
                             <p>{reviewedPayload.purchase_date ?? "Date not provided"}</p>
                             {(
                               [
@@ -1922,7 +2150,7 @@ function App() {
                               <button
                                 className="secondary-action"
                                 disabled={
-                                  reviewedAnnotations.length >= 20 || !canAddGroundedAnnotation
+                                  !canAddGroundedAnnotation
                                 }
                                 onClick={() =>
                                   updateCandidateReviewedPayload(detailCandidate, (payload) => ({
@@ -1942,7 +2170,6 @@ function App() {
                                 Add annotation
                               </button>
                             </div>
-                            {annotationLimitWarning(detailCandidate.proposed_payload)}
                             {!canAddGroundedAnnotation ? (
                               <p className="status-message">
                                 No precise source grounding is available for another annotation.
@@ -1956,6 +2183,12 @@ function App() {
                                 (proposal) => proposal.proposal_id === annotation.proposal_id
                               );
                               const targetIsAvailable = availableAnnotationTargets.has(annotation.target);
+                              const annotationConceptOptions =
+                                annotation.target === "material" || annotation.target === "service"
+                                  ? linkedConcepts.filter(
+                                      (concept) => concept.concept_type === annotation.target
+                                    )
+                                  : [];
                               return (
                                 <div className="annotation-review-card" key={annotation.proposal_id}>
                                   <div className="evidence-heading">
@@ -2074,13 +2307,23 @@ function App() {
                                         aria-label={`Annotation target ${index + 1}`}
                                         value={annotation.target}
                                         onChange={(event) =>
-                                          updateCandidateAnnotation(
-                                            detailCandidate,
-                                            annotation.proposal_id,
-                                            {
-                                              target: event.target.value as ReviewedAnnotationProposal["target"]
-                                            }
-                                          )
+                                          {
+                                            const target = event.target.value as ReviewedAnnotationProposal["target"];
+                                            const targetConcepts = linkedConcepts.filter(
+                                              (concept) => concept.concept_type === target
+                                            );
+                                            updateCandidateAnnotation(
+                                              detailCandidate,
+                                              annotation.proposal_id,
+                                              {
+                                                target,
+                                                target_concept_id:
+                                                  targetConcepts.length > 1
+                                                    ? targetConcepts[0].concept_id
+                                                    : null
+                                              }
+                                            );
+                                          }
                                         }
                                       >
                                         {annotationTargets.map((target) => (
@@ -2095,6 +2338,35 @@ function App() {
                                       </select>
                                     </label>
                                   </div>
+                                  {annotationConceptOptions.length > 1 ? (
+                                    <label>
+                                      Annotation concept {index + 1}
+                                      <select
+                                        aria-label={`Annotation concept ${index + 1}`}
+                                        value={
+                                          annotation.target_concept_id ??
+                                          annotationConceptOptions[0].concept_id ??
+                                          ""
+                                        }
+                                        onChange={(event) =>
+                                          updateCandidateAnnotation(
+                                            detailCandidate,
+                                            annotation.proposal_id,
+                                            { target_concept_id: event.target.value || null }
+                                          )
+                                        }
+                                      >
+                                        {annotationConceptOptions.map((concept, conceptIndex) => (
+                                          <option
+                                            key={concept.concept_id ?? conceptIndex}
+                                            value={concept.concept_id ?? ""}
+                                          >
+                                            {concept.name || `Unnamed ${formatConceptType(concept.concept_type)}`}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </label>
+                                  ) : null}
                                   {original && original.annotation_type !== annotation.annotation_type ? (
                                     <p className="status-message">
                                       Changed from {formatLabel(original.annotation_type)}
@@ -2124,10 +2396,10 @@ function App() {
                               );
                             })}
                           </section>
-                          {(detailCandidate.taxonomy_gates ?? []).length > 0 ? (
-                            <section>
+                          {activeTaxonomyGates.length > 0 || draftTaxonomySubjects.length > 0 ? (
+                            <section aria-label="Taxonomy Gates">
                               <h4>Taxonomy Gates</h4>
-                              {(detailCandidate.taxonomy_gates ?? []).map((gate) => (
+                              {activeTaxonomyGates.map((gate) => (
                                 <div className="taxonomy-gate" key={gate.id}>
                                   <p>
                                     <strong>{formatTaxonomySubjectType(gate.subject_type)}</strong>: {" "}
@@ -2202,10 +2474,43 @@ function App() {
                                   )}
                                 </div>
                               ))}
+                              {draftTaxonomySubjects.map((subject) => (
+                                <div
+                                  className="taxonomy-gate"
+                                  key={`${subject.subjectType}-${normalizeName(subject.subjectName)}`}
+                                >
+                                  <p>
+                                    <strong>{formatTaxonomySubjectType(subject.subjectType)}</strong>: {" "}
+                                    {subject.subjectName}
+                                  </p>
+                                  <p>
+                                    AI suggestion: {subject.categoryPath ?? "No complete taxonomy suggestion"}
+                                  </p>
+                                  <p className="status-message">Needs decision</p>
+                                  <button
+                                    className="secondary-action"
+                                    disabled={isApprovingCandidate || subject.categoryPath === null}
+                                    onClick={() =>
+                                      void handleAdjustDraftTaxonomy(detailCandidate, subject)
+                                    }
+                                    type="button"
+                                  >
+                                    Adjust category
+                                  </button>
+                                </div>
+                              ))}
                             </section>
                           ) : null}
                         </div>
                         <div className="review-actions">
+                          <button
+                            className="secondary-action"
+                            disabled={isApprovingCandidate}
+                            onClick={() => void handleResetCandidate(detailCandidate)}
+                            type="button"
+                          >
+                            Reset candidate
+                          </button>
                           <button
                             className="secondary-action"
                             onClick={() => setDetailCandidateId(null)}
@@ -2880,10 +3185,25 @@ function reviewedPayloadForCandidate(candidate: ExtractedCandidateRead): Reviewe
             }
           ],
     provider_state: providerState,
+    observed_provider_text: objectString(proposedPayload, "observed_provider_text"),
+    provider_memory_record_id: objectNumber(proposedPayload, "provider_memory_record_id"),
     provider_top_level_category:
       providerState === "external" ? providerTopLevelCategory ?? "Providers" : null,
     provider_subcategory:
       providerState === "external" ? providerSubcategory ?? "General" : null,
+    bundle_quantity: objectString(proposedPayload, "bundle_quantity"),
+    bundle_unit: objectString(proposedPayload, "bundle_unit"),
+    installation_relationships: Array.isArray(proposedPayload.installation_relationships)
+      ? proposedPayload.installation_relationships as ReviewedPurchaseLinePayload["installation_relationships"]
+      : [],
+    primary_evidence_span:
+      proposedPayload.primary_evidence_span &&
+      typeof proposedPayload.primary_evidence_span === "object"
+        ? proposedPayload.primary_evidence_span as Record<string, unknown>
+        : null,
+    supporting_evidence_spans: Array.isArray(proposedPayload.supporting_evidence_spans)
+      ? proposedPayload.supporting_evidence_spans as Record<string, unknown>[]
+      : [],
     line_type:
       proposedPayload.line_type === "service" || proposedPayload.line_type === "material"
         ? proposedPayload.line_type
@@ -2894,6 +3214,21 @@ function reviewedPayloadForCandidate(candidate: ExtractedCandidateRead): Reviewe
     quantity: optionalText(String(proposedPayload.quantity ?? "")),
     unit: optionalText(String(proposedPayload.unit ?? "")),
     price: optionalText(String(proposedPayload.price ?? "")),
+    price_state:
+      proposedPayload.price_state === "source_stated" ||
+      proposedPayload.price_state === "calculated" ||
+      proposedPayload.price_state === "defaulted" ||
+      proposedPayload.price_state === "unknown"
+        ? proposedPayload.price_state
+        : null,
+    calculation:
+      proposedPayload.calculation && typeof proposedPayload.calculation === "object"
+        ? proposedPayload.calculation as Record<string, unknown>
+        : null,
+    variance_warning:
+      proposedPayload.variance_warning && typeof proposedPayload.variance_warning === "object"
+        ? proposedPayload.variance_warning as Record<string, unknown>
+        : null,
     currency: optionalText(String(proposedPayload.currency ?? "")),
     provider_name:
       providerState === "external"
@@ -2985,20 +3320,6 @@ function formatCandidateConfidence(value: unknown): string {
     : "Not available";
 }
 
-function annotationLimitWarning(payload: Record<string, unknown>): ReactNode {
-  const omitted = payload.annotation_omitted_count;
-  const detected = payload.annotation_detected_count;
-  if (typeof omitted !== "number" || omitted <= 0 || typeof detected !== "number") {
-    return null;
-  }
-  return (
-    <p className="status-message error">
-      Annotation extraction limit reached — 20 of {detected} source-grounded annotation proposals
-      were retained. Review the source and add any omitted qualifiers that matter.
-    </p>
-  );
-}
-
 function formatAnnotationProvenance(
   provenance: ReviewedAnnotationProposal["provenance"]
 ): string {
@@ -3012,28 +3333,46 @@ function formatAnnotationProvenance(
 }
 
 type ReviewedConcept = {
+  concept_id: string | null;
   concept_type: "material" | "service";
   name: string;
+  observed_name_text: string | null;
+  project_memory_record_id: number | null;
   top_level_category: string | null;
   subcategory: string | null;
+  quantity: string | null;
+  unit: string | null;
+  component_unit_price: string | null;
 };
 
 function reviewedConcepts(payload: ReviewedPurchaseLinePayload): ReviewedConcept[] {
   if (payload.linked_concepts && payload.linked_concepts.length > 0) {
     return payload.linked_concepts.map((concept) => ({
+      concept_id: concept.concept_id ?? null,
       concept_type: concept.concept_type,
       name: concept.name ?? "",
+      observed_name_text: concept.observed_name_text ?? null,
+      project_memory_record_id: concept.project_memory_record_id ?? null,
       top_level_category: concept.top_level_category ?? null,
-      subcategory: concept.subcategory ?? null
+      subcategory: concept.subcategory ?? null,
+      quantity: concept.quantity ?? null,
+      unit: concept.unit ?? null,
+      component_unit_price: concept.component_unit_price ?? null
     }));
   }
 
   return [
     {
+      concept_id: null,
       concept_type: payload.line_type === "service" ? "service" : "material",
       name: payload.name ?? "",
+      observed_name_text: null,
+      project_memory_record_id: null,
       top_level_category: payload.top_level_category ?? null,
-      subcategory: payload.subcategory ?? null
+      subcategory: payload.subcategory ?? null,
+      quantity: payload.quantity ?? null,
+      unit: payload.unit ?? null,
+      component_unit_price: null
     }
   ];
 }
@@ -3048,10 +3387,16 @@ function proposedConcept(value: unknown): ReviewedConcept | null {
   }
   const categorySuggestion = (value as Record<string, unknown>).category_suggestion;
   return {
+    concept_id: objectString(value, "concept_id"),
     concept_type: conceptType,
     name: objectString(value, "name") ?? "",
+    observed_name_text: objectString(value, "observed_name_text"),
+    project_memory_record_id: objectNumber(value, "project_memory_record_id"),
     top_level_category: objectString(categorySuggestion, "top_level_category"),
-    subcategory: objectString(categorySuggestion, "subcategory")
+    subcategory: objectString(categorySuggestion, "subcategory"),
+    quantity: objectString(value, "quantity"),
+    unit: objectString(value, "unit"),
+    component_unit_price: objectString(value, "component_unit_price")
   };
 }
 
@@ -3061,6 +3406,18 @@ function objectString(value: unknown, key: string): string | null {
   }
   const field = (value as Record<string, unknown>)[key];
   return typeof field === "string" && field.trim() !== "" ? field : null;
+}
+
+function objectNumber(value: unknown, key: string): number | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === "number" ? field : null;
+}
+
+function normalizeName(value: string): string {
+  return value.trim().toLocaleLowerCase();
 }
 
 function categoryPath(
@@ -3139,36 +3496,58 @@ function countSimilarPendingTaxonomyGates(
   ).length;
 }
 
-function normalizedTaxonomySuggestionKey(candidate: ExtractedCandidateRead): string | null {
-  const suggestion = taxonomySuggestion(candidate);
-  if (suggestion?.topLevelCategory && suggestion.subcategory) {
-    return `${normalizeTaxonomyPart(suggestion.topLevelCategory)} / ${normalizeTaxonomyPart(
-      suggestion.subcategory
-    )}`;
-  }
-  return null;
-}
-
 function taxonomyStatusLabel(
   candidate: ExtractedCandidateRead,
   reviewedPayload: ReviewedPurchaseLinePayload
 ): string {
+  const newRecordSubjects = taxonomySubjectsForNewRecords(reviewedPayload);
   const activeGates = (candidate.taxonomy_gates ?? []).filter((gate) => gate.active);
-  if (activeGates.length > 0) {
-    return activeGates.every((gate) => gate.status === "accepted")
-      ? "Accepted"
-      : "Needs decision";
-  }
+  return newRecordSubjects.every((subject) =>
+    activeGates.some(
+      (gate) => taxonomyGateMatchesSubject(gate, subject) && gate.status === "accepted"
+    )
+  )
+    ? "Accepted"
+    : "Needs decision";
+}
 
-  if (!reviewedPayload.top_level_category || !reviewedPayload.subcategory) {
-    return "Needs taxonomy";
+function taxonomySubjectsForNewRecords(
+  reviewedPayload: ReviewedPurchaseLinePayload
+): ReviewTaxonomySubject[] {
+  const subjects: ReviewTaxonomySubject[] = reviewedConcepts(reviewedPayload)
+    .filter(
+      (concept) => concept.project_memory_record_id === null && concept.name.trim() !== ""
+    )
+    .map((concept) => ({
+      subjectType: concept.concept_type,
+      subjectName: concept.name,
+      categoryPath: categoryPath(concept.top_level_category, concept.subcategory)
+    }));
+  if (
+    reviewedPayload.provider_state === "external" &&
+    reviewedPayload.provider_memory_record_id == null &&
+    reviewedPayload.provider_name?.trim()
+  ) {
+    subjects.push({
+      subjectType: "provider",
+      subjectName: reviewedPayload.provider_name,
+      categoryPath: categoryPath(
+        reviewedPayload.provider_top_level_category,
+        reviewedPayload.provider_subcategory
+      )
+    });
   }
+  return subjects;
+}
 
-  const reviewedKey = `${normalizeTaxonomyPart(
-    reviewedPayload.top_level_category
-  )} / ${normalizeTaxonomyPart(reviewedPayload.subcategory)}`;
-  const suggestedKey = normalizedTaxonomySuggestionKey(candidate);
-  return suggestedKey === reviewedKey ? "AI suggested default" : "Reviewer mapped taxonomy";
+function taxonomyGateMatchesSubject(
+  gate: CandidateTaxonomyGate,
+  subject: ReviewTaxonomySubject
+): boolean {
+  return (
+    gate.subject_type === subject.subjectType &&
+    normalizeName(gate.subject_name) === normalizeName(subject.subjectName)
+  );
 }
 
 function normalizeTaxonomyPart(value: string): string {

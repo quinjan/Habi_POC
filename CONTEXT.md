@@ -116,6 +116,10 @@ _Avoid_: Source grounding, cross-project match, automatic import
 The reviewed Material, Service, or external Provider name selected through a searchable control that offers active same-type Project Memory records and permits a new free-text value. Selecting an existing option or typing its exact normalized name retains its Memory Record identity; only unmatched free text represents a new record.
 _Avoid_: Plain text-only name, closed dropdown, implicit fuzzy match
 
+**Normalized Concept Name**:
+The reusable Material or Service name proposed for review and eventual Project Memory; a Material preserves source-backed identity details and uses a singular noun form when quantity expresses multiplicity. A standalone Service preserves source-backed work details and uses `worked-on subject + performed work` when both are known, while a Service in a bundle avoids duplicating specifications already represented by linked Materials; all names normalize punctuation, omit transaction or lifecycle qualifiers such as completed or final, and preserve exact source wording separately as Observed Name Text.
+_Avoid_: Exact source transcription, specification-stripped name, duplicated linked-Material identity, transaction description
+
 **Archived Memory Record**:
 A previously imported memory record removed from active Project Memory browsing and search while remaining preserved for history, evidence, and audit.
 _Avoid_: Deleted record, deactivated record
@@ -123,6 +127,10 @@ _Avoid_: Deleted record, deactivated record
 **Purchase Line**:
 A final/as-used project purchasing fact with source support for at least one Material or Service and for its purchasing status. It may connect those concepts to quantity, unit, price, supplier or provider, date, and other source evidence when available; those commercial fields alone do not establish a Purchase Line.
 _Avoid_: Bid estimate line, unselected canvass quote
+
+**Shared Delivery Charge**:
+A single source-stated delivery amount that applies to two or more Purchase Lines without a source-backed allocation among them. It remains one cost related to every covered line, is excluded from each line's individual total, and is counted once in the encompassing purchase and project totals.
+_Avoid_: Per-line delivery charge, duplicated cost, inferred allocation
 
 **Purchase Line Evidence Span**:
 An exact, source-ordered character range in a free-form Manual Source Entry that contains evidence for one plausible Purchase Line. AI emits the exact source excerpt with its candidate, while Habi derives and verifies the character range against the preserved source text before the candidate can enter review.
@@ -169,56 +177,24 @@ A review-visible value that Habi deterministically calculated from explicitly so
 _Avoid_: AI estimate, hidden arithmetic, source-stated total
 
 **Real-Model Evaluation**:
-An explicit, opt-in test that calls the configured OpenAI model with production-shaped prompts and schemas to measure semantic extraction behavior. It may use `OPENAI_API_KEY` from the ignored repository-root `.env`, remains separate from the ordinary offline test suite, and records model, prompt/schema, reasoning, retry, call-count, validation, and available usage metadata without recording credentials.
-_Avoid_: Unit test, implicit network test, mocked model score
-
-**One-Pass Accuracy Profile**:
-The primary free-form Real-Model Evaluation profile in which retries are disabled and every attempt uses one pinned GPT-5.5 `high`-reasoning call. Promotion requires one 10-call run covering all eight fixtures once plus repeated mixed-baseline and multi-concept-installation sentinels; every attempt must pass under the same model and prompt/schema configuration. Retry-enabled real-model diagnostics are optional and never contribute to promotion.
-_Avoid_: Retry-assisted pass, best-of-many result, unpinned model run
-
-**Ten-Call Promotion Run**:
-One primary-profile execution containing eight fixture-coverage calls plus repeat calls for the mixed completed-project baseline and multi-concept installation bundle sentinels. All 10 use the same pinned configuration and must pass; omitted, failed, or selectively replaced attempts cannot qualify the run.
-_Avoid_: Five-cycle suite, cherry-picked pass, mixed model configuration
-
-**Evaluation Fixture Manifest**:
-A checked-in, versioned, non-secret specification of one Real-Model Evaluation case containing its exact source text, Contractor Assigned, complete active Project Memory, taxonomy vocabulary, other production prompt context, and expected structured result. The evaluator seeds an isolated Project Workspace from it and records its deterministic content hash, so ambient data or silent fixture drift cannot affect the score.
-_Avoid_: Mutable test database seed, partial prompt fixture, credential file
-
-**Evaluation Contract Comparator**:
-The strict field-level comparison between a production-validated real-model result and an Evaluation Fixture Manifest's expected domain result. It requires exact candidate order, names, links, Provider semantics, memory matches, taxonomy, commercial facts, annotations, and grounding while ignoring only non-domain serialization and runtime metadata.
-_Avoid_: Raw JSON snapshot, fuzzy semantic grader, permissive partial score
-
-**Evaluation Infrastructure Error**:
-An unscored Real-Model Evaluation attempt for which no model outcome can be judged because the API, authentication, request configuration, evaluator, or environment failed. It is retained, makes the Ten-Call Promotion Run incomplete, and requires the entire run to start again; a model response that reaches validation is not an infrastructure error.
-_Avoid_: Schema-invalid model output, semantic mismatch, selective fixture retry
-
-**Initial POC Accuracy Gate**:
-The promotion rule that requires one complete Ten-Call Promotion Run to satisfy every strict semantic fixture contract, including both sentinel repeats. Latency, token usage, and estimated cost are recorded to establish an operational baseline but do not fail initial POC promotion unless a later prospective decision adds explicit thresholds.
-_Avoid_: Cost-blind reporting, arbitrary pre-baseline threshold, partial semantic score
-
-**Real-Model Evaluation Boundary**:
-The production Manual Source Entry submission and processing-worker path exercised by the free-form evaluation suite after isolated fixture setup. The evaluator scores the terminal Processing Job and persisted Review Batch, Extracted Candidates, evidence, and diagnostics, and stops before reviewer interaction or import.
-_Avoid_: Direct provider benchmark, evaluation-only prompt, UI automation test
-
-**Evaluation Request Fingerprint**:
-The recorded human versions and SHA-256 content hashes of the production prompt template, fixture-specific fully rendered model input, canonical structured-output schema, and output-affecting request configuration used by one Real-Model Evaluation attempt. Credential and transport metadata are excluded; any output-affecting fingerprint change requires a new Ten-Call Promotion Run.
-_Avoid_: Manual version only, API-key hash, evaluation-only prompt identity
-
-**Promotion Evidence Record**:
-An evaluator-generated, schema-validated, checked-in JSON summary proving that one free-form model, prompt, schema, and fixture configuration passed a complete Ten-Call Promotion Run. It contains the eight coverage outcomes, two sentinel-repeat outcomes, reproducibility hashes, safe metrics, and sanitized artifact digests but no raw model payloads or credentials.
-_Avoid_: Console-only pass, hand-authored approval note, committed API response
+An explicit, human-approved test that makes one retry-disabled call to the pinned free-form OpenAI model through Habi's production Manual Source Entry and worker path. It remains separate from ordinary offline tests, requires fresh human approval before every paid call or rerun, and prints a short pull-request scorecard without recording credentials or raw model payloads.
+_Avoid_: Unit test, implicit network test, automatic rerun, deployment trigger
 
 **Output-Affecting Evaluation Change**:
-A change capable of altering the rendered free-form OpenAI request, parsed response, production validation, persisted candidate proposal, fixture expectation, or comparison result. It requires an explicitly invoked promotion suite and new Promotion Evidence Record; unrelated, XLSX-only, documentation-only, and post-extraction UI changes do not.
+A change capable of altering the rendered free-form OpenAI request, parsed response, production validation, or persisted candidate proposal. It requires one passing Real-Model Evaluation before a human decides whether to merge; unrelated, XLSX-only, documentation-only, and post-extraction UI changes do not.
 _Avoid_: Every pull request, ordinary offline test change, styling update
 
-**Realistic Evaluation Fixture**:
-One of eight synthetic, non-customer, production-shaped free-form sources in the paid model suite. It has one primary risk focus but combines natural headings, shorthand, purchasing facts, qualifiers, memory distractors, and workflow noise without exposing internal schema labels or expected answers.
-_Avoid_: One-sentence unit case, customer document, prompt-answer hint
+**POC Evaluation Fixture**:
+The single synthetic mixed completed-project source used for Habi's paid free-form evaluation. Its versioned manifest supplies the exact source, Contractor Assigned, Project Memory, taxonomy vocabulary, and Human-Approved Golden Result needed to create an isolated Project Workspace.
+_Avoid_: Customer document, eight-fixture suite, mutable test database seed
+
+**Evaluation Scorecard**:
+The automated PASS-or-FAIL Markdown summary produced by one Real-Model Evaluation for posting to the relevant pull request. It names the PRD, fixture, model, approving human, model-call count, Purchase Line count, and exclusion result; the human still decides whether to merge.
+_Avoid_: Promotion record, deployment approval, raw model response
 
 **Human-Approved Golden Result**:
-The exact expected domain output of an Evaluation Fixture Manifest, approved by a human domain reviewer with identity, date, reviewed version, and rationale. A model may assist drafting but cannot automatically create, overwrite, approve, or snapshot-update the golden used to score itself.
-_Avoid_: Recorded current output, model-as-judge expectation, unreviewed snapshot
+The human-approved expected subset of domain output scored by the POC Evaluation Fixture, with reviewer identity, date, fixture version, and rationale. It covers the scorecard's agreed essential fields rather than every persisted candidate field; a model may assist drafting but cannot automatically create, overwrite, approve, or snapshot-update it.
+_Avoid_: Exhaustive production contract, recorded current output, model-as-judge expectation, unreviewed snapshot
 
 **Provider**:
 An external company or person that supplied materials, provided services, or handled bundled supply-and-install work for the completed project. A Provider has its own reviewer-selected Resolved Category Path and is not categorized by the Material or Service categories of a linked Purchase Line.

@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import date
 from typing import Literal
 
@@ -69,6 +70,8 @@ class XlsxPurchaseLineCandidate(BaseModel):
 
     linked_concepts: list[AiLinkedConcept] = Field(default_factory=list, max_length=2)
     provider_state: ProviderState | None = None
+    observed_provider_text: str | None = Field(default=None, max_length=2000)
+    provider_memory_record_id: int | None = None
     provider_category_suggestion: AiCategorySuggestion | None = None
 
     # Legacy XLSX providers remain valid while queued jobs migrate to linked concepts.
@@ -98,6 +101,7 @@ class XlsxPurchaseLineCandidate(BaseModel):
         "price",
         "currency",
         "provider_name",
+        "observed_provider_text",
         "remarks_or_terms",
         mode="before",
     )
@@ -210,9 +214,9 @@ def validate_xlsx_candidates(
     )
     for raw_candidate in raw_candidates:
         annotation_metadata: dict = {}
-        candidate_input = raw_candidate
+        candidate_input = _normalize_legacy_category_suggestions(raw_candidate)
         if not ground_ai_annotations and isinstance(raw_candidate, dict):
-            candidate_input = dict(raw_candidate)
+            candidate_input = dict(candidate_input)
             for field in (
                 "dropped_annotation_count",
                 "dropped_annotation_reasons",
@@ -253,6 +257,31 @@ def validate_xlsx_candidates(
             payload.update(annotation_metadata)
         valid.append(payload)
     return valid, dropped
+
+
+def _normalize_legacy_category_suggestions(raw_candidate: object) -> object:
+    if not isinstance(raw_candidate, dict):
+        return raw_candidate
+    normalized = deepcopy(raw_candidate)
+    suggestions = [
+        normalized.get("category_suggestion"),
+        normalized.get("provider_category_suggestion"),
+        *(
+            concept.get("category_suggestion")
+            for concept in normalized.get("linked_concepts", [])
+            if isinstance(concept, dict)
+        ),
+    ]
+    for suggestion in suggestions:
+        if not isinstance(suggestion, dict):
+            continue
+        top_level = suggestion.get("top_level_category")
+        if not isinstance(top_level, str) or "/" not in top_level:
+            continue
+        parent, remainder = top_level.split("/", 1)
+        suggestion["top_level_category"] = parent.strip()
+        suggestion["subcategory"] = remainder.strip()
+    return normalized
 
 
 def _ground_xlsx_annotations(

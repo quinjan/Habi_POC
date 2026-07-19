@@ -46,6 +46,7 @@ class ExtractedCandidateRead(BaseModel):
     taxonomy_gate: "TaxonomyGateRead | None" = None
     taxonomy_gates: list["CandidateTaxonomyGateRead"] = Field(default_factory=list)
     existing_memory_matches: list["ExistingMemoryMatchRead"] = Field(default_factory=list)
+    memory_options: list["MemoryOptionRead"] = Field(default_factory=list)
     taxonomy_default: "TaxonomyDefaultRead | None" = None
 
 
@@ -70,10 +71,27 @@ class SourceFileQueuedSubmission(BaseModel):
 
 
 class ReviewedConceptPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    concept_id: str | None = Field(default=None, max_length=100)
     concept_type: Literal["material", "service"]
     name: str | None = Field(default=None, max_length=255)
+    observed_name_text: str | None = Field(default=None, max_length=2000)
+    project_memory_record_id: int | None = None
     top_level_category: str | None = Field(default=None, max_length=255)
     subcategory: str | None = Field(default=None, max_length=255)
+    quantity: str | None = Field(default=None, max_length=100)
+    unit: str | None = Field(default=None, max_length=100)
+    component_unit_price: str | None = Field(default=None, max_length=100)
+
+
+class ReviewedInstallationRelationship(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    service_concept_id: str = Field(min_length=1, max_length=100)
+    material_concept_ids: list[str] = Field(min_length=1)
+    source_excerpt: str = Field(min_length=1, max_length=2000)
+    source_locator: dict
 
 
 class ReviewedAnnotationProposal(BaseModel):
@@ -83,6 +101,7 @@ class ReviewedAnnotationProposal(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
     annotation_type: EvidenceAnnotationType
     target: EvidenceAnnotationTarget
+    target_concept_id: str | None = Field(default=None, max_length=100)
     source_excerpt: str = Field(min_length=1, max_length=2000)
     source_locator: dict
     provenance: Literal[
@@ -99,10 +118,19 @@ class ReviewedAnnotationProposal(BaseModel):
 
 
 class ReviewedPurchaseLinePayload(BaseModel):
-    linked_concepts: list[ReviewedConceptPayload] = Field(default_factory=list, max_length=2)
+    linked_concepts: list[ReviewedConceptPayload] = Field(default_factory=list)
     provider_state: Literal["external", "internal", "unknown"] | None = None
+    observed_provider_text: str | None = Field(default=None, max_length=2000)
+    provider_memory_record_id: int | None = None
     provider_top_level_category: str | None = Field(default=None, max_length=255)
     provider_subcategory: str | None = Field(default=None, max_length=255)
+    bundle_quantity: str | None = Field(default=None, max_length=100)
+    bundle_unit: str | None = Field(default=None, max_length=100)
+    installation_relationships: list[ReviewedInstallationRelationship] = Field(
+        default_factory=list
+    )
+    primary_evidence_span: dict | None = None
+    supporting_evidence_spans: list[dict] = Field(default_factory=list)
 
     # Legacy single-concept fields remain accepted while old review batches are migrated.
     line_type: Literal["material", "service"] | None = None
@@ -112,13 +140,15 @@ class ReviewedPurchaseLinePayload(BaseModel):
     quantity: str | None = Field(default=None, max_length=100)
     unit: str | None = Field(default=None, max_length=100)
     price: str | None = Field(default=None, max_length=100)
+    price_state: Literal["source_stated", "calculated", "defaulted", "unknown"] | None = None
+    calculation: dict | None = None
+    variance_warning: dict | None = None
     currency: str | None = Field(default=None, max_length=10)
     provider_name: str | None = Field(default=None, max_length=255)
     purchase_date: date | None = None
     remarks_or_terms: str | None = Field(default=None, max_length=2000)
     annotation_proposals: list[ReviewedAnnotationProposal] = Field(
         default_factory=list,
-        max_length=20,
     )
 
     def concepts(self) -> list[ReviewedConceptPayload]:
@@ -137,23 +167,70 @@ class ReviewedPurchaseLinePayload(BaseModel):
 
     @model_validator(mode="after")
     def validate_annotations(self) -> "ReviewedPurchaseLinePayload":
+        if self.provider_state in {"internal", "unknown"}:
+            if self.provider_name is not None or self.provider_memory_record_id is not None:
+                raise ValueError(
+                    "Internal and Unknown Provider States cannot include Provider identity"
+                )
+        if self.provider_state == "unknown" and self.observed_provider_text is not None:
+            raise ValueError("Unknown Provider State cannot include Observed Provider Text")
         available_targets = {"purchase_line", *(item.concept_type for item in self.concepts())}
         if self.provider_state == "external" and self.provider_name:
             available_targets.add("provider")
-        duplicate_keys: set[tuple[str, str, str, str]] = set()
+        duplicate_keys: set[tuple[str, str, str, str, str]] = set()
         for annotation in self.annotation_proposals:
             if annotation.target not in available_targets:
                 raise ValueError("Annotation target must be present on the reviewed candidate")
+            if annotation.target in {"material", "service"}:
+                matching_concepts = [
+                    concept
+                    for concept in self.concepts()
+                    if concept.concept_type == annotation.target
+                ]
+                if annotation.target_concept_id is not None:
+                    if not any(
+                        concept.concept_id == annotation.target_concept_id
+                        for concept in matching_concepts
+                    ):
+                        raise ValueError("Annotation concept target is not present")
+                elif len(matching_concepts) > 1:
+                    raise ValueError(
+                        "Repeated concept annotations require a target concept ID"
+                    )
+            elif annotation.target_concept_id is not None:
+                raise ValueError(
+                    "Purchase Line and Provider annotations cannot target a concept ID"
+                )
             locator_key = repr(sorted(annotation.source_locator.items()))
             duplicate_key = (
                 " ".join(annotation.text.casefold().split()),
                 annotation.annotation_type,
                 annotation.target,
+                annotation.target_concept_id or "",
                 locator_key,
             )
             if duplicate_key in duplicate_keys:
                 raise ValueError("Exact duplicate annotations are not allowed")
             duplicate_keys.add(duplicate_key)
+
+        concept_ids = [
+            concept.concept_id for concept in self.linked_concepts if concept.concept_id
+        ]
+        if concept_ids and len(concept_ids) != len(self.linked_concepts):
+            raise ValueError("Every repeated linked concept requires a concept ID")
+        if len(concept_ids) != len(set(concept_ids)):
+            raise ValueError("Linked concept IDs must be distinct")
+        concepts_by_id = {
+            concept.concept_id: concept for concept in self.linked_concepts if concept.concept_id
+        }
+        for relationship in self.installation_relationships:
+            service = concepts_by_id.get(relationship.service_concept_id)
+            if service is None or service.concept_type != "service":
+                raise ValueError("Installation Relationship requires a linked Service")
+            for material_id in relationship.material_concept_ids:
+                material = concepts_by_id.get(material_id)
+                if material is None or material.concept_type != "material":
+                    raise ValueError("Installation Relationship requires linked Materials")
         return self
 
 
@@ -247,6 +324,14 @@ class ExistingMemoryMatchRead(BaseModel):
     subject_type: Literal["material", "service", "provider"]
     subject_name: str
     category_path: str
+
+
+class MemoryOptionRead(BaseModel):
+    record_id: int
+    subject_type: Literal["material", "service", "provider"]
+    subject_name: str
+    category_path: str
+    provider_roles: list[str] = Field(default_factory=list)
 
 
 class TaxonomyDefaultRead(BaseModel):

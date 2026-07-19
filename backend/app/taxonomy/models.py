@@ -62,7 +62,10 @@ class TaxonomyGate(Base):
     __tablename__ = "taxonomy_gates"
     __table_args__ = (
         UniqueConstraint(
-            "candidate_id", "subject_type", name="uq_taxonomy_gate_candidate_subject_type"
+            "candidate_id",
+            "subject_type",
+            "normalized_subject_name",
+            name="uq_taxonomy_gate_candidate_subject",
         ),
     )
 

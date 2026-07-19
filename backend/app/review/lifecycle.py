@@ -527,10 +527,7 @@ def _existing_memory_record(
 
 def _payload_has_importable_shape(payload: ReviewedPurchaseLinePayload) -> bool:
     concepts = payload.concepts()
-    concept_types = {concept.concept_type for concept in concepts}
-    if len(concepts) not in {1, 2} or len(concept_types) != len(concepts):
-        return False
-    if len(concepts) == 2 and concept_types != {"material", "service"}:
+    if not concepts:
         return False
     if any(
         not _present(concept.name)

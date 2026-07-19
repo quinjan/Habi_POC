@@ -134,7 +134,7 @@ def test_review_taxonomy_mapping_rejects_terminal_batch(tmp_path):
     with make_client(tmp_path) as client:
         project, submission = create_manual_submission(client)
         candidate_id = submission["candidates"][0]["id"]
-        client.put(
+        draft = client.put(
             f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/review-draft",
             json={
                 "candidates": [
@@ -150,6 +150,11 @@ def test_review_taxonomy_mapping_rejects_terminal_batch(tmp_path):
                     }
                 ]
             },
+        )
+        gate_id = draft.json()["candidates"][0]["taxonomy_gates"][0]["id"]
+        client.post(
+            f"/api/project-workspaces/{project['id']}/review-batches/"
+            f"{submission['review_batch']['id']}/taxonomy-gates/{gate_id}/accept"
         )
         client.post(
             f"/api/project-workspaces/{project['id']}/review-batches/{submission['review_batch']['id']}/import"

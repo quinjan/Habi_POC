@@ -832,6 +832,66 @@
         }
       }
     },
+    "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/candidates/{candidate_id}/reset": {
+      "post": {
+        "tags": [
+          "review-batches"
+        ],
+        "summary": "Reset Candidate",
+        "operationId": "reset_candidate_api_project_workspaces__project_workspace_id__review_batches__review_batch_id__candidates__candidate_id__reset_post",
+        "parameters": [
+          {
+            "name": "project_workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Workspace Id"
+            }
+          },
+          {
+            "name": "review_batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Review Batch Id"
+            }
+          },
+          {
+            "name": "candidate_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Candidate Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractedCandidateRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/project-workspaces/{project_workspace_id}/review-batches/{review_batch_id}/taxonomy-gates/{taxonomy_gate_id}/accept": {
       "post": {
         "tags": [
@@ -2123,6 +2183,13 @@
             "type": "array",
             "title": "Existing Memory Matches"
           },
+          "memory_options": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryOptionRead"
+            },
+            "type": "array",
+            "title": "Memory Options"
+          },
           "taxonomy_default": {
             "anyOf": [
               {
@@ -2189,6 +2256,35 @@
           "id"
         ],
         "title": "ImportedPurchaseLine"
+      },
+      "InstallationRelationshipRead": {
+        "properties": {
+          "service_concept_key": {
+            "type": "string",
+            "title": "Service Concept Key"
+          },
+          "material_concept_key": {
+            "type": "string",
+            "title": "Material Concept Key"
+          },
+          "source_excerpt": {
+            "type": "string",
+            "title": "Source Excerpt"
+          },
+          "source_locator": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Source Locator"
+          }
+        },
+        "type": "object",
+        "required": [
+          "service_concept_key",
+          "material_concept_key",
+          "source_excerpt",
+          "source_locator"
+        ],
+        "title": "InstallationRelationshipRead"
       },
       "ManualSourceEntryCreate": {
         "properties": {
@@ -2301,6 +2397,46 @@
           "original_text"
         ],
         "title": "ManualSourceEntryRead"
+      },
+      "MemoryOptionRead": {
+        "properties": {
+          "record_id": {
+            "type": "integer",
+            "title": "Record Id"
+          },
+          "subject_type": {
+            "type": "string",
+            "enum": [
+              "material",
+              "service",
+              "provider"
+            ],
+            "title": "Subject Type"
+          },
+          "subject_name": {
+            "type": "string",
+            "title": "Subject Name"
+          },
+          "category_path": {
+            "type": "string",
+            "title": "Category Path"
+          },
+          "provider_roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Provider Roles"
+          }
+        },
+        "type": "object",
+        "required": [
+          "record_id",
+          "subject_type",
+          "subject_name",
+          "category_path"
+        ],
+        "title": "MemoryOptionRead"
       },
       "ProcessingJobDetail": {
         "properties": {
@@ -2851,6 +2987,50 @@
           "category_path": {
             "type": "string",
             "title": "Category Path"
+          },
+          "concept_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concept Key"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "component_unit_price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component Unit Price"
           }
         },
         "type": "object",
@@ -2882,6 +3062,13 @@
             },
             "type": "array",
             "title": "Linked Concepts"
+          },
+          "installation_relationships": {
+            "items": {
+              "$ref": "#/components/schemas/InstallationRelationshipRead"
+            },
+            "type": "array",
+            "title": "Installation Relationships"
           },
           "provider": {
             "$ref": "#/components/schemas/PurchaseLineProviderRead"
@@ -3127,6 +3314,13 @@
             },
             "type": "array",
             "title": "Linked Concepts"
+          },
+          "installation_relationships": {
+            "items": {
+              "$ref": "#/components/schemas/InstallationRelationshipRead"
+            },
+            "type": "array",
+            "title": "Installation Relationships"
           },
           "provider_state": {
             "type": "string",
@@ -3448,6 +3642,18 @@
             ],
             "title": "Target"
           },
+          "target_concept_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Concept Id"
+          },
           "source_excerpt": {
             "type": "string",
             "maxLength": 2000,
@@ -3485,6 +3691,18 @@
       },
       "ReviewedConceptPayload": {
         "properties": {
+          "concept_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concept Id"
+          },
           "concept_type": {
             "type": "string",
             "enum": [
@@ -3504,6 +3722,29 @@
               }
             ],
             "title": "Name"
+          },
+          "observed_name_text": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed Name Text"
+          },
+          "project_memory_record_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Memory Record Id"
           },
           "top_level_category": {
             "anyOf": [
@@ -3528,13 +3769,88 @@
               }
             ],
             "title": "Subcategory"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "component_unit_price": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component Unit Price"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "concept_type"
         ],
         "title": "ReviewedConceptPayload"
+      },
+      "ReviewedInstallationRelationship": {
+        "properties": {
+          "service_concept_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Service Concept Id"
+          },
+          "material_concept_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Material Concept Ids"
+          },
+          "source_excerpt": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Source Excerpt"
+          },
+          "source_locator": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Source Locator"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "service_concept_id",
+          "material_concept_ids",
+          "source_excerpt",
+          "source_locator"
+        ],
+        "title": "ReviewedInstallationRelationship"
       },
       "ReviewedPurchaseLinePayload": {
         "properties": {
@@ -3543,7 +3859,6 @@
               "$ref": "#/components/schemas/ReviewedConceptPayload"
             },
             "type": "array",
-            "maxItems": 2,
             "title": "Linked Concepts"
           },
           "provider_state": {
@@ -3561,6 +3876,29 @@
               }
             ],
             "title": "Provider State"
+          },
+          "observed_provider_text": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed Provider Text"
+          },
+          "provider_memory_record_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Memory Record Id"
           },
           "provider_top_level_category": {
             "anyOf": [
@@ -3585,6 +3923,57 @@
               }
             ],
             "title": "Provider Subcategory"
+          },
+          "bundle_quantity": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bundle Quantity"
+          },
+          "bundle_unit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bundle Unit"
+          },
+          "installation_relationships": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewedInstallationRelationship"
+            },
+            "type": "array",
+            "title": "Installation Relationships"
+          },
+          "primary_evidence_span": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Evidence Span"
+          },
+          "supporting_evidence_spans": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Supporting Evidence Spans"
           },
           "line_type": {
             "anyOf": [
@@ -3673,6 +4062,47 @@
             ],
             "title": "Price"
           },
+          "price_state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "source_stated",
+                  "calculated",
+                  "defaulted",
+                  "unknown"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price State"
+          },
+          "calculation": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calculation"
+          },
+          "variance_warning": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variance Warning"
+          },
           "currency": {
             "anyOf": [
               {
@@ -3726,7 +4156,6 @@
               "$ref": "#/components/schemas/ReviewedAnnotationProposal"
             },
             "type": "array",
-            "maxItems": 20,
             "title": "Annotation Proposals"
           }
         },

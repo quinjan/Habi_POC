@@ -192,8 +192,9 @@ def _candidate_from_explicit_row(
         currency_state = "unknown"
 
     provider_name = _cell_text(cells, columns.get("provider_name"))
+    observed_provider_state = _cell_text(cells, columns.get("provider_state"))
     provider_state = _provider_state(
-        _cell_text(cells, columns.get("provider_state")), provider_name
+        observed_provider_state, provider_name
     )
     provider_category = (
         _category_suggestion(_cell_text(cells, columns.get("provider_category")))
@@ -224,6 +225,12 @@ def _candidate_from_explicit_row(
         "currency_state": currency_state,
         "provider_state": provider_state,
         "provider_name": provider_name,
+        "observed_provider_text": (
+            provider_name
+            if provider_state == "external"
+            else observed_provider_state if provider_state == "internal" else None
+        ),
+        "provider_memory_record_id": None,
         "provider_category_suggestion": provider_category,
         "purchase_date": _cell_text(cells, columns.get("purchase_date")),
         "remarks_or_terms": _cell_text(cells, columns.get("remarks_or_terms")),
@@ -365,6 +372,8 @@ def _linked_concept(
     return {
         "concept_type": concept_type,
         "name": name,
+        "observed_name_text": name,
+        "project_memory_record_id": None,
         "category_suggestion": category_suggestion,
     }
 

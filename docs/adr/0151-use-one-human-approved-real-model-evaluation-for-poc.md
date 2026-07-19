@@ -1,0 +1,5 @@
+# Use One Human-Approved Real-Model Evaluation For The POC
+
+> **Status:** Accepted. ADR 0153 changes the pinned model and evaluation reasoning level but retains this one-call, human-approved workflow.
+
+For the POC, replace the eight-fixture, ten-call promotion system in ADR 0121 and ADR 0127 with one explicit retry-disabled call against the human-approved mixed completed-project baseline. The evaluator still exercises the production Manual Source Entry and worker path, but it compares only the fixture's agreed essential candidate fields and prints a short PASS-or-FAIL Markdown scorecard for the pull request; it generates no exhaustive persisted-output contract, promotion JSON, hashes, artifact bundle, or automatic deployment action. This trades statistical confidence and broad paid coverage for a workflow that is cheap enough to run and easy for one human to understand; deterministic production rules and retry branches remain covered by offline tests. Every paid call or rerun requires fresh human approval, and the human retains the merge decision.

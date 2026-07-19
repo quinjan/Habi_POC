@@ -4,6 +4,163 @@ from backend.tests.db import make_postgres_test_client
 from backend.tests.manual_submission_helpers import accept_all_taxonomy_gates
 
 
+def test_import_persists_repeated_concepts_and_grounded_installation_relationships(
+    tmp_path,
+):
+    with make_client(tmp_path) as client:
+        project = client.post(
+            "/api/project-workspaces",
+            json={
+                "project_name": "Arnaiz Residence Renovation",
+                "project_type": "Residential renovation",
+                "location": "Makati City",
+                "completion_year": 2025,
+                "contractor_assigned": "Internal",
+            },
+        ).json()
+        submission = create_review_ready_manual_submission(
+            client,
+            project_workspace_id=project["id"],
+            entry_type="structured_row",
+            structured_payload={
+                "line_type": "bundled",
+                "name": "Steel doors, aluminum windows, and installation",
+            },
+        )
+        review_batch_id = submission["review_batch"]["id"]
+        candidate_id = submission["candidates"][0]["id"]
+        reviewed_payload = {
+            "linked_concepts": [
+                {
+                    "concept_id": "doors",
+                    "concept_type": "material",
+                    "name": "Steel door",
+                    "top_level_category": "Architectural",
+                    "subcategory": "Doors",
+                    "quantity": "10",
+                    "unit": "units",
+                    "component_unit_price": None,
+                },
+                {
+                    "concept_id": "windows",
+                    "concept_type": "material",
+                    "name": "Aluminum window",
+                    "top_level_category": "Architectural",
+                    "subcategory": "Windows",
+                    "quantity": "5",
+                    "unit": "units",
+                    "component_unit_price": None,
+                },
+                {
+                    "concept_id": "installation",
+                    "concept_type": "service",
+                    "name": "Door and window installation",
+                    "top_level_category": "Services",
+                    "subcategory": "Installation",
+                    "quantity": None,
+                    "unit": None,
+                    "component_unit_price": None,
+                },
+            ],
+            "provider_state": "external",
+            "provider_name": "Acme",
+            "provider_top_level_category": "Providers",
+            "provider_subcategory": "Supply and installation",
+            "bundle_quantity": "1",
+            "bundle_unit": "package",
+            "price": "150000",
+            "price_state": "source_stated",
+            "currency": "PHP",
+            "installation_relationships": [
+                {
+                    "service_concept_id": "installation",
+                    "material_concept_ids": ["doors", "windows"],
+                    "source_excerpt": "installed both",
+                    "source_locator": {
+                        "kind": "structured_field",
+                        "field_path": "structured_payload.name",
+                    },
+                }
+            ],
+            "annotation_proposals": [
+                {
+                    "proposal_id": "reviewer:doors",
+                    "text": "Installation applies to the doors",
+                    "annotation_type": "general_qualifier",
+                    "target": "material",
+                    "target_concept_id": "doors",
+                    "source_excerpt": "Steel doors, aluminum windows, and installation",
+                    "source_locator": {
+                        "kind": "structured_field",
+                        "field_path": "structured_payload.name",
+                    },
+                    "provenance": "reviewer_added",
+                },
+                {
+                    "proposal_id": "reviewer:windows",
+                    "text": "Installation applies to the windows",
+                    "annotation_type": "general_qualifier",
+                    "target": "material",
+                    "target_concept_id": "windows",
+                    "source_excerpt": "Steel doors, aluminum windows, and installation",
+                    "source_locator": {
+                        "kind": "structured_field",
+                        "field_path": "structured_payload.name",
+                    },
+                    "provenance": "reviewer_added",
+                },
+            ],
+        }
+
+        decision = client.post(
+            f"/api/project-workspaces/{project['id']}/review-batches/{review_batch_id}"
+            f"/candidates/{candidate_id}/decision",
+            json={"decision": "approved", "reviewed_payload": reviewed_payload},
+        )
+        accept_all_taxonomy_gates(
+            client,
+            project_workspace_id=project["id"],
+            review_batch_id=review_batch_id,
+        )
+        imported = client.post(
+            f"/api/project-workspaces/{project['id']}/review-batches/{review_batch_id}/import"
+        )
+        purchase_lines = client.get(
+            f"/api/project-workspaces/{project['id']}/purchase-lines"
+        )
+        detail = client.get(
+            f"/api/project-workspaces/{project['id']}/purchase-lines/"
+            f"{imported.json()['imported_purchase_lines'][0]['id']}"
+        )
+
+    assert decision.status_code == 200, decision.json()
+    assert imported.status_code == 200, imported.json()
+    line = purchase_lines.json()["items"][0]
+    assert line["line_type"] == "bundled"
+    assert [concept["name"] for concept in line["linked_concepts"]] == [
+        "Steel door",
+        "Aluminum window",
+        "Door and window installation",
+    ]
+    assert [concept["quantity"] for concept in line["linked_concepts"]] == [
+        "10",
+        "5",
+        None,
+    ]
+    assert line["quantity"] == "1"
+    assert line["unit"] == "package"
+    assert line["provider_roles"] == [
+        "material_supplier",
+        "service_provider",
+        "supply_and_install_provider",
+    ]
+    assert len(line["installation_relationships"]) == 2
+    assert [
+        annotation["target"]["name"]
+        for annotation in detail.json()["evidence_records"][0]["annotations"]
+    ] == ["Steel door", "Aluminum window"]
+
+
 def make_client(_tmp_path):
     return make_postgres_test_client()
 
@@ -129,8 +286,13 @@ def test_approved_manual_candidate_imports_active_purchase_line_with_evidence(tm
                     "concept_type": "material",
                     "name": "PVC pipe",
                     "category_path": "Plumbing / Pipes",
+                    "concept_key": None,
+                    "quantity": None,
+                    "unit": None,
+                    "component_unit_price": None,
                 }
             ],
+            "installation_relationships": [],
             "provider_state": "external",
             "provider_name": "ABC Trading",
             "provider_category_path": "Providers / General",
@@ -631,8 +793,13 @@ def test_manual_import_preserves_unknown_states_and_project_scope(tmp_path):
                 "concept_type": "service",
                 "name": "Concrete coring",
                 "category_path": "Civil / Coring",
+                "concept_key": None,
+                "quantity": None,
+                "unit": None,
+                "component_unit_price": None,
             }
         ],
+        "installation_relationships": [],
         "provider_state": "unknown",
         "provider_name": None,
         "provider_category_path": None,

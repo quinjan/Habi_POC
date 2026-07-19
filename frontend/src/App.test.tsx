@@ -16,6 +16,11 @@ describe("Project Workspace app shell", () => {
     purchaseLinesByProject = new Map<number, unknown[]>([[1, []]]);
     processingJobsByProject = new Map<number, unknown[]>([[1, []]]);
     const acceptedBatch12GateIds = new Set<number>();
+    const batch10SavedPayloads = new Map<number, Record<string, unknown>>();
+    let batch10ReviewerDraftPath: {
+      topLevelCategory: string;
+      subcategory: string;
+    } | null = null;
     const projectNamesById = new Map<number, string>([[1, "Arnaiz Residence Renovation"]]);
     const taxonomyLeafPathsByProject = new Map<
       number,
@@ -478,6 +483,195 @@ describe("Project Workspace app shell", () => {
           });
         }
 
+        if (url === "/api/project-workspaces/1/review-batches/13" && method === "GET") {
+          return jsonResponse({
+            review_batch: {
+              id: 13,
+              project_workspace_id: 1,
+              source_submission_id: 33,
+              status: "review_pending"
+            },
+            candidates: [buildExistingMemoryCandidate()],
+            duplicate_groups: [],
+            duplicate_conflicts: [],
+            taxonomy_decisions: []
+          });
+        }
+
+        if (url === "/api/project-workspaces/1/review-batches/14" && method === "GET") {
+          return jsonResponse({
+            review_batch: {
+              id: 14,
+              project_workspace_id: 1,
+              source_submission_id: 34,
+              status: "review_pending"
+            },
+            candidates: [buildUnknownProviderCandidate()],
+            duplicate_groups: [],
+            duplicate_conflicts: [],
+            taxonomy_decisions: []
+          });
+        }
+
+        if (
+          url === "/api/project-workspaces/1/review-batches/13/review-draft" &&
+          method === "PUT"
+        ) {
+          const body = JSON.parse(String(init?.body));
+          const reviewedPayload = body.candidates[0].reviewed_payload;
+          const candidate = buildExistingMemoryCandidate();
+          const newConcept = reviewedPayload.linked_concepts.find(
+            (concept: { project_memory_record_id: number | null }) =>
+              concept.project_memory_record_id === null
+          );
+          const newSubject = newConcept
+            ? {
+                type: newConcept.concept_type,
+                name: newConcept.name,
+                path: `${newConcept.top_level_category} / ${newConcept.subcategory}`
+              }
+            : {
+                type: "provider",
+                name: reviewedPayload.provider_name,
+                path: `${reviewedPayload.provider_top_level_category} / ${reviewedPayload.provider_subcategory}`
+              };
+          return jsonResponse({
+            review_batch: {
+              id: 13,
+              project_workspace_id: 1,
+              source_submission_id: 33,
+              status: "review_in_progress"
+            },
+            candidates: [
+              {
+                ...candidate,
+                status: "approved_for_import",
+                decision: "approved",
+                reviewed_payload: reviewedPayload,
+                taxonomy_gates: [
+                  {
+                    id: 905,
+                    active: true,
+                    subject_type: newSubject.type,
+                    subject_name: newSubject.name,
+                    status: "needs_decision",
+                    reason: "candidate_acceptance_required",
+                    suggested_category_path: newSubject.path,
+                    original_ai_category_path: newSubject.path,
+                    reviewer_draft_category_path: null,
+                    selected_proposal: "ai_suggestion",
+                    selected_category_path: newSubject.path,
+                    resolved_category_path: null,
+                    accepted_category_path: null,
+                    accepted_source: null,
+                    decision: null,
+                    taxonomy_decision_id: null,
+                    prior_rejection: null,
+                    decision_history: []
+                  }
+                ],
+                existing_memory_matches: candidate.existing_memory_matches.filter(
+                  (match) => match.subject_type !== newSubject.type
+                )
+              }
+            ],
+            duplicate_groups: [],
+            duplicate_conflicts: [],
+            taxonomy_decisions: []
+          });
+        }
+
+        if (
+          url === "/api/project-workspaces/1/review-batches/14/review-draft" &&
+          method === "PUT"
+        ) {
+          const body = JSON.parse(String(init?.body));
+          const reviewedPayload = body.candidates[0].reviewed_payload;
+          const candidate = buildUnknownProviderCandidate();
+          return jsonResponse({
+            review_batch: {
+              id: 14,
+              project_workspace_id: 1,
+              source_submission_id: 34,
+              status: "review_in_progress"
+            },
+            candidates: [
+              {
+                ...candidate,
+                status: "approved_for_import",
+                decision: "approved",
+                reviewed_payload: reviewedPayload,
+                taxonomy_gates: [
+                  {
+                    id: 906,
+                    active: true,
+                    subject_type: "provider",
+                    subject_name: reviewedPayload.provider_name,
+                    status: "needs_decision",
+                    reason: "candidate_acceptance_required",
+                    suggested_category_path: "Providers / General",
+                    original_ai_category_path: "Providers / General",
+                    reviewer_draft_category_path: null,
+                    selected_proposal: "ai_suggestion",
+                    selected_category_path: "Providers / General",
+                    resolved_category_path: null,
+                    accepted_category_path: null,
+                    accepted_source: null,
+                    decision: null,
+                    taxonomy_decision_id: null,
+                    prior_rejection: null,
+                    decision_history: []
+                  }
+                ]
+              }
+            ],
+            duplicate_groups: [],
+            duplicate_conflicts: [],
+            taxonomy_decisions: []
+          });
+        }
+
+        if (
+          url === "/api/project-workspaces/1/review-batches/12/review-draft" &&
+          method === "PUT"
+        ) {
+          const body = JSON.parse(String(init?.body));
+          const candidate = buildBundledCandidate(acceptedBatch12GateIds);
+          const savedCandidate = body.candidates.find(
+            (item: { candidate_id: number }) => item.candidate_id === candidate.id
+          );
+          return jsonResponse({
+            review_batch: {
+              id: 12,
+              project_workspace_id: 1,
+              source_submission_id: 32,
+              status: "review_in_progress"
+            },
+            candidates: [
+              {
+                ...candidate,
+                status: savedCandidate?.included
+                  ? "approved_for_import"
+                  : "rejected_for_import",
+                decision: savedCandidate?.included ? "approved" : "rejected",
+                reviewed_payload: savedCandidate?.included
+                  ? savedCandidate.reviewed_payload
+                  : null
+              }
+            ],
+            duplicate_groups: [],
+            duplicate_conflicts: [],
+            taxonomy_decisions: []
+          });
+        }
+
+        if (
+          url === "/api/project-workspaces/1/review-batches/12/candidates/42/reset" &&
+          method === "POST"
+        ) {
+          return jsonResponse(buildBundledCandidate(new Set<number>()));
+        }
+
         const batch12GateAcceptMatch = url.match(
           /^\/api\/project-workspaces\/1\/review-batches\/12\/taxonomy-gates\/(\d+)\/accept$/
         );
@@ -626,6 +820,17 @@ describe("Project Workspace app shell", () => {
 
         if (url === "/api/project-workspaces/1/review-batches/10/review-draft" && method === "PUT") {
           const body = JSON.parse(String(init?.body));
+          body.candidates.forEach(
+            (item: {
+              candidate_id: number;
+              included: boolean;
+              reviewed_payload: Record<string, unknown> | null;
+            }) => {
+              if (item.included && item.reviewed_payload) {
+                batch10SavedPayloads.set(item.candidate_id, item.reviewed_payload);
+              }
+            }
+          );
           return jsonResponse({
             review_batch: {
               id: 10,
@@ -658,6 +863,12 @@ describe("Project Workspace app shell", () => {
         );
         if (taxonomyGateDraftMatch && method === "PUT") {
           const body = JSON.parse(String(init?.body));
+          if (taxonomyGateDraftMatch[1] === "920") {
+            batch10ReviewerDraftPath = {
+              topLevelCategory: body.top_level_category,
+              subcategory: body.subcategory
+            };
+          }
           const candidates = [
             buildCandidate(20, "PVC pipe", "material", "Mechanical", "Pipe Materials"),
             buildCandidate(21, "PVC elbow", "material", "Mechanical", "Pipe Materials")
@@ -691,6 +902,10 @@ describe("Project Workspace app shell", () => {
           url === "/api/project-workspaces/1/review-batches/10/taxonomy-gates/920/accept" &&
           method === "POST"
         ) {
+          const acceptedTopLevelCategory =
+            batch10ReviewerDraftPath?.topLevelCategory ?? "Mechanical";
+          const acceptedSubcategory =
+            batch10ReviewerDraftPath?.subcategory ?? "Pipe Materials";
           const candidate = buildCandidate(
             20,
             "PVC pipe",
@@ -698,6 +913,21 @@ describe("Project Workspace app shell", () => {
             "Mechanical",
             "Pipe Materials"
           );
+          const savedPayload = batch10SavedPayloads.get(20);
+          const reviewedPayload = savedPayload
+            ? {
+                ...savedPayload,
+                top_level_category: acceptedTopLevelCategory,
+                subcategory: acceptedSubcategory,
+                linked_concepts: Array.isArray(savedPayload.linked_concepts)
+                  ? savedPayload.linked_concepts.map((concept) => ({
+                      ...concept,
+                      top_level_category: acceptedTopLevelCategory,
+                      subcategory: acceptedSubcategory
+                    }))
+                  : savedPayload.linked_concepts
+              }
+            : null;
           return jsonResponse({
             review_batch: {
               id: 10,
@@ -708,13 +938,23 @@ describe("Project Workspace app shell", () => {
             candidates: [
               {
                 ...candidate,
+                reviewed_payload: reviewedPayload,
                 taxonomy_gates: candidate.taxonomy_gates.map((gate) => ({
                   ...gate,
                   status: "accepted",
-                  accepted_category_path: "Mechanical / Pipe Materials",
-                  resolved_category_path: "Mechanical / Pipe Materials",
-                  accepted_source: "ai_suggestion",
-                  decision: "approved",
+                  reviewer_draft_category_path: batch10ReviewerDraftPath
+                    ? `${acceptedTopLevelCategory} / ${acceptedSubcategory}`
+                    : null,
+                  selected_proposal: batch10ReviewerDraftPath
+                    ? "reviewer_draft"
+                    : "ai_suggestion",
+                  selected_category_path: `${acceptedTopLevelCategory} / ${acceptedSubcategory}`,
+                  accepted_category_path: `${acceptedTopLevelCategory} / ${acceptedSubcategory}`,
+                  resolved_category_path: `${acceptedTopLevelCategory} / ${acceptedSubcategory}`,
+                  accepted_source: batch10ReviewerDraftPath
+                    ? "reviewer_draft"
+                    : "ai_suggestion",
+                  decision: batch10ReviewerDraftPath ? "mapped" : "approved",
                   taxonomy_decision_id: 77
                 }))
               }
@@ -962,6 +1202,94 @@ describe("Project Workspace app shell", () => {
     cleanup();
     vi.unstubAllGlobals();
   });
+
+  async function openExistingMemoryCandidate() {
+    processingJobsByProject.set(1, [
+      {
+        processing_job: {
+          id: 53,
+          project_workspace_id: 1,
+          source_submission_id: 33,
+          status: "review_ready",
+          source_type: "manual_source_entry",
+          processor_name: "ai_manual_free_form_v1",
+          created_at: "2026-07-13T00:00:00Z",
+          started_at: "2026-07-13T00:00:01Z",
+          finished_at: "2026-07-13T00:00:02Z",
+          error_message: null,
+          diagnostics: null,
+          candidate_count: 1,
+          review_batch_id: 13
+        },
+        source_submission: {
+          id: 33,
+          submission_type: "manual_source_entry",
+          submitted_at: "2026-07-13T00:00:00Z"
+        },
+        source_file: null,
+        review_batch_id: 13
+      }
+    ]);
+    const user = userEvent.setup();
+    render(<App />);
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+    await user.click(screen.getByRole("tab", { name: "Upload / Review" }));
+    await user.click(await screen.findByRole("button", { name: "Open Review Batch" }));
+    await user.click((await screen.findAllByRole("button", { name: "Details" }))[0]);
+    return {
+      user,
+      detail: await screen.findByRole("dialog", { name: "Candidate Detail" })
+    };
+  }
+
+  async function openUnknownProviderCandidate() {
+    processingJobsByProject.set(1, [
+      {
+        processing_job: {
+          id: 54,
+          project_workspace_id: 1,
+          source_submission_id: 34,
+          status: "review_ready",
+          source_type: "manual_source_entry",
+          processor_name: "ai_manual_free_form_v1",
+          created_at: "2026-07-13T00:00:00Z",
+          started_at: "2026-07-13T00:00:01Z",
+          finished_at: "2026-07-13T00:00:02Z",
+          error_message: null,
+          diagnostics: null,
+          candidate_count: 1,
+          review_batch_id: 14
+        },
+        source_submission: {
+          id: 34,
+          submission_type: "manual_source_entry",
+          submitted_at: "2026-07-13T00:00:00Z"
+        },
+        source_file: null,
+        review_batch_id: 14
+      }
+    ]);
+    const user = userEvent.setup();
+    render(<App />);
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+    await user.click(screen.getByRole("tab", { name: "Upload / Review" }));
+    await user.click(await screen.findByRole("button", { name: "Open Review Batch" }));
+    await user.click((await screen.findAllByRole("button", { name: "Details" }))[0]);
+    return {
+      user,
+      detail: await screen.findByRole("dialog", { name: "Candidate Detail" })
+    };
+  }
 
   test("reviewer creates a workspace, selects it, and lands on empty Purchase Lines", async () => {
     const user = userEvent.setup();
@@ -1393,34 +1721,179 @@ describe("Project Workspace app shell", () => {
     const detail = await screen.findByRole("dialog", { name: "Candidate Detail" });
     expect(within(detail).getByRole("heading", { name: "Linked Concepts" })).toBeInTheDocument();
     expect(within(detail).getByText("PVC pipe installation")).toBeInTheDocument();
+    expect(within(detail).getByText("Observed source: PVC pipe")).toBeInTheDocument();
+    expect(within(detail).getByText("Observed source: installed PVC pipe")).toBeInTheDocument();
+    expect(within(detail).getByRole("combobox", { name: "Material name" })).toBeInTheDocument();
     expect(within(detail).getByRole("heading", { name: "Provider" })).toBeInTheDocument();
+    expect(within(detail).getByText("Observed source: ABC Trading")).toBeInTheDocument();
     expect(within(detail).getByLabelText("Provider State")).toHaveValue("external");
     expect(within(detail).getByRole("heading", { name: "Purchase Details" })).toBeInTheDocument();
     expect(within(detail).getByText("PHP 1500")).toBeInTheDocument();
-    expect(within(detail).getAllByText(/Matched existing memory/)).toHaveLength(2);
+    expect(within(detail).getByRole("group", { name: "Material taxonomy" })).toHaveTextContent(
+      "Read-only"
+    );
+    expect(within(detail).getByRole("group", { name: "Provider taxonomy" })).toHaveTextContent(
+      "Read-only"
+    );
     expect(within(detail).queryByLabelText("Service top-level category")).not.toBeInTheDocument();
     expect(within(detail).queryByLabelText("Service subcategory")).not.toBeInTheDocument();
     expect(within(detail).queryByLabelText("Provider top-level category")).not.toBeInTheDocument();
     expect(within(detail).queryByLabelText("Provider subcategory")).not.toBeInTheDocument();
     expect(within(detail).queryByRole("button", { name: "Change Taxonomy" })).not.toBeInTheDocument();
+    expect(within(detail).getByRole("button", { name: "Reset candidate" })).toBeInTheDocument();
+    const confirmReset = vi.spyOn(window, "confirm").mockReturnValue(true);
+    await user.click(within(detail).getByRole("button", { name: "Reset candidate" }));
+    await waitFor(() =>
+      expect(
+        vi.mocked(fetch).mock.calls.find(([input]) =>
+          input.toString().includes("/review-batches/12/candidates/42/reset")
+        )
+      ).toBeDefined()
+    );
+    expect(confirmReset).toHaveBeenCalledWith(
+      "Reset this candidate to the original extraction proposal?"
+    );
+    expect(within(detail).getByText("Observed source: PVC pipe")).toBeInTheDocument();
     expect(within(detail).getByText("AI suggestion: Trade services / Pipe installation")).toBeInTheDocument();
     expect(within(detail).getByText("Taxonomy Status").parentElement).toHaveTextContent(
       "Needs decision"
     );
-    expect(within(detail).getAllByText("Needs decision")).toHaveLength(4);
+    expect(within(detail).getAllByText("Needs decision")).toHaveLength(2);
+    await user.click(within(detail).getByRole("button", { name: "Accept selected category" }));
+    expect(
+      vi.mocked(fetch).mock.calls.find(([input]) =>
+        input.toString().includes("/review-batches/12/taxonomy-gates/903/accept")
+      )
+    ).toBeDefined();
     await user.selectOptions(within(detail).getByLabelText("Provider State"), "unknown");
     expect(within(detail).getByText("Provider is a data gap.")).toBeInTheDocument();
     expect(within(detail).queryByLabelText("Provider name")).not.toBeInTheDocument();
 
     await user.click(within(detail).getByLabelText("Link Service"));
     expect(within(detail).queryByLabelText("Service name")).not.toBeInTheDocument();
+  });
 
-    await user.click(within(detail).getAllByRole("button", { name: "Accept selected category" })[0]);
-    expect(
-      vi.mocked(fetch).mock.calls.find(([input]) =>
-        input.toString().includes("/review-batches/12/taxonomy-gates/902/accept")
-      )
-    ).toBeDefined();
+  test("existing Project Memory match shows inherited taxonomy as read-only and Accepted", async () => {
+    const { detail } = await openExistingMemoryCandidate();
+    expect(within(detail).getByText("Taxonomy Status").parentElement).toHaveTextContent(
+      "Accepted"
+    );
+    const taxonomy = within(detail).getByRole("group", { name: "Material taxonomy" });
+    expect(taxonomy).toHaveTextContent("Plumbing / Pipes");
+    expect(taxonomy).toHaveTextContent("Read-only");
+    const serviceTaxonomy = within(detail).getByRole("group", { name: "Service taxonomy" });
+    expect(serviceTaxonomy).toHaveTextContent("Services / Pipe installation");
+    expect(serviceTaxonomy).toHaveTextContent("Read-only");
+    const providerTaxonomy = within(detail).getByRole("group", { name: "Provider taxonomy" });
+    expect(providerTaxonomy).toHaveTextContent("Providers / General");
+    expect(providerTaxonomy).toHaveTextContent("Read-only");
+    expect(within(detail).queryByRole("heading", { name: "Taxonomy Gates" })).not.toBeInTheDocument();
+  });
+
+  test("unmatched Material name exposes a pending editable Taxonomy Gate", async () => {
+    const { user, detail } = await openExistingMemoryCandidate();
+    const materialName = within(detail).getByRole("combobox", { name: "Material name" });
+    await user.clear(materialName);
+    await user.type(materialName, "Custom PVC pipe");
+
+    expect(within(detail).getByText("Taxonomy Status").parentElement).toHaveTextContent(
+      "Needs decision"
+    );
+    const gates = within(detail).getByRole("region", { name: "Taxonomy Gates" });
+    expect(gates).toHaveTextContent("Material: Custom PVC pipe");
+    expect(gates).toHaveTextContent("AI suggestion: Plumbing / Pipes");
+    await user.click(within(gates).getByRole("button", { name: "Adjust category" }));
+
+    const editor = await screen.findByRole("dialog", { name: "Edit Taxonomy Gate" });
+    expect(within(editor).getByLabelText("Top-Level Category")).toHaveValue("Plumbing");
+    expect(within(editor).getByLabelText("Subcategory")).toHaveValue("Pipes");
+  });
+
+  test("unmatched Service name exposes a pending editable Taxonomy Gate", async () => {
+    const { user, detail } = await openExistingMemoryCandidate();
+    const serviceName = within(detail).getByRole("combobox", { name: "Service name" });
+    await user.clear(serviceName);
+    await user.type(serviceName, "Custom pipe installation");
+
+    expect(within(detail).getByText("Taxonomy Status").parentElement).toHaveTextContent(
+      "Needs decision"
+    );
+    const gates = within(detail).getByRole("region", { name: "Taxonomy Gates" });
+    expect(gates).toHaveTextContent("Service: Custom pipe installation");
+    expect(gates).toHaveTextContent("AI suggestion: Services / Pipe installation");
+    await user.click(within(gates).getByRole("button", { name: "Adjust category" }));
+
+    const editor = await screen.findByRole("dialog", { name: "Edit Taxonomy Gate" });
+    expect(within(editor).getByLabelText("Top-Level Category")).toHaveValue("Services");
+    expect(within(editor).getByLabelText("Subcategory")).toHaveValue("Pipe installation");
+  });
+
+  test("unmatched Provider name exposes a pending editable Taxonomy Gate", async () => {
+    const { user, detail } = await openExistingMemoryCandidate();
+    const providerName = within(detail).getByRole("combobox", { name: "Provider name" });
+    await user.clear(providerName);
+    await user.type(providerName, "Custom Provider");
+
+    expect(within(detail).getByText("Taxonomy Status").parentElement).toHaveTextContent(
+      "Needs decision"
+    );
+    const gates = within(detail).getByRole("region", { name: "Taxonomy Gates" });
+    expect(gates).toHaveTextContent("Provider: Custom Provider");
+    expect(gates).toHaveTextContent("AI suggestion: Providers / General");
+    await user.click(within(gates).getByRole("button", { name: "Adjust category" }));
+
+    const editor = await screen.findByRole("dialog", { name: "Edit Taxonomy Gate" });
+    expect(within(editor).getByLabelText("Top-Level Category")).toHaveValue("Providers");
+    expect(within(editor).getByLabelText("Subcategory")).toHaveValue("General");
+  });
+
+  test("new Provider entered for an Unknown candidate exposes a pending Taxonomy Gate", async () => {
+    const { user, detail } = await openUnknownProviderCandidate();
+    await user.selectOptions(within(detail).getByLabelText("Provider State"), "external");
+    await user.type(
+      within(detail).getByRole("combobox", { name: "Provider name" }),
+      "New Provider"
+    );
+
+    expect(within(detail).getByText("Taxonomy Status").parentElement).toHaveTextContent(
+      "Needs decision"
+    );
+    const gates = within(detail).getByRole("region", { name: "Taxonomy Gates" });
+    expect(gates).toHaveTextContent("Provider: New Provider");
+    expect(gates).toHaveTextContent("AI suggestion: Providers / General");
+    await user.click(within(gates).getByRole("button", { name: "Adjust category" }));
+
+    const editor = await screen.findByRole("dialog", { name: "Edit Taxonomy Gate" });
+    expect(within(editor).getByLabelText("Top-Level Category")).toHaveValue("Providers");
+    expect(within(editor).getByLabelText("Subcategory")).toHaveValue("General");
+  });
+
+  test("existing Provider selected for an Unknown candidate skips taxonomy review", async () => {
+    const { user, detail } = await openUnknownProviderCandidate();
+    await user.selectOptions(within(detail).getByLabelText("Provider State"), "external");
+    await user.type(
+      within(detail).getByRole("combobox", { name: "Provider name" }),
+      "ABC Trading"
+    );
+
+    expect(within(detail).getByText("Taxonomy Status").parentElement).toHaveTextContent(
+      "Accepted"
+    );
+    expect(within(detail).queryByRole("region", { name: "Taxonomy Gates" })).not.toBeInTheDocument();
+    expect(within(detail).getByRole("group", { name: "Provider taxonomy" })).toHaveTextContent(
+      "Read-only"
+    );
+  });
+
+  test("Internal Provider selected for an Unknown candidate skips taxonomy review", async () => {
+    const { user, detail } = await openUnknownProviderCandidate();
+    await user.selectOptions(within(detail).getByLabelText("Provider State"), "internal");
+
+    expect(within(detail).getByText("Taxonomy Status").parentElement).toHaveTextContent(
+      "Accepted"
+    );
+    expect(within(detail).queryByRole("region", { name: "Taxonomy Gates" })).not.toBeInTheDocument();
+    expect(within(detail).queryByLabelText("Provider name")).not.toBeInTheDocument();
   });
 
   test("bundled candidate taxonomy status becomes Accepted only after every active gate is accepted", async () => {
@@ -1466,10 +1939,6 @@ describe("Project Workspace app shell", () => {
     const taxonomyStatus = within(detail).getByText("Taxonomy Status").parentElement;
     expect(taxonomyStatus).toHaveTextContent("Needs decision");
 
-    await user.click(within(detail).getAllByRole("button", { name: "Accept selected category" })[0]);
-    expect(taxonomyStatus).toHaveTextContent("Needs decision");
-    await user.click(within(detail).getAllByRole("button", { name: "Accept selected category" })[0]);
-    expect(taxonomyStatus).toHaveTextContent("Needs decision");
     await user.click(within(detail).getByRole("button", { name: "Accept selected category" }));
 
     expect(taxonomyStatus).toHaveTextContent("Accepted");
@@ -1734,7 +2203,9 @@ describe("Project Workspace app shell", () => {
     await user.click(screen.getByRole("checkbox", { name: "Include PVC elbow" }));
     await user.click(screen.getAllByRole("button", { name: "Details" })[0]);
     const detail = await screen.findByRole("dialog", { name: "Candidate Detail" });
-    await user.click(within(detail).getByRole("button", { name: "Adjust category" }));
+    await user.click(
+      within(detail).getAllByRole("button", { name: "Adjust category" })[0]
+    );
 
     const taxonomy = await screen.findByRole("dialog", { name: "Edit Taxonomy Gate" });
     const applyToSimilar = within(taxonomy).getByLabelText(
@@ -1794,8 +2265,67 @@ describe("Project Workspace app shell", () => {
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Accept selected category" })).not.toBeInTheDocument();
     expect(within(detail).getByText("Taxonomy Status").parentElement).toHaveTextContent(
-      "Accepted"
+      "Needs decision"
     );
+  });
+
+  test("accepted reviewer taxonomy updates Candidate Preview and the import draft", async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi.mocked(fetch);
+
+    render(<App />);
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+    await user.click(screen.getByRole("tab", { name: "Upload / Review" }));
+    await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
+    await user.type(
+      screen.getByLabelText("Free-form source text"),
+      "PVC pipe and PVC elbow, 20 pcs, from ABC Trading, PHP 1,500"
+    );
+    await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
+    await user.click(await screen.findByRole("button", { name: "Open Review Batch" }));
+    await user.click(screen.getAllByRole("button", { name: "Details" })[0]);
+
+    const detail = await screen.findByRole("dialog", { name: "Candidate Detail" });
+    await user.click(
+      within(detail).getAllByRole("button", { name: "Adjust category" })[0]
+    );
+    const taxonomy = await screen.findByRole("dialog", { name: "Edit Taxonomy Gate" });
+    await user.selectOptions(
+      within(taxonomy).getByRole("combobox", { name: "Existing Taxonomy Path" }),
+      "Electrical / Wiring"
+    );
+    await user.click(within(taxonomy).getByRole("button", { name: "Save reviewer draft" }));
+    await user.click(within(detail).getByRole("button", { name: "Accept selected category" }));
+
+    expect(within(detail).getByText("Category").parentElement).toHaveTextContent(
+      "Electrical / Wiring"
+    );
+    await user.click(within(detail).getByRole("button", { name: "Close" }));
+    expect(screen.getByRole("row", { name: /PVC pipe/ })).toHaveTextContent(
+      "Electrical / Wiring"
+    );
+
+    await user.click(screen.getByRole("button", { name: "Import Included Candidates" }));
+    const reviewDraftCalls = fetchSpy.mock.calls.filter(
+      ([input, init]) =>
+        input.toString().endsWith("/review-batches/10/review-draft") &&
+        init?.method === "PUT"
+    );
+    const importDraft = JSON.parse(
+      String(reviewDraftCalls[reviewDraftCalls.length - 1]?.[1]?.body)
+    );
+    const importedCandidate = importDraft.candidates.find(
+      (candidate: { candidate_id: number }) => candidate.candidate_id === 20
+    );
+    expect(importedCandidate.reviewed_payload.linked_concepts[0]).toMatchObject({
+      top_level_category: "Electrical",
+      subcategory: "Wiring"
+    });
   });
 
   test("reviewer opens Candidate Detail and sees review context", async () => {
@@ -1831,11 +2361,7 @@ describe("Project Workspace app shell", () => {
     expect(within(detail).getByText("Purchase Details")).toBeInTheDocument();
     expect(within(detail).getAllByText("PVC elbow").length).toBeGreaterThan(1);
     expect(within(detail).getByText("AI Confidence").parentElement).toHaveTextContent("84%");
-    expect(
-      within(detail).getByText(
-        "Annotation extraction limit reached — 20 of 21 source-grounded annotation proposals were retained. Review the source and add any omitted qualifiers that matter."
-      )
-    ).toBeInTheDocument();
+    expect(within(detail).queryByText(/Annotation extraction limit reached/)).not.toBeInTheDocument();
     expect(within(detail).getByText("AI suggested")).toBeInTheDocument();
     await user.selectOptions(
       within(detail).getByLabelText("Annotation type 1"),
@@ -2027,16 +2553,22 @@ function buildBundledCandidate(acceptedGateIds: ReadonlySet<number>) {
     proposed_payload: {
       linked_concepts: [
         {
+          concept_id: "material-pvc",
           concept_type: "material",
           name: "PVC pipe",
+          observed_name_text: "PVC pipe",
+          project_memory_record_id: 81,
           category_suggestion: {
             top_level_category: "Plumbing",
             subcategory: "Pipes"
           }
         },
         {
+          concept_id: "service-installation",
           concept_type: "service",
           name: "PVC pipe installation",
+          observed_name_text: "installed PVC pipe",
+          project_memory_record_id: null,
           category_suggestion: {
             top_level_category: "Trade services",
             subcategory: "Pipe installation"
@@ -2045,6 +2577,8 @@ function buildBundledCandidate(acceptedGateIds: ReadonlySet<number>) {
       ],
       provider_state: "external",
       provider_name: "ABC Trading",
+      observed_provider_text: "ABC Trading",
+      provider_memory_record_id: 82,
       provider_category_suggestion: {
         top_level_category: "Providers",
         subcategory: "General"
@@ -2061,9 +2595,7 @@ function buildBundledCandidate(acceptedGateIds: ReadonlySet<number>) {
     source_file: null,
     taxonomy_gate: null,
     taxonomy_gates: [
-      gate(902, "material", "PVC pipe", "Plumbing / Pipes"),
-      gate(903, "service", "PVC pipe installation", "Trade services / Pipe installation"),
-      gate(904, "provider", "ABC Trading", "Providers / General")
+      gate(903, "service", "PVC pipe installation", "Trade services / Pipe installation")
     ],
     existing_memory_matches: [
       {
@@ -2075,6 +2607,22 @@ function buildBundledCandidate(acceptedGateIds: ReadonlySet<number>) {
         subject_type: "provider",
         subject_name: "ABC Trading",
         category_path: "Providers / General"
+      }
+    ],
+    memory_options: [
+      {
+        record_id: 81,
+        subject_type: "material",
+        subject_name: "PVC pipe",
+        category_path: "Plumbing / Pipes",
+        provider_roles: []
+      },
+      {
+        record_id: 82,
+        subject_type: "provider",
+        subject_name: "ABC Trading",
+        category_path: "Providers / General",
+        provider_roles: ["material_supplier"]
       }
     ],
     taxonomy_default: null
@@ -2155,5 +2703,122 @@ function buildCandidate(
       }
     ],
     taxonomy_default: null
+  };
+}
+
+function buildExistingMemoryCandidate() {
+  return {
+    id: 43,
+    project_workspace_id: 1,
+    review_batch_id: 13,
+    source_submission_id: 33,
+    status: "pending_review",
+    proposed_payload: {
+      linked_concepts: [
+        {
+          concept_id: "material-pvc",
+          concept_type: "material",
+          name: "PVC pipe",
+          observed_name_text: "PVC pipe",
+          project_memory_record_id: 81,
+          category_suggestion: {
+            top_level_category: "Plumbing",
+            subcategory: "Pipes"
+          }
+        },
+        {
+          concept_id: "service-installation",
+          concept_type: "service",
+          name: "PVC pipe installation",
+          observed_name_text: "installed PVC pipe",
+          project_memory_record_id: 83,
+          category_suggestion: {
+            top_level_category: "Services",
+            subcategory: "Pipe installation"
+          }
+        }
+      ],
+      provider_state: "external",
+      provider_name: "ABC Trading",
+      observed_provider_text: "ABC Trading",
+      provider_memory_record_id: 82,
+      provider_category_suggestion: {
+        top_level_category: "Providers",
+        subcategory: "General"
+      },
+      quantity: "20",
+      unit: "pcs",
+      price: "1500",
+      currency: "PHP",
+      purchase_date: "2025-07-12"
+    },
+    decision: null,
+    merged_into_candidate_id: null,
+    reviewed_payload: null,
+    source_file: null,
+    taxonomy_gate: null,
+    taxonomy_gates: [],
+    existing_memory_matches: [
+      {
+        subject_type: "material",
+        subject_name: "PVC pipe",
+        category_path: "Plumbing / Pipes"
+      },
+      {
+        subject_type: "service",
+        subject_name: "PVC pipe installation",
+        category_path: "Services / Pipe installation"
+      },
+      {
+        subject_type: "provider",
+        subject_name: "ABC Trading",
+        category_path: "Providers / General"
+      }
+    ],
+    memory_options: [
+      {
+        record_id: 81,
+        subject_type: "material",
+        subject_name: "PVC pipe",
+        category_path: "Plumbing / Pipes",
+        provider_roles: []
+      },
+      {
+        record_id: 83,
+        subject_type: "service",
+        subject_name: "PVC pipe installation",
+        category_path: "Services / Pipe installation",
+        provider_roles: []
+      },
+      {
+        record_id: 82,
+        subject_type: "provider",
+        subject_name: "ABC Trading",
+        category_path: "Providers / General",
+        provider_roles: ["material_supplier"]
+      }
+    ],
+    taxonomy_default: null
+  };
+}
+
+function buildUnknownProviderCandidate() {
+  const candidate = buildExistingMemoryCandidate();
+  return {
+    ...candidate,
+    id: 44,
+    review_batch_id: 14,
+    source_submission_id: 34,
+    proposed_payload: {
+      ...candidate.proposed_payload,
+      provider_state: "unknown",
+      provider_name: null,
+      observed_provider_text: null,
+      provider_memory_record_id: null,
+      provider_category_suggestion: null
+    },
+    existing_memory_matches: candidate.existing_memory_matches.filter(
+      (match) => match.subject_type !== "provider"
+    )
   };
 }

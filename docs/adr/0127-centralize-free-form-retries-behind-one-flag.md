@@ -1,5 +1,7 @@
 # Centralize Free-Form Retries Behind One Flag
 
+> **Status:** The production retry-control decision remains accepted. Its reasoning levels are superseded by ADR 0153; its ten-call evaluation clause is superseded by ADR 0151.
+
 All GPT-5.5 free-form retry paths will be controlled by one deployment variable, `OPENAI_FREE_FORM_RETRIES_ENABLED`, defaulting to `true`. When enabled, a zero-candidate `high` result receives one full-source `xhigh` confirmation call, invalid whole-result structure receives one full-source `xhigh` repair, and an isolated invalid candidate may receive one `xhigh` repair. When disabled, Habi makes exactly one `high` request: a valid empty result becomes `no_candidates_found`, while any invalid result fails the Processing Job immediately and never produces a partial Review Batch. The flag does not control XLSX processing, whose model and retry policy remain separate deployment concerns.
 
 A confirmed second zero-candidate result becomes `no_candidates_found` under ADR 0073 rather than a failure. The centralized switch makes retry cost and latency operationally controllable without allowing the three free-form retry cases to drift into inconsistent deployment settings.

@@ -168,6 +168,82 @@ def test_reviewer_draft_has_no_taxonomy_side_effect_until_acceptance(tmp_path):
     ]
 
 
+def test_accepted_taxonomy_survives_stale_review_draft_and_import(tmp_path):
+    with make_postgres_test_client() as client:
+        project, submission = create_manual_submission(
+            client, "Arnaiz Residence Renovation"
+        )
+        candidate_id = submission["candidates"][0]["id"]
+        review_batch_id = submission["review_batch"]["id"]
+        set_candidate_category_suggestion(
+            client,
+            candidate_id,
+            top_level_category="Mechanical",
+            subcategory="Pipe Materials",
+        )
+        approved = client.post(
+            f"/api/project-workspaces/{project['id']}/review-batches/"
+            f"{review_batch_id}/candidates/{candidate_id}/decision",
+            json={
+                "decision": "approved",
+                "reviewed_payload": {
+                    "line_type": "material",
+                    "name": "PVC pipe",
+                    "top_level_category": "Mechanical",
+                    "subcategory": "Pipe Materials",
+                    "provider_state": "unknown",
+                },
+            },
+        )
+        gate_id = approved.json()["taxonomy_gates"][0]["id"]
+        client.put(
+            f"/api/project-workspaces/{project['id']}/review-batches/"
+            f"{review_batch_id}/taxonomy-gates/{gate_id}/reviewer-draft",
+            json={
+                "top_level_category": "Plumbing",
+                "subcategory": "Pressure Pipes",
+            },
+        )
+        client.post(
+            f"/api/project-workspaces/{project['id']}/review-batches/"
+            f"{review_batch_id}/taxonomy-gates/{gate_id}/accept"
+        )
+
+        stale_save = client.put(
+            f"/api/project-workspaces/{project['id']}/review-batches/"
+            f"{review_batch_id}/review-draft",
+            json={
+                "candidates": [
+                    {
+                        "candidate_id": candidate_id,
+                        "included": True,
+                        "reviewed_payload": {
+                            "line_type": "material",
+                            "name": "PVC pipe",
+                            "top_level_category": "Mechanical",
+                            "subcategory": "Pipe Materials",
+                            "provider_state": "unknown",
+                        },
+                    }
+                ]
+            },
+        )
+        imported = client.post(
+            f"/api/project-workspaces/{project['id']}/review-batches/"
+            f"{review_batch_id}/import"
+        )
+        materials = client.get(
+            f"/api/project-workspaces/{project['id']}/materials"
+        )
+
+    assert stale_save.status_code == 200
+    reviewed_payload = stale_save.json()["candidates"][0]["reviewed_payload"]
+    assert reviewed_payload["top_level_category"] == "Plumbing"
+    assert reviewed_payload["subcategory"] == "Pressure Pipes"
+    assert imported.status_code == 200
+    assert materials.json()["items"][0]["category_path"] == "Plumbing / Pressure Pipes"
+
+
 def test_reviewer_draft_propagates_only_to_matching_pending_subject_gates(tmp_path):
     with make_postgres_test_client() as client:
         project, submission = create_manual_submission(
