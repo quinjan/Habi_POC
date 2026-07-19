@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import subprocess
 import sys
 
@@ -44,6 +45,37 @@ def test_poc_evaluation_command_requires_named_human_approval():
 
     assert result.returncode == 2
     assert "--approved-by" in result.stderr
+
+
+def test_poc_evaluation_refuses_a_non_eval_database_name_before_connecting():
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "HABI_EVAL_DATABASE_URL": (
+                "postgresql+psycopg://test-user@127.0.0.1:1/production"
+            ),
+            "OPENAI_API_KEY": "test-only-placeholder",
+            "OPENAI_FREE_FORM_MODEL": "gpt-5.5-2026-04-23",
+            "OPENAI_FREE_FORM_REASONING_EFFORT": "high",
+            "OPENAI_FREE_FORM_RETRIES_ENABLED": "false",
+            "OPENAI_CLIENT_MAX_RETRIES": "0",
+        }
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "backend/scripts/run_free_form_evaluation.py",
+            "--approved-by",
+            "Quinjan",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=environment,
+    )
+
+    assert result.returncode != 0
+    assert "database name must start with habi_eval_" in result.stderr
 
 
 def test_poc_evaluation_renders_a_short_pr_scorecard():

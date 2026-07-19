@@ -20,6 +20,7 @@ if str(ROOT) not in sys.path:
 
 from fastapi.testclient import TestClient
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 
 from backend.app.database import Base, create_sqlalchemy_engine
 from backend.app.evaluation.free_form import (
@@ -259,8 +260,14 @@ def _scorecard_view(candidates: list[dict], expected: dict) -> dict:
 
 def _required_eval_database_url() -> str:
     value = os.getenv("HABI_EVAL_DATABASE_URL", "")
-    if not value or not any(marker in value.casefold() for marker in ("eval", "test")):
-        raise RuntimeError("HABI_EVAL_DATABASE_URL must name a dedicated eval/test database")
+    if not value:
+        raise RuntimeError("HABI_EVAL_DATABASE_URL is required")
+    parsed = make_url(value)
+    if parsed.get_backend_name() != "postgresql":
+        raise RuntimeError("HABI_EVAL_DATABASE_URL must use Postgres")
+    database_name = parsed.database or ""
+    if not database_name.casefold().startswith("habi_eval_"):
+        raise RuntimeError("HABI_EVAL_DATABASE_URL database name must start with habi_eval_")
     return value
 
 
