@@ -16,6 +16,11 @@ describe("Project Workspace app shell", () => {
     purchaseLinesByProject = new Map<number, unknown[]>([[1, []]]);
     processingJobsByProject = new Map<number, unknown[]>([[1, []]]);
     const acceptedBatch12GateIds = new Set<number>();
+    const batch10SavedPayloads = new Map<number, Record<string, unknown>>();
+    let batch10ReviewerDraftPath: {
+      topLevelCategory: string;
+      subcategory: string;
+    } | null = null;
     const projectNamesById = new Map<number, string>([[1, "Arnaiz Residence Renovation"]]);
     const taxonomyLeafPathsByProject = new Map<
       number,
@@ -627,6 +632,40 @@ describe("Project Workspace app shell", () => {
         }
 
         if (
+          url === "/api/project-workspaces/1/review-batches/12/review-draft" &&
+          method === "PUT"
+        ) {
+          const body = JSON.parse(String(init?.body));
+          const candidate = buildBundledCandidate(acceptedBatch12GateIds);
+          const savedCandidate = body.candidates.find(
+            (item: { candidate_id: number }) => item.candidate_id === candidate.id
+          );
+          return jsonResponse({
+            review_batch: {
+              id: 12,
+              project_workspace_id: 1,
+              source_submission_id: 32,
+              status: "review_in_progress"
+            },
+            candidates: [
+              {
+                ...candidate,
+                status: savedCandidate?.included
+                  ? "approved_for_import"
+                  : "rejected_for_import",
+                decision: savedCandidate?.included ? "approved" : "rejected",
+                reviewed_payload: savedCandidate?.included
+                  ? savedCandidate.reviewed_payload
+                  : null
+              }
+            ],
+            duplicate_groups: [],
+            duplicate_conflicts: [],
+            taxonomy_decisions: []
+          });
+        }
+
+        if (
           url === "/api/project-workspaces/1/review-batches/12/candidates/42/reset" &&
           method === "POST"
         ) {
@@ -781,6 +820,17 @@ describe("Project Workspace app shell", () => {
 
         if (url === "/api/project-workspaces/1/review-batches/10/review-draft" && method === "PUT") {
           const body = JSON.parse(String(init?.body));
+          body.candidates.forEach(
+            (item: {
+              candidate_id: number;
+              included: boolean;
+              reviewed_payload: Record<string, unknown> | null;
+            }) => {
+              if (item.included && item.reviewed_payload) {
+                batch10SavedPayloads.set(item.candidate_id, item.reviewed_payload);
+              }
+            }
+          );
           return jsonResponse({
             review_batch: {
               id: 10,
@@ -813,6 +863,12 @@ describe("Project Workspace app shell", () => {
         );
         if (taxonomyGateDraftMatch && method === "PUT") {
           const body = JSON.parse(String(init?.body));
+          if (taxonomyGateDraftMatch[1] === "920") {
+            batch10ReviewerDraftPath = {
+              topLevelCategory: body.top_level_category,
+              subcategory: body.subcategory
+            };
+          }
           const candidates = [
             buildCandidate(20, "PVC pipe", "material", "Mechanical", "Pipe Materials"),
             buildCandidate(21, "PVC elbow", "material", "Mechanical", "Pipe Materials")
@@ -846,6 +902,10 @@ describe("Project Workspace app shell", () => {
           url === "/api/project-workspaces/1/review-batches/10/taxonomy-gates/920/accept" &&
           method === "POST"
         ) {
+          const acceptedTopLevelCategory =
+            batch10ReviewerDraftPath?.topLevelCategory ?? "Mechanical";
+          const acceptedSubcategory =
+            batch10ReviewerDraftPath?.subcategory ?? "Pipe Materials";
           const candidate = buildCandidate(
             20,
             "PVC pipe",
@@ -853,6 +913,21 @@ describe("Project Workspace app shell", () => {
             "Mechanical",
             "Pipe Materials"
           );
+          const savedPayload = batch10SavedPayloads.get(20);
+          const reviewedPayload = savedPayload
+            ? {
+                ...savedPayload,
+                top_level_category: acceptedTopLevelCategory,
+                subcategory: acceptedSubcategory,
+                linked_concepts: Array.isArray(savedPayload.linked_concepts)
+                  ? savedPayload.linked_concepts.map((concept) => ({
+                      ...concept,
+                      top_level_category: acceptedTopLevelCategory,
+                      subcategory: acceptedSubcategory
+                    }))
+                  : savedPayload.linked_concepts
+              }
+            : null;
           return jsonResponse({
             review_batch: {
               id: 10,
@@ -863,13 +938,23 @@ describe("Project Workspace app shell", () => {
             candidates: [
               {
                 ...candidate,
+                reviewed_payload: reviewedPayload,
                 taxonomy_gates: candidate.taxonomy_gates.map((gate) => ({
                   ...gate,
                   status: "accepted",
-                  accepted_category_path: "Mechanical / Pipe Materials",
-                  resolved_category_path: "Mechanical / Pipe Materials",
-                  accepted_source: "ai_suggestion",
-                  decision: "approved",
+                  reviewer_draft_category_path: batch10ReviewerDraftPath
+                    ? `${acceptedTopLevelCategory} / ${acceptedSubcategory}`
+                    : null,
+                  selected_proposal: batch10ReviewerDraftPath
+                    ? "reviewer_draft"
+                    : "ai_suggestion",
+                  selected_category_path: `${acceptedTopLevelCategory} / ${acceptedSubcategory}`,
+                  accepted_category_path: `${acceptedTopLevelCategory} / ${acceptedSubcategory}`,
+                  resolved_category_path: `${acceptedTopLevelCategory} / ${acceptedSubcategory}`,
+                  accepted_source: batch10ReviewerDraftPath
+                    ? "reviewer_draft"
+                    : "ai_suggestion",
+                  decision: batch10ReviewerDraftPath ? "mapped" : "approved",
                   taxonomy_decision_id: 77
                 }))
               }
@@ -2182,6 +2267,65 @@ describe("Project Workspace app shell", () => {
     expect(within(detail).getByText("Taxonomy Status").parentElement).toHaveTextContent(
       "Needs decision"
     );
+  });
+
+  test("accepted reviewer taxonomy updates Candidate Preview and the import draft", async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi.mocked(fetch);
+
+    render(<App />);
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+    await user.click(screen.getByRole("tab", { name: "Upload / Review" }));
+    await user.click(screen.getByRole("button", { name: "Free-Form Text" }));
+    await user.type(
+      screen.getByLabelText("Free-form source text"),
+      "PVC pipe and PVC elbow, 20 pcs, from ABC Trading, PHP 1,500"
+    );
+    await user.click(screen.getByRole("button", { name: "Create Manual Source Entry" }));
+    await user.click(await screen.findByRole("button", { name: "Open Review Batch" }));
+    await user.click(screen.getAllByRole("button", { name: "Details" })[0]);
+
+    const detail = await screen.findByRole("dialog", { name: "Candidate Detail" });
+    await user.click(
+      within(detail).getAllByRole("button", { name: "Adjust category" })[0]
+    );
+    const taxonomy = await screen.findByRole("dialog", { name: "Edit Taxonomy Gate" });
+    await user.selectOptions(
+      within(taxonomy).getByRole("combobox", { name: "Existing Taxonomy Path" }),
+      "Electrical / Wiring"
+    );
+    await user.click(within(taxonomy).getByRole("button", { name: "Save reviewer draft" }));
+    await user.click(within(detail).getByRole("button", { name: "Accept selected category" }));
+
+    expect(within(detail).getByText("Category").parentElement).toHaveTextContent(
+      "Electrical / Wiring"
+    );
+    await user.click(within(detail).getByRole("button", { name: "Close" }));
+    expect(screen.getByRole("row", { name: /PVC pipe/ })).toHaveTextContent(
+      "Electrical / Wiring"
+    );
+
+    await user.click(screen.getByRole("button", { name: "Import Included Candidates" }));
+    const reviewDraftCalls = fetchSpy.mock.calls.filter(
+      ([input, init]) =>
+        input.toString().endsWith("/review-batches/10/review-draft") &&
+        init?.method === "PUT"
+    );
+    const importDraft = JSON.parse(
+      String(reviewDraftCalls[reviewDraftCalls.length - 1]?.[1]?.body)
+    );
+    const importedCandidate = importDraft.candidates.find(
+      (candidate: { candidate_id: number }) => candidate.candidate_id === 20
+    );
+    expect(importedCandidate.reviewed_payload.linked_concepts[0]).toMatchObject({
+      top_level_category: "Electrical",
+      subcategory: "Wiring"
+    });
   });
 
   test("reviewer opens Candidate Detail and sees review context", async () => {

@@ -599,6 +599,10 @@ def save_review_batch_draft(
                 session,
                 candidates_by_id[item.candidate_id],
             )
+            _reapply_accepted_candidate_taxonomy_gates(
+                session,
+                candidates_by_id[item.candidate_id],
+            )
     except TerminalReviewBatchError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -2146,6 +2150,44 @@ def _apply_accepted_gate_category(
     candidate.reviewed_payload = ReviewedPurchaseLinePayload.model_validate(payload).model_dump(
         mode="json"
     )
+
+
+def _reapply_accepted_candidate_taxonomy_gates(
+    session: Session,
+    candidate: ExtractedCandidate,
+) -> None:
+    accepted_gates = session.scalars(
+        select(TaxonomyGate).where(
+            TaxonomyGate.candidate_id == candidate.id,
+            TaxonomyGate.active.is_(True),
+            TaxonomyGate.status == "accepted",
+        )
+    )
+    for gate in accepted_gates:
+        decision = session.scalar(
+            select(TaxonomyDecision)
+            .where(
+                TaxonomyDecision.taxonomy_gate_id == gate.id,
+                TaxonomyDecision.superseded.is_(False),
+            )
+            .order_by(TaxonomyDecision.id.desc())
+        )
+        if decision is None or decision.resolved_taxonomy_node_id is None:
+            continue
+        subcategory = session.get(TaxonomyNode, decision.resolved_taxonomy_node_id)
+        top_level_category = (
+            session.get(TaxonomyNode, subcategory.parent_id)
+            if subcategory is not None and subcategory.parent_id is not None
+            else None
+        )
+        if subcategory is None or top_level_category is None:
+            continue
+        _apply_accepted_gate_category(
+            session=session,
+            taxonomy_gate=gate,
+            top_level_category=top_level_category.name,
+            subcategory=subcategory.name,
+        )
 
 
 def _persisted_taxonomy_gate_read(

@@ -830,12 +830,14 @@ function App() {
     if (selectedPurchaseLines === null || activeReviewBatch === null) return;
     setIsApprovingCandidate(true);
     try {
+      await handleSaveReviewDraft();
       const detail = await acceptTaxonomyGate(
         selectedPurchaseLines.project_workspace.id,
         activeReviewBatch.review_batch.id,
         gate.id
       );
       applyReviewBatchDetail(detail);
+      setCandidateDrafts(initialDraftsForCandidates(detail.candidates));
       await refreshTaxonomyLeafPaths(selectedPurchaseLines.project_workspace.id);
     } catch {
       setErrorMessage("Selected taxonomy category could not be accepted.");
