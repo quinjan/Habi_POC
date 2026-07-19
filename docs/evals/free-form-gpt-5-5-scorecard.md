@@ -10,6 +10,8 @@ The sole fixture is `backend/evals/free-form/fixtures/01-mixed-completed-project
 - a material-only Purchase Line;
 - an internal service Purchase Line;
 - an unknown-provider material Purchase Line;
+- a specification-bearing reinforcing-steel Purchase Line;
+- a second internal service whose lifecycle wording must not enter its reusable name;
 - Project Memory context and a memory-only distractor;
 - delivery, payment, warranty, availability, exclusion, and Provider annotations; and
 - workflow and future-work noise that must not become candidates.
@@ -48,7 +50,7 @@ The command seeds an isolated Project Workspace, submits the fixture through the
 The check passes only when:
 
 - exactly one model call occurs;
-- the four expected Purchase Lines match in order and essential fields;
+- the six expected Purchase Lines match in order and essential fields;
 - the expected Provider States, names, prices, and annotation counts match; and
 - every required workflow, future-work, placeholder, and Project-Memory-only omission remains absent.
 
@@ -58,12 +60,12 @@ The command prints a short Markdown scorecard:
 ## Real-Model Evaluation
 
 - PRD: #36
-- Fixture: mixed-completed-project-baseline v1
+- Fixture: mixed-completed-project-baseline v2
 - Model: gpt-5.5-2026-04-23
 - Model calls: 1
 - Paid call approved by: Quinjan
 - Result: PASS
-- Purchase Lines: 4/4
+- Purchase Lines: 6/6
 - Required exclusions: PASS
 - Human merge review: required
 ```

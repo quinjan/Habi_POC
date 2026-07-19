@@ -689,7 +689,7 @@ def test_free_form_ai_preserves_source_total_and_surfaces_an_unexplained_varianc
                 "provider_category_suggestion": None,
                 "bundle_quantity": None,
                 "bundle_unit": None,
-                "source_stated_line_total": "8300",
+                "source_stated_line_total": "PHP 8,300",
                 "currency": "PHP",
                 "currency_state": "source_stated",
                 "installation_relationships": [],
@@ -722,6 +722,33 @@ def test_free_form_ai_preserves_source_total_and_surfaces_an_unexplained_varianc
         "variance": "-100",
     }
     assert payload["annotation_proposals"] == []
+
+
+def test_free_form_commercial_rules_reject_mismatched_or_unknown_currency_prefixes():
+    from backend.app.processing.ai_extraction import apply_free_form_commercial_rules
+
+    base = {
+        "linked_concepts": [
+            {
+                "quantity": "PCS 24",
+                "unit": "lengths",
+                "component_unit_price": "100",
+            }
+        ],
+        "currency": "PHP",
+    }
+
+    mismatched = apply_free_form_commercial_rules(
+        {**base, "source_stated_line_total": "USD 8,300"}
+    )
+    unknown = apply_free_form_commercial_rules(
+        {**base, "source_stated_line_total": "ABC 8,300"}
+    )
+
+    assert mismatched.get("price") is None
+    assert unknown.get("price") is None
+    assert mismatched.get("calculation") is None
+    assert unknown.get("calculation") is None
 
 
 def test_candidate_review_saves_repeated_concept_controls_with_immutable_observed_text(

@@ -116,6 +116,10 @@ _Avoid_: Source grounding, cross-project match, automatic import
 The reviewed Material, Service, or external Provider name selected through a searchable control that offers active same-type Project Memory records and permits a new free-text value. Selecting an existing option or typing its exact normalized name retains its Memory Record identity; only unmatched free text represents a new record.
 _Avoid_: Plain text-only name, closed dropdown, implicit fuzzy match
 
+**Normalized Concept Name**:
+The reusable Material or Service name proposed for review and eventual Project Memory. It preserves identity-defining source details such as dimensions, grade, brand, and model while normalizing punctuation and omitting transaction or lifecycle qualifiers such as completed or final; the exact supporting source wording remains separately preserved as Observed Name Text.
+_Avoid_: Exact source transcription, specification-stripped name, transaction description
+
 **Archived Memory Record**:
 A previously imported memory record removed from active Project Memory browsing and search while remaining preserved for history, evidence, and audit.
 _Avoid_: Deleted record, deactivated record

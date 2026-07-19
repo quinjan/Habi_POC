@@ -30,9 +30,65 @@ def test_poc_fixture_has_human_approval_for_its_current_version():
         "status": "approved",
         "reviewer": "Quinjan",
         "approval_date": "2026-07-19",
-        "fixture_version": 1,
-        "rationale": "Approved as the single representative POC evaluation fixture for PRD #36.",
+        "fixture_version": 2,
+        "rationale": (
+            "Approved six-candidate PRD #36 fixture for specification preservation "
+            "and lifecycle-qualifier normalization."
+        ),
     }
+    assert manifest["expected_result"]["candidates"] == [
+        {
+            "shape": "bundled",
+            "concept_names": [
+                "Daikin split-type air conditioner",
+                "Air conditioning installation",
+            ],
+            "provider_state": "external",
+            "provider_name": "CoolAir Mechanical Services",
+            "price": "120000",
+            "annotation_count": 8,
+        },
+        {
+            "shape": "material",
+            "concept_names": ["100 mm PVC pressure pipe"],
+            "provider_state": "external",
+            "provider_name": "BuildMart Trading",
+            "price": "32500",
+            "annotation_count": 3,
+        },
+        {
+            "shape": "service",
+            "concept_names": ["Site cleanup"],
+            "provider_state": "internal",
+            "provider_name": None,
+            "price": "18000",
+            "annotation_count": 2,
+        },
+        {
+            "shape": "material",
+            "concept_names": ["Non-shrink grout"],
+            "provider_state": "unknown",
+            "provider_name": None,
+            "price": "8500",
+            "annotation_count": 2,
+        },
+        {
+            "shape": "material",
+            "concept_names": ["16 mm Grade 60 deformed reinforcing bar"],
+            "provider_state": "external",
+            "provider_name": "MetroSteel",
+            "price": "28800",
+            "annotation_count": 0,
+        },
+        {
+            "shape": "service",
+            "concept_names": ["Domestic water-line pressure testing"],
+            "provider_state": "internal",
+            "provider_name": None,
+            "price": "9000",
+            "annotation_count": 0,
+        },
+    ]
 
 
 def test_poc_evaluation_command_requires_named_human_approval():
@@ -81,14 +137,14 @@ def test_poc_evaluation_refuses_a_non_eval_database_name_before_connecting():
 def test_poc_evaluation_renders_a_short_pr_scorecard():
     manifest = {
         "fixture_id": "mixed-completed-project-baseline",
-        "fixture_version": 1,
+        "fixture_version": 2,
         "expected_result": {
-            "candidates": [{}, {}, {}, {}],
+            "candidates": [{}, {}, {}, {}, {}, {}],
             "required_omissions": ["planned work"],
         },
     }
     actual = {
-        "candidates": [{}, {}, {}, {}],
+        "candidates": [{}, {}, {}, {}, {}, {}],
         "required_omissions": ["planned work"],
     }
 
@@ -103,12 +159,12 @@ def test_poc_evaluation_renders_a_short_pr_scorecard():
     ) == (
         "## Real-Model Evaluation\n\n"
         "- PRD: #36\n"
-        "- Fixture: mixed-completed-project-baseline v1\n"
+        "- Fixture: mixed-completed-project-baseline v2\n"
         "- Model: gpt-5.5-2026-04-23\n"
         "- Model calls: 1\n"
         "- Paid call approved by: Quinjan\n"
         "- Result: PASS\n"
-        "- Purchase Lines: 4/4\n"
+        "- Purchase Lines: 6/6\n"
         "- Required exclusions: PASS\n"
         "- Human merge review: required"
     )

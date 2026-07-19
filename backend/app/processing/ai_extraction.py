@@ -1,5 +1,6 @@
 from datetime import date
 from decimal import Decimal, InvalidOperation
+import re
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -571,7 +572,9 @@ def apply_free_form_commercial_rules(payload: dict) -> dict:
         return payload
 
     result = dict(payload)
-    source_total = _parse_decimal(payload.get("source_stated_line_total"))
+    source_total = _parse_money(
+        payload.get("source_stated_line_total"), payload.get("currency")
+    )
     if source_total is not None:
         result["price"] = _decimal_text(source_total)
         result["price_state"] = "source_stated"
@@ -580,7 +583,9 @@ def apply_free_form_commercial_rules(payload: dict) -> dict:
         return result
     concept = linked_concepts[0]
     quantity = _parse_decimal(concept.get("quantity"))
-    unit_price = _parse_decimal(concept.get("component_unit_price"))
+    unit_price = _parse_money(
+        concept.get("component_unit_price"), payload.get("currency")
+    )
     unit = concept.get("unit")
     if quantity is None or unit_price is None or not isinstance(unit, str):
         return result
@@ -609,8 +614,34 @@ def apply_free_form_commercial_rules(payload: dict) -> dict:
 def _parse_decimal(value: object) -> Decimal | None:
     if not isinstance(value, str) or not value.strip():
         return None
+    normalized = value.replace(",", "").strip()
     try:
-        return Decimal(value.replace(",", "").strip())
+        return Decimal(normalized)
+    except InvalidOperation:
+        return None
+
+
+def _parse_money(value: object, currency: object) -> Decimal | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    normalized = value.replace(",", "").strip()
+    expected_currency = (
+        currency.strip().upper()
+        if isinstance(currency, str) and re.fullmatch(r"[A-Za-z]{3}", currency.strip())
+        else None
+    )
+    parts = normalized.split(maxsplit=1)
+    if len(parts) == 2 and len(parts[0]) == 3 and parts[0].isalpha():
+        if expected_currency is None or parts[0].upper() != expected_currency:
+            return None
+        normalized = parts[1]
+    symbols = {"₱": "PHP", "$": "USD", "€": "EUR", "£": "GBP", "¥": "JPY"}
+    if normalized and normalized[0] in symbols:
+        if expected_currency != symbols[normalized[0]]:
+            return None
+        normalized = normalized[1:].strip()
+    try:
+        return Decimal(normalized)
     except InvalidOperation:
         return None
 
