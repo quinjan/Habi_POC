@@ -391,6 +391,8 @@ def test_free_form_openai_request_uses_gpt55_grounded_multi_concept_contract():
     assert "identity-defining source details" in system_prompt
     assert "normalize punctuation" in system_prompt
     assert "transaction or lifecycle qualifiers" in system_prompt
+    assert "copy its supplied canonical name and category exactly" in system_prompt
+    assert "return a null record id" in system_prompt
 
 
 def test_openai_provider_uses_stateless_strict_xlsx_profile_and_extraction_calls():
