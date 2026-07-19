@@ -1233,12 +1233,18 @@ def test_approved_xlsx_candidate_imports_verified_spreadsheet_evidence(
             ]
         },
     )
+    gate_id = draft.json()["candidates"][0]["taxonomy_gates"][0]["id"]
+    accepted = client.post(
+        f"/api/project-workspaces/{project['id']}/review-batches/"
+        f"{job_detail['review_batch_id']}/taxonomy-gates/{gate_id}/accept"
+    )
     imported = client.post(
         f"/api/project-workspaces/{project['id']}/review-batches/"
         f"{job_detail['review_batch_id']}/import"
     )
 
     assert draft.status_code == 200
+    assert accepted.status_code == 200
     assert imported.status_code == 200
     purchase_lines = client.get(
         f"/api/project-workspaces/{project['id']}/purchase-lines"

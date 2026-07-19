@@ -56,6 +56,11 @@ def test_review_batch_draft_saves_included_and_excluded_candidates(tmp_path):
                 ]
             },
         )
+        gate_id = response.json()["candidates"][0]["taxonomy_gates"][0]["id"]
+        accepted = client.post(
+            f"/api/project-workspaces/{project['id']}/review-batches/"
+            f"{submission['review_batch']['id']}/taxonomy-gates/{gate_id}/accept"
+        )
 
     assert response.status_code == 200
     body = response.json()
@@ -68,17 +73,60 @@ def test_review_batch_draft_saves_included_and_excluded_candidates(tmp_path):
     assert candidates[second_candidate_id]["status"] == "rejected_for_import"
     assert candidates[second_candidate_id]["reviewed_payload"] is None
 
-    resolved = client.post(
-        f"/api/project-workspaces/{project['id']}/review-batches/"
-        f"{submission['review_batch']['id']}/taxonomy-decisions",
-        json={
-            "decision": "approved",
-            "suggested_top_level_category": "Plumbing",
-            "suggested_subcategory": "Pipes",
-        },
-    )
-    assert resolved.status_code == 201
-    assert resolved.json()["review_batch"]["status"] == "ready_to_import"
+    assert accepted.status_code == 200
+    assert accepted.json()["review_batch"]["status"] == "ready_to_import"
+
+
+def test_review_batch_draft_returns_persisted_gate_for_edited_candidate_name(tmp_path):
+    with make_client(tmp_path) as client:
+        project, submission = create_manual_submission(client)
+        review_batch_id = submission["review_batch"]["id"]
+
+        saved = client.put(
+            f"/api/project-workspaces/{project['id']}/review-batches/"
+            f"{review_batch_id}/review-draft",
+            json={
+                "candidates": [
+                    {
+                        "candidate_id": submission["candidates"][0]["id"],
+                        "included": True,
+                        "reviewed_payload": {
+                            "line_type": "material",
+                            "name": "PVC pressure pipe",
+                            "top_level_category": "Plumbing",
+                            "subcategory": "Pipes",
+                            "quantity": "20",
+                            "unit": "pcs",
+                            "price": "1500",
+                            "provider_name": "ABC Trading",
+                        },
+                    }
+                ]
+            },
+        )
+        assert saved.status_code == 200
+        gate = saved.json()["candidates"][0]["taxonomy_gates"][0]
+        assert gate["subject_name"] == "PVC pressure pipe"
+
+        drafted = client.put(
+            f"/api/project-workspaces/{project['id']}/review-batches/"
+            f"{review_batch_id}/taxonomy-gates/{gate['id']}/reviewer-draft",
+            json={
+                "top_level_category": "Plumbing",
+                "subcategory": "Pressure Pipes",
+            },
+        )
+        accepted = client.post(
+            f"/api/project-workspaces/{project['id']}/review-batches/"
+            f"{review_batch_id}/taxonomy-gates/{gate['id']}/accept"
+        )
+
+    assert drafted.status_code == 200
+    assert accepted.status_code == 200
+    accepted_gate = accepted.json()["candidates"][0]["taxonomy_gates"][0]
+    assert accepted_gate["id"] == gate["id"]
+    assert accepted_gate["status"] == "accepted"
+    assert accepted_gate["accepted_category_path"] == "Plumbing / Pressure Pipes"
 
 
 def test_review_batch_draft_rejects_included_candidate_without_category_path(tmp_path):

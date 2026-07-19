@@ -478,6 +478,89 @@ describe("Project Workspace app shell", () => {
           });
         }
 
+        if (url === "/api/project-workspaces/1/review-batches/13" && method === "GET") {
+          return jsonResponse({
+            review_batch: {
+              id: 13,
+              project_workspace_id: 1,
+              source_submission_id: 33,
+              status: "review_pending"
+            },
+            candidates: [buildExistingMemoryCandidate()],
+            duplicate_groups: [],
+            duplicate_conflicts: [],
+            taxonomy_decisions: []
+          });
+        }
+
+        if (
+          url === "/api/project-workspaces/1/review-batches/13/review-draft" &&
+          method === "PUT"
+        ) {
+          const body = JSON.parse(String(init?.body));
+          const reviewedPayload = body.candidates[0].reviewed_payload;
+          const candidate = buildExistingMemoryCandidate();
+          const newConcept = reviewedPayload.linked_concepts.find(
+            (concept: { project_memory_record_id: number | null }) =>
+              concept.project_memory_record_id === null
+          );
+          const newSubject = newConcept
+            ? {
+                type: newConcept.concept_type,
+                name: newConcept.name,
+                path: `${newConcept.top_level_category} / ${newConcept.subcategory}`
+              }
+            : {
+                type: "provider",
+                name: reviewedPayload.provider_name,
+                path: `${reviewedPayload.provider_top_level_category} / ${reviewedPayload.provider_subcategory}`
+              };
+          return jsonResponse({
+            review_batch: {
+              id: 13,
+              project_workspace_id: 1,
+              source_submission_id: 33,
+              status: "review_in_progress"
+            },
+            candidates: [
+              {
+                ...candidate,
+                status: "approved_for_import",
+                decision: "approved",
+                reviewed_payload: reviewedPayload,
+                taxonomy_gates: [
+                  {
+                    id: 905,
+                    active: true,
+                    subject_type: newSubject.type,
+                    subject_name: newSubject.name,
+                    status: "needs_decision",
+                    reason: "candidate_acceptance_required",
+                    suggested_category_path: newSubject.path,
+                    original_ai_category_path: newSubject.path,
+                    reviewer_draft_category_path: null,
+                    selected_proposal: "ai_suggestion",
+                    selected_category_path: newSubject.path,
+                    resolved_category_path: null,
+                    accepted_category_path: null,
+                    accepted_source: null,
+                    decision: null,
+                    taxonomy_decision_id: null,
+                    prior_rejection: null,
+                    decision_history: []
+                  }
+                ],
+                existing_memory_matches: candidate.existing_memory_matches.filter(
+                  (match) => match.subject_type !== newSubject.type
+                )
+              }
+            ],
+            duplicate_groups: [],
+            duplicate_conflicts: [],
+            taxonomy_decisions: []
+          });
+        }
+
         if (
           url === "/api/project-workspaces/1/review-batches/12/candidates/42/reset" &&
           method === "POST"
@@ -970,6 +1053,50 @@ describe("Project Workspace app shell", () => {
     vi.unstubAllGlobals();
   });
 
+  async function openExistingMemoryCandidate() {
+    processingJobsByProject.set(1, [
+      {
+        processing_job: {
+          id: 53,
+          project_workspace_id: 1,
+          source_submission_id: 33,
+          status: "review_ready",
+          source_type: "manual_source_entry",
+          processor_name: "ai_manual_free_form_v1",
+          created_at: "2026-07-13T00:00:00Z",
+          started_at: "2026-07-13T00:00:01Z",
+          finished_at: "2026-07-13T00:00:02Z",
+          error_message: null,
+          diagnostics: null,
+          candidate_count: 1,
+          review_batch_id: 13
+        },
+        source_submission: {
+          id: 33,
+          submission_type: "manual_source_entry",
+          submitted_at: "2026-07-13T00:00:00Z"
+        },
+        source_file: null,
+        review_batch_id: 13
+      }
+    ]);
+    const user = userEvent.setup();
+    render(<App />);
+    const selector = await screen.findByRole("navigation", {
+      name: "Project Workspace selector"
+    });
+    await user.click(
+      within(selector).getByRole("button", { name: "Arnaiz Residence Renovation" })
+    );
+    await user.click(screen.getByRole("tab", { name: "Upload / Review" }));
+    await user.click(await screen.findByRole("button", { name: "Open Review Batch" }));
+    await user.click((await screen.findAllByRole("button", { name: "Details" }))[0]);
+    return {
+      user,
+      detail: await screen.findByRole("dialog", { name: "Candidate Detail" })
+    };
+  }
+
   test("reviewer creates a workspace, selects it, and lands on empty Purchase Lines", async () => {
     const user = userEvent.setup();
 
@@ -1408,7 +1535,12 @@ describe("Project Workspace app shell", () => {
     expect(within(detail).getByLabelText("Provider State")).toHaveValue("external");
     expect(within(detail).getByRole("heading", { name: "Purchase Details" })).toBeInTheDocument();
     expect(within(detail).getByText("PHP 1500")).toBeInTheDocument();
-    expect(within(detail).getAllByText(/Matched existing memory/)).toHaveLength(2);
+    expect(within(detail).getByRole("group", { name: "Material taxonomy" })).toHaveTextContent(
+      "Read-only"
+    );
+    expect(within(detail).getByRole("group", { name: "Provider taxonomy" })).toHaveTextContent(
+      "Read-only"
+    );
     expect(within(detail).queryByLabelText("Service top-level category")).not.toBeInTheDocument();
     expect(within(detail).queryByLabelText("Service subcategory")).not.toBeInTheDocument();
     expect(within(detail).queryByLabelText("Provider top-level category")).not.toBeInTheDocument();
@@ -1432,20 +1564,93 @@ describe("Project Workspace app shell", () => {
     expect(within(detail).getByText("Taxonomy Status").parentElement).toHaveTextContent(
       "Needs decision"
     );
-    expect(within(detail).getAllByText("Needs decision")).toHaveLength(4);
+    expect(within(detail).getAllByText("Needs decision")).toHaveLength(2);
+    await user.click(within(detail).getByRole("button", { name: "Accept selected category" }));
+    expect(
+      vi.mocked(fetch).mock.calls.find(([input]) =>
+        input.toString().includes("/review-batches/12/taxonomy-gates/903/accept")
+      )
+    ).toBeDefined();
     await user.selectOptions(within(detail).getByLabelText("Provider State"), "unknown");
     expect(within(detail).getByText("Provider is a data gap.")).toBeInTheDocument();
     expect(within(detail).queryByLabelText("Provider name")).not.toBeInTheDocument();
 
     await user.click(within(detail).getByLabelText("Link Service"));
     expect(within(detail).queryByLabelText("Service name")).not.toBeInTheDocument();
+  });
 
-    await user.click(within(detail).getAllByRole("button", { name: "Accept selected category" })[0]);
-    expect(
-      vi.mocked(fetch).mock.calls.find(([input]) =>
-        input.toString().includes("/review-batches/12/taxonomy-gates/902/accept")
-      )
-    ).toBeDefined();
+  test("existing Project Memory match shows inherited taxonomy as read-only and Accepted", async () => {
+    const { detail } = await openExistingMemoryCandidate();
+    expect(within(detail).getByText("Taxonomy Status").parentElement).toHaveTextContent(
+      "Accepted"
+    );
+    const taxonomy = within(detail).getByRole("group", { name: "Material taxonomy" });
+    expect(taxonomy).toHaveTextContent("Plumbing / Pipes");
+    expect(taxonomy).toHaveTextContent("Read-only");
+    const serviceTaxonomy = within(detail).getByRole("group", { name: "Service taxonomy" });
+    expect(serviceTaxonomy).toHaveTextContent("Services / Pipe installation");
+    expect(serviceTaxonomy).toHaveTextContent("Read-only");
+    const providerTaxonomy = within(detail).getByRole("group", { name: "Provider taxonomy" });
+    expect(providerTaxonomy).toHaveTextContent("Providers / General");
+    expect(providerTaxonomy).toHaveTextContent("Read-only");
+    expect(within(detail).queryByRole("heading", { name: "Taxonomy Gates" })).not.toBeInTheDocument();
+  });
+
+  test("unmatched Material name exposes a pending editable Taxonomy Gate", async () => {
+    const { user, detail } = await openExistingMemoryCandidate();
+    const materialName = within(detail).getByRole("combobox", { name: "Material name" });
+    await user.clear(materialName);
+    await user.type(materialName, "Custom PVC pipe");
+
+    expect(within(detail).getByText("Taxonomy Status").parentElement).toHaveTextContent(
+      "Needs decision"
+    );
+    const gates = within(detail).getByRole("region", { name: "Taxonomy Gates" });
+    expect(gates).toHaveTextContent("Material: Custom PVC pipe");
+    expect(gates).toHaveTextContent("AI suggestion: Plumbing / Pipes");
+    await user.click(within(gates).getByRole("button", { name: "Adjust category" }));
+
+    const editor = await screen.findByRole("dialog", { name: "Edit Taxonomy Gate" });
+    expect(within(editor).getByLabelText("Top-Level Category")).toHaveValue("Plumbing");
+    expect(within(editor).getByLabelText("Subcategory")).toHaveValue("Pipes");
+  });
+
+  test("unmatched Service name exposes a pending editable Taxonomy Gate", async () => {
+    const { user, detail } = await openExistingMemoryCandidate();
+    const serviceName = within(detail).getByRole("combobox", { name: "Service name" });
+    await user.clear(serviceName);
+    await user.type(serviceName, "Custom pipe installation");
+
+    expect(within(detail).getByText("Taxonomy Status").parentElement).toHaveTextContent(
+      "Needs decision"
+    );
+    const gates = within(detail).getByRole("region", { name: "Taxonomy Gates" });
+    expect(gates).toHaveTextContent("Service: Custom pipe installation");
+    expect(gates).toHaveTextContent("AI suggestion: Services / Pipe installation");
+    await user.click(within(gates).getByRole("button", { name: "Adjust category" }));
+
+    const editor = await screen.findByRole("dialog", { name: "Edit Taxonomy Gate" });
+    expect(within(editor).getByLabelText("Top-Level Category")).toHaveValue("Services");
+    expect(within(editor).getByLabelText("Subcategory")).toHaveValue("Pipe installation");
+  });
+
+  test("unmatched Provider name exposes a pending editable Taxonomy Gate", async () => {
+    const { user, detail } = await openExistingMemoryCandidate();
+    const providerName = within(detail).getByRole("combobox", { name: "Provider name" });
+    await user.clear(providerName);
+    await user.type(providerName, "Custom Provider");
+
+    expect(within(detail).getByText("Taxonomy Status").parentElement).toHaveTextContent(
+      "Needs decision"
+    );
+    const gates = within(detail).getByRole("region", { name: "Taxonomy Gates" });
+    expect(gates).toHaveTextContent("Provider: Custom Provider");
+    expect(gates).toHaveTextContent("AI suggestion: Providers / General");
+    await user.click(within(gates).getByRole("button", { name: "Adjust category" }));
+
+    const editor = await screen.findByRole("dialog", { name: "Edit Taxonomy Gate" });
+    expect(within(editor).getByLabelText("Top-Level Category")).toHaveValue("Providers");
+    expect(within(editor).getByLabelText("Subcategory")).toHaveValue("General");
   });
 
   test("bundled candidate taxonomy status becomes Accepted only after every active gate is accepted", async () => {
@@ -1491,10 +1696,6 @@ describe("Project Workspace app shell", () => {
     const taxonomyStatus = within(detail).getByText("Taxonomy Status").parentElement;
     expect(taxonomyStatus).toHaveTextContent("Needs decision");
 
-    await user.click(within(detail).getAllByRole("button", { name: "Accept selected category" })[0]);
-    expect(taxonomyStatus).toHaveTextContent("Needs decision");
-    await user.click(within(detail).getAllByRole("button", { name: "Accept selected category" })[0]);
-    expect(taxonomyStatus).toHaveTextContent("Needs decision");
     await user.click(within(detail).getByRole("button", { name: "Accept selected category" }));
 
     expect(taxonomyStatus).toHaveTextContent("Accepted");
@@ -2090,9 +2291,7 @@ function buildBundledCandidate(acceptedGateIds: ReadonlySet<number>) {
     source_file: null,
     taxonomy_gate: null,
     taxonomy_gates: [
-      gate(902, "material", "PVC pipe", "Plumbing / Pipes"),
-      gate(903, "service", "PVC pipe installation", "Trade services / Pipe installation"),
-      gate(904, "provider", "ABC Trading", "Providers / General")
+      gate(903, "service", "PVC pipe installation", "Trade services / Pipe installation")
     ],
     existing_memory_matches: [
       {
@@ -2197,6 +2396,102 @@ function buildCandidate(
         taxonomy_decision_id: null,
         prior_rejection: null,
         decision_history: []
+      }
+    ],
+    taxonomy_default: null
+  };
+}
+
+function buildExistingMemoryCandidate() {
+  return {
+    id: 43,
+    project_workspace_id: 1,
+    review_batch_id: 13,
+    source_submission_id: 33,
+    status: "pending_review",
+    proposed_payload: {
+      linked_concepts: [
+        {
+          concept_id: "material-pvc",
+          concept_type: "material",
+          name: "PVC pipe",
+          observed_name_text: "PVC pipe",
+          project_memory_record_id: 81,
+          category_suggestion: {
+            top_level_category: "Plumbing",
+            subcategory: "Pipes"
+          }
+        },
+        {
+          concept_id: "service-installation",
+          concept_type: "service",
+          name: "PVC pipe installation",
+          observed_name_text: "installed PVC pipe",
+          project_memory_record_id: 83,
+          category_suggestion: {
+            top_level_category: "Services",
+            subcategory: "Pipe installation"
+          }
+        }
+      ],
+      provider_state: "external",
+      provider_name: "ABC Trading",
+      observed_provider_text: "ABC Trading",
+      provider_memory_record_id: 82,
+      provider_category_suggestion: {
+        top_level_category: "Providers",
+        subcategory: "General"
+      },
+      quantity: "20",
+      unit: "pcs",
+      price: "1500",
+      currency: "PHP",
+      purchase_date: "2025-07-12"
+    },
+    decision: null,
+    merged_into_candidate_id: null,
+    reviewed_payload: null,
+    source_file: null,
+    taxonomy_gate: null,
+    taxonomy_gates: [],
+    existing_memory_matches: [
+      {
+        subject_type: "material",
+        subject_name: "PVC pipe",
+        category_path: "Plumbing / Pipes"
+      },
+      {
+        subject_type: "service",
+        subject_name: "PVC pipe installation",
+        category_path: "Services / Pipe installation"
+      },
+      {
+        subject_type: "provider",
+        subject_name: "ABC Trading",
+        category_path: "Providers / General"
+      }
+    ],
+    memory_options: [
+      {
+        record_id: 81,
+        subject_type: "material",
+        subject_name: "PVC pipe",
+        category_path: "Plumbing / Pipes",
+        provider_roles: []
+      },
+      {
+        record_id: 83,
+        subject_type: "service",
+        subject_name: "PVC pipe installation",
+        category_path: "Services / Pipe installation",
+        provider_roles: []
+      },
+      {
+        record_id: 82,
+        subject_type: "provider",
+        subject_name: "ABC Trading",
+        category_path: "Providers / General",
+        provider_roles: ["material_supplier"]
       }
     ],
     taxonomy_default: null

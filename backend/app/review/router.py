@@ -595,6 +595,10 @@ def save_review_batch_draft(
                     decision="rejected",
                     reviewed_payload=None,
                 )
+            _ensure_candidate_taxonomy_gates(
+                session,
+                candidates_by_id[item.candidate_id],
+            )
     except TerminalReviewBatchError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

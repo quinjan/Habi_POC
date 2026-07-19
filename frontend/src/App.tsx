@@ -82,6 +82,12 @@ type ManualEntryMode = "structured_row" | "free_form_text";
 
 type CandidateTaxonomyGate = NonNullable<ExtractedCandidateRead["taxonomy_gates"]>[number];
 
+type ReviewTaxonomySubject = {
+  subjectType: "material" | "service" | "provider";
+  subjectName: string;
+  categoryPath: string | null;
+};
+
 const emptyManualSourceForm: ManualSourceForm = {
   lineType: "material",
   name: "",
@@ -708,6 +714,30 @@ function App() {
     setCandidateDrafts(initialDraftsForCandidates(detail.candidates));
     setToastMessage("Review draft saved.");
     return detail;
+  }
+
+  async function handleAdjustDraftTaxonomy(
+    candidate: ExtractedCandidateRead,
+    subject: ReviewTaxonomySubject
+  ) {
+    setIsApprovingCandidate(true);
+    setErrorMessage(null);
+    try {
+      const detail = await handleSaveReviewDraft();
+      const refreshedCandidate = detail?.candidates.find((item) => item.id === candidate.id);
+      const persistedGate = refreshedCandidate?.taxonomy_gates?.find(
+        (gate) => gate.active && taxonomyGateMatchesSubject(gate, subject)
+      );
+      if (!refreshedCandidate || !persistedGate) {
+        setErrorMessage("Taxonomy Gate could not be created for the new record.");
+        return;
+      }
+      openTaxonomyDialog(refreshedCandidate, persistedGate);
+    } catch {
+      setErrorMessage("Taxonomy Gate could not be created for the new record.");
+    } finally {
+      setIsApprovingCandidate(false);
+    }
   }
 
   function openTaxonomyDialog(candidate: ExtractedCandidateRead, gate: CandidateTaxonomyGate) {
@@ -1689,10 +1719,40 @@ function App() {
                         "Needs taxonomy"
                       )
                       .join("; ");
+                    const newRecordTaxonomySubjects = taxonomySubjectsForNewRecords(
+                      detailCandidate,
+                      reviewedPayload
+                    );
+                    const activeTaxonomyGates = (detailCandidate.taxonomy_gates ?? []).filter(
+                      (gate) =>
+                        gate.active &&
+                        newRecordTaxonomySubjects.some((subject) =>
+                          taxonomyGateMatchesSubject(gate, subject)
+                        )
+                    );
+                    const draftTaxonomySubjects = newRecordTaxonomySubjects.filter(
+                      (subject) =>
+                        !activeTaxonomyGates.some((gate) =>
+                          taxonomyGateMatchesSubject(gate, subject)
+                        )
+                    );
                     const taxonomyStatus = taxonomyStatusLabel(detailCandidate, reviewedPayload);
                     const spreadsheetEvidence = spreadsheetCandidateEvidence(detailCandidate);
                     const existingMemoryMatches = detailCandidate.existing_memory_matches ?? [];
                     const memoryOptions = detailCandidate.memory_options ?? [];
+                    const existingProviderMemory =
+                      (reviewedPayload.provider_memory_record_id
+                        ? memoryOptions.find(
+                            (option) =>
+                              option.subject_type === "provider" &&
+                              option.record_id === reviewedPayload.provider_memory_record_id
+                          )
+                        : null) ??
+                      existingMemoryMatches.find(
+                        (match) =>
+                          match.subject_type === "provider" &&
+                          match.subject_name === reviewedPayload.provider_name
+                      );
                     const originalAnnotations = proposedAnnotations(detailCandidate);
                     const reviewedAnnotations = reviewedPayload.annotation_proposals ?? [];
                     const sourceGrounding = detailCandidate.source_grounding;
@@ -1779,6 +1839,13 @@ function App() {
                                     (option) => option.record_id === concept.project_memory_record_id
                                   )
                                 : null;
+                              const existingMemoryMatch =
+                                matchedMemory ??
+                                existingMemoryMatches.find(
+                                  (match) =>
+                                    match.subject_type === concept.concept_type &&
+                                    match.subject_name === concept.name
+                                );
                               const originalConcept = Array.isArray(
                                 detailCandidate.proposed_payload.linked_concepts
                               )
@@ -1801,21 +1868,26 @@ function App() {
                                     New Project Memory record — taxonomy approval required.
                                   </p>
                                 ) : null}
-                                <p>
-                                  {categoryPath(
-                                    concept.top_level_category,
-                                    concept.subcategory
-                                  ) ?? "Needs taxonomy"}
-                                </p>
-                                {matchedMemory || existingMemoryMatches.find(
-                                  (match) =>
-                                    match.subject_type === concept.concept_type &&
-                                    match.subject_name === concept.name
-                                ) ? (
-                                  <p className="status-message">
-                                    Matched existing memory: {matchedMemory?.subject_name ?? concept.name} - existing category will be preserved.
+                                {existingMemoryMatch ? (
+                                  <div
+                                    aria-label={`${formatConceptType(concept.concept_type)} taxonomy`}
+                                    className="taxonomy-gate taxonomy-readonly"
+                                    role="group"
+                                  >
+                                    <p><strong>Resolved Category Path</strong></p>
+                                    <p>{existingMemoryMatch.category_path}</p>
+                                    <p className="status-message">
+                                      Read-only — inherited from existing Project Memory.
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <p>
+                                    {categoryPath(
+                                      concept.top_level_category,
+                                      concept.subcategory
+                                    ) ?? "Needs taxonomy"}
                                   </p>
-                                ) : null}
+                                )}
                                 <label>
                                   {formatConceptType(concept.concept_type)} name
                                   <input
@@ -1954,21 +2026,26 @@ function App() {
                                     Observed source: {reviewedPayload.observed_provider_text}
                                   </p>
                                 ) : null}
-                                <p>
-                                  {categoryPath(
-                                    reviewedPayload.provider_top_level_category,
-                                    reviewedPayload.provider_subcategory
-                                  ) ?? "Providers / General"}
-                                </p>
-                                {existingMemoryMatches.find(
-                                  (match) => match.subject_type === "provider"
-                                ) ? (
-                                  <p className="status-message">
-                                    Matched existing memory: {existingMemoryMatches.find(
-                                      (match) => match.subject_type === "provider"
-                                    )?.subject_name} - existing category will be preserved.
+                                {existingProviderMemory ? (
+                                  <div
+                                    aria-label="Provider taxonomy"
+                                    className="taxonomy-gate taxonomy-readonly"
+                                    role="group"
+                                  >
+                                    <p><strong>Resolved Category Path</strong></p>
+                                    <p>{existingProviderMemory.category_path}</p>
+                                    <p className="status-message">
+                                      Read-only — inherited from existing Project Memory.
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <p>
+                                    {categoryPath(
+                                      reviewedPayload.provider_top_level_category,
+                                      reviewedPayload.provider_subcategory
+                                    ) ?? "Providers / General"}
                                   </p>
-                                ) : null}
+                                )}
                                 <label>
                                   Provider name
                                   <input
@@ -2318,10 +2395,10 @@ function App() {
                               );
                             })}
                           </section>
-                          {(detailCandidate.taxonomy_gates ?? []).length > 0 ? (
-                            <section>
+                          {activeTaxonomyGates.length > 0 || draftTaxonomySubjects.length > 0 ? (
+                            <section aria-label="Taxonomy Gates">
                               <h4>Taxonomy Gates</h4>
-                              {(detailCandidate.taxonomy_gates ?? []).map((gate) => (
+                              {activeTaxonomyGates.map((gate) => (
                                 <div className="taxonomy-gate" key={gate.id}>
                                   <p>
                                     <strong>{formatTaxonomySubjectType(gate.subject_type)}</strong>: {" "}
@@ -2394,6 +2471,31 @@ function App() {
                                       </div>
                                     </>
                                   )}
+                                </div>
+                              ))}
+                              {draftTaxonomySubjects.map((subject) => (
+                                <div
+                                  className="taxonomy-gate"
+                                  key={`${subject.subjectType}-${normalizeName(subject.subjectName)}`}
+                                >
+                                  <p>
+                                    <strong>{formatTaxonomySubjectType(subject.subjectType)}</strong>: {" "}
+                                    {subject.subjectName}
+                                  </p>
+                                  <p>
+                                    AI suggestion: {subject.categoryPath ?? "No complete taxonomy suggestion"}
+                                  </p>
+                                  <p className="status-message">Needs decision</p>
+                                  <button
+                                    className="secondary-action"
+                                    disabled={isApprovingCandidate || subject.categoryPath === null}
+                                    onClick={() =>
+                                      void handleAdjustDraftTaxonomy(detailCandidate, subject)
+                                    }
+                                    type="button"
+                                  >
+                                    Adjust category
+                                  </button>
                                 </div>
                               ))}
                             </section>
@@ -3393,36 +3495,61 @@ function countSimilarPendingTaxonomyGates(
   ).length;
 }
 
-function normalizedTaxonomySuggestionKey(candidate: ExtractedCandidateRead): string | null {
-  const suggestion = taxonomySuggestion(candidate);
-  if (suggestion?.topLevelCategory && suggestion.subcategory) {
-    return `${normalizeTaxonomyPart(suggestion.topLevelCategory)} / ${normalizeTaxonomyPart(
-      suggestion.subcategory
-    )}`;
-  }
-  return null;
-}
-
 function taxonomyStatusLabel(
   candidate: ExtractedCandidateRead,
   reviewedPayload: ReviewedPurchaseLinePayload
 ): string {
+  const newRecordSubjects = taxonomySubjectsForNewRecords(candidate, reviewedPayload);
   const activeGates = (candidate.taxonomy_gates ?? []).filter((gate) => gate.active);
-  if (activeGates.length > 0) {
-    return activeGates.every((gate) => gate.status === "accepted")
-      ? "Accepted"
-      : "Needs decision";
-  }
+  return newRecordSubjects.every((subject) =>
+    activeGates.some(
+      (gate) => taxonomyGateMatchesSubject(gate, subject) && gate.status === "accepted"
+    )
+  )
+    ? "Accepted"
+    : "Needs decision";
+}
 
-  if (!reviewedPayload.top_level_category || !reviewedPayload.subcategory) {
-    return "Needs taxonomy";
+function taxonomySubjectsForNewRecords(
+  candidate: ExtractedCandidateRead,
+  reviewedPayload: ReviewedPurchaseLinePayload
+): ReviewTaxonomySubject[] {
+  const subjects: ReviewTaxonomySubject[] = reviewedConcepts(reviewedPayload)
+    .filter(
+      (concept) => concept.project_memory_record_id === null && concept.name.trim() !== ""
+    )
+    .map((concept) => ({
+      subjectType: concept.concept_type,
+      subjectName: concept.name,
+      categoryPath: categoryPath(concept.top_level_category, concept.subcategory)
+    }));
+  if (
+    reviewedPayload.provider_state === "external" &&
+    reviewedPayload.provider_memory_record_id == null &&
+    reviewedPayload.provider_name?.trim() &&
+    candidate.proposed_payload.provider_category_suggestion &&
+    typeof candidate.proposed_payload.provider_category_suggestion === "object"
+  ) {
+    subjects.push({
+      subjectType: "provider",
+      subjectName: reviewedPayload.provider_name,
+      categoryPath: categoryPath(
+        reviewedPayload.provider_top_level_category,
+        reviewedPayload.provider_subcategory
+      )
+    });
   }
+  return subjects;
+}
 
-  const reviewedKey = `${normalizeTaxonomyPart(
-    reviewedPayload.top_level_category
-  )} / ${normalizeTaxonomyPart(reviewedPayload.subcategory)}`;
-  const suggestedKey = normalizedTaxonomySuggestionKey(candidate);
-  return suggestedKey === reviewedKey ? "AI suggested default" : "Reviewer mapped taxonomy";
+function taxonomyGateMatchesSubject(
+  gate: CandidateTaxonomyGate,
+  subject: ReviewTaxonomySubject
+): boolean {
+  return (
+    gate.subject_type === subject.subjectType &&
+    normalizeName(gate.subject_name) === normalizeName(subject.subjectName)
+  );
 }
 
 function normalizeTaxonomyPart(value: string): string {
