@@ -17,24 +17,42 @@ call that:
 The provisional submission contract exists only to make that question
 measurable. Issue #51 owns the production contract.
 
+This intentionally contradicts ADR-0113's worksheet-profile plus bounded-chunk
+pipeline and ADR-0117's deterministic explicit-row extraction. Issue #53 is
+testing the replacement architecture tracked by issue #49; issue #50 must
+decide whether those ADRs are superseded before production implementation.
+
+The Logic Prototype skill normally calls for an action-driven TUI. The
+user-confirmed public seam for this question is instead one retry-disabled model
+run: introducing interactive actions during the run would change the measured
+cost, latency, and single-response behavior. The CLI therefore renders its full
+state after each lifecycle transition but does not offer actions other than
+termination.
+
 ## Run
 
 Prepare the deterministic fixture without making an API call:
 
 ```powershell
-python -m backend.prototypes.issue_53_intelligent_xlsx --prepare-only
+python -m backend.app.xlsx.prototypes.issue_53_intelligent_xlsx --prepare-only
 ```
 
 After a human explicitly approves the paid call:
 
 ```powershell
-python -m backend.prototypes.issue_53_intelligent_xlsx --approved-by "Quinjan"
+python -m backend.app.xlsx.prototypes.issue_53_intelligent_xlsx --approved-by "Quinjan"
 ```
 
 The command uses `OPENAI_API_KEY` from the environment or the nearest ancestor
 `.env`, without printing it. It writes sanitized run artifacts beneath the
 ignored `.runs/` directory. It never writes the raw model response or shell
 transcript.
+
+At runtime it retrieves the curated skill metadata, records the live latest
+version, and attaches that numeric version to the hosted container. If metadata
+lookup cannot expose a numeric version, the compatibility fallback attaches
+`latest` and records that limitation in the scorecard; failure to attach either
+form fails the prototype before a model response is created.
 
 ## Deliberate fixture variation
 

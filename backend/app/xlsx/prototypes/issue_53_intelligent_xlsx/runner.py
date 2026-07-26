@@ -12,23 +12,24 @@ from typing import Any
 
 from openai import OpenAI
 
-from backend.prototypes.issue_53_intelligent_xlsx.contract import (
+from backend.app.xlsx.prototypes.issue_53_intelligent_xlsx.contract import (
     SUBMISSION_VERSION,
     normalized_amount,
     submit_candidate_batch_tool,
     verify_submission,
 )
-from backend.prototypes.issue_53_intelligent_xlsx.fixture import (
+from backend.app.xlsx.prototypes.issue_53_intelligent_xlsx.fixture import (
     EXPECTED_CANDIDATES,
     REQUIRED_OMISSIONS,
     create_fixture,
+    load_workbook_snapshot,
 )
 
 
 MODEL = "gpt-5.4-2026-03-05"
 REASONING_EFFORT = "medium"
 SPREADSHEET_SKILL_ID = "openai-spreadsheets"
-SPREADSHEET_SKILL_VERSION = "latest"
+SPREADSHEET_SKILL_VERSION_REQUEST = "latest"
 CONTAINER_MEMORY = "4g"
 POLL_SECONDS = 2
 IN_PROGRESS_TIMEOUT_SECONDS = 5 * 60
@@ -64,8 +65,18 @@ Before submitting:
    never receive a Provider Memory Record name.
 6. Cite field-level evidence. Each evidence item names one worksheet range and
    quotes exact cell values. A quoted coordinate must be inside its range.
-7. Use exact formula text when quoting a formula cell.
-8. Call submit_candidate_batch exactly once with the complete result. Do not
+7. Use the raw workbook value when quoting a cell; for a formula cell, quote
+   the exact formula text. Every cited range must contain the source value for
+   its field. A valid but unrelated cell is not evidence.
+8. field_evidence.field_path uses exactly these forms:
+   purchasing_status; concepts[N].normalized_name;
+   concepts[N].observed_name_text; concepts[N].category_path;
+   concepts[N].quantity; concepts[N].unit;
+   concepts[N].component_unit_price; provider.state; provider.name;
+   provider.observed_provider_text; provider.roles; commercial_quantity;
+   commercial_unit; currency; unit_price; total_price; purchase_date.
+   Omit only paths whose nullable value is null or whose array is empty.
+9. Call submit_candidate_batch exactly once with the complete result. Do not
    split the batch and do not print a substitute JSON answer.
 
 This is a prototype contract ({SUBMISSION_VERSION}), not a production contract.
@@ -77,7 +88,9 @@ class RunState:
     phase: str = "initializing"
     model: str = MODEL
     reasoning_effort: str = REASONING_EFFORT
-    skill: str = f"{SPREADSHEET_SKILL_ID}@{SPREADSHEET_SKILL_VERSION}"
+    skill: str = f"{SPREADSHEET_SKILL_ID}@{SPREADSHEET_SKILL_VERSION_REQUEST}"
+    resolved_skill_version: str | None = None
+    skill_version_observation: str | None = None
     approved_by: str | None = None
     container_id: str | None = None
     response_id: str | None = None
@@ -118,6 +131,28 @@ def main(argv: list[str] | None = None) -> int:
     domain_checks: dict[str, Any] = {}
 
     try:
+        state.phase = "resolving live managed spreadsheet skill version"
+        _render(state, started)
+        try:
+            skill = client.skills.retrieve(SPREADSHEET_SKILL_ID, timeout=30)
+            resolved_skill_version = str(
+                getattr(skill, "latest_version", "") or ""
+            )
+            if not resolved_skill_version:
+                raise RuntimeError(
+                    "skill metadata omitted a latest numeric version"
+                )
+            state.resolved_skill_version = resolved_skill_version
+            state.skill_version_observation = (
+                f"resolved latest and pinned version {resolved_skill_version}"
+            )
+        except Exception as skill_error:
+            resolved_skill_version = SPREADSHEET_SKILL_VERSION_REQUEST
+            state.skill_version_observation = (
+                "numeric version unavailable; attached latest "
+                f"({type(skill_error).__name__})"
+            )
+
         state.phase = "creating hosted container"
         _render(state, started)
         container = client.containers.create(
@@ -128,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     "type": "skill_reference",
                     "skill_id": SPREADSHEET_SKILL_ID,
-                    "version": SPREADSHEET_SKILL_VERSION,
+                    "version": resolved_skill_version,
                 }
             ],
             timeout=30,
@@ -207,7 +242,10 @@ def main(argv: list[str] | None = None) -> int:
         state.phase = "validating the single Habi submission"
         _render(state, started)
         submission = _extract_single_submission(response)
-        verification = verify_submission(workbook_path, submission)
+        verification = verify_submission(
+            load_workbook_snapshot(workbook_path),
+            submission,
+        )
         domain_checks = _evaluate_domain_usefulness(submission)
         state.verification_passed = verification.passed and domain_checks["passed"]
         state.errors.extend(verification.errors)
@@ -338,17 +376,15 @@ def _evaluate_domain_usefulness(submission: dict[str, Any]) -> dict[str, Any]:
         )
         matches.append(
             {
-                "expected": {
-                    **expected,
-                    "concept_names": sorted(expected["concept_names"]),
-                },
+                "expected": expected,
                 "matched_candidate_id": match.get("candidate_id") if match else None,
             }
         )
         if match is None:
             errors.append(
                 "Missing expected candidate: "
-                f"{expected['shape']} / {sorted(expected['concept_names'])}"
+                f"{expected['shape']} / "
+                f"{[item['normalized_name'] for item in expected['concepts']]}"
             )
         else:
             unmatched.remove(match)
@@ -370,19 +406,71 @@ def _candidate_matches(candidate: dict[str, Any], expected: dict[str, Any]) -> b
     provider = candidate.get("provider")
     if not isinstance(concepts, list) or not isinstance(provider, dict):
         return False
-    actual_names = {
-        str(concept.get("normalized_name", "")).casefold() for concept in concepts
-    }
-    expected_names = {name.casefold() for name in expected["concept_names"]}
     return (
         candidate.get("shape") == expected["shape"]
-        and actual_names == expected_names
+        and _concepts_match(concepts, expected["concepts"])
         and provider.get("state") == expected["provider_state"]
         and _normalized_optional(provider.get("name"))
         == _normalized_optional(expected["provider_name"])
+        and _normalized_optional(provider.get("observed_provider_text"))
+        == _normalized_optional(expected["observed_provider_text"])
+        and set(provider.get("roles", [])) == set(expected["provider_roles"])
+        and _normalized_path(provider.get("category_path"))
+        == _normalized_path(expected["provider_category_path"])
+        and normalized_amount(candidate.get("commercial_quantity"))
+        == normalized_amount(expected["commercial_quantity"])
+        and _normalized_optional(candidate.get("commercial_unit"))
+        == _normalized_optional(expected["commercial_unit"])
+        and _normalized_optional(candidate.get("currency"))
+        == _normalized_optional(expected["currency"])
+        and normalized_amount(candidate.get("unit_price"))
+        == normalized_amount(expected["unit_price"])
         and normalized_amount(candidate.get("total_price"))
         == normalized_amount(expected["total_price"])
+        and candidate.get("purchase_date") is None
     )
+
+
+def _concepts_match(
+    actual_concepts: list[dict[str, Any]],
+    expected_concepts: list[dict[str, Any]],
+) -> bool:
+    if len(actual_concepts) != len(expected_concepts):
+        return False
+    unmatched = list(actual_concepts)
+    for expected in expected_concepts:
+        match = next(
+            (
+                actual
+                for actual in unmatched
+                if actual.get("kind") == expected["kind"]
+                and _normalized_optional(actual.get("normalized_name"))
+                == _normalized_optional(expected["normalized_name"])
+                and _normalized_optional(actual.get("observed_name_text"))
+                == _normalized_optional(expected["observed_name_text"])
+                and _normalized_path(actual.get("category_path"))
+                == _normalized_path(expected["category_path"])
+                and normalized_amount(actual.get("quantity"))
+                == normalized_amount(expected["quantity"])
+                and _normalized_optional(actual.get("unit"))
+                == _normalized_optional(expected["unit"])
+                and normalized_amount(actual.get("component_unit_price"))
+                == normalized_amount(expected["component_unit_price"])
+            ),
+            None,
+        )
+        if match is None:
+            return False
+        unmatched.remove(match)
+    return True
+
+
+def _normalized_path(value: Any) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        return ()
+    return tuple(_normalized_optional(item) or "" for item in value)
 
 
 def _normalized_optional(value: Any) -> str | None:
@@ -475,7 +563,12 @@ def _write_sanitized_artifacts(
             "",
             f"- Model: `{MODEL}`",
             f"- Reasoning effort: `{REASONING_EFFORT}`",
-            f"- Managed skill: `{SPREADSHEET_SKILL_ID}@{SPREADSHEET_SKILL_VERSION}`",
+            f"- Managed skill request: "
+            f"`{SPREADSHEET_SKILL_ID}@{SPREADSHEET_SKILL_VERSION_REQUEST}`",
+            f"- Resolved and pinned skill version: "
+            f"`{state.resolved_skill_version or 'unavailable'}`",
+            f"- Skill version observation: "
+            f"{state.skill_version_observation or 'unavailable'}",
             f"- Approved by: {state.approved_by}",
             f"- Model calls: {1 if state.response_id else 0}",
             f"- Response status: `{state.response_status}`",

@@ -3,10 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from pathlib import Path
 from typing import Any
 
-from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter, range_boundaries
 
 
@@ -274,166 +272,193 @@ class VerificationResult:
     evidence_count: int
 
 
+@dataclass(frozen=True)
+class CellSnapshot:
+    raw_text: str
+    cached_text: str
+
+
+@dataclass(frozen=True)
+class WorksheetSnapshot:
+    visibility: str
+    used_range: str | None
+    max_row: int
+    max_column: int
+    cells: dict[str, CellSnapshot]
+
+    @property
+    def non_empty(self) -> set[str]:
+        return set(self.cells)
+
+
+@dataclass(frozen=True)
+class WorkbookSnapshot:
+    filename: str
+    worksheets: dict[str, WorksheetSnapshot]
+
+
 def verify_submission(
-    workbook_path: Path,
+    workbook: WorkbookSnapshot,
     submission: dict[str, Any],
 ) -> VerificationResult:
     errors: list[str] = []
-    workbook = load_workbook(workbook_path, data_only=False, read_only=False)
-    try:
-        inventory = {
-            sheet.title: {
-                "visibility": sheet.sheet_state,
-                "used_range": _used_range(sheet),
-                "non_empty": _non_empty_coordinates(sheet),
-            }
-            for sheet in workbook.worksheets
-        }
-        worksheets = _list(submission, "worksheets", errors)
-        submitted_names = [item.get("name") for item in worksheets if isinstance(item, dict)]
-        if len(submitted_names) != len(set(submitted_names)):
-            errors.append("Each worksheet must be inventoried exactly once")
-        if set(submitted_names) != set(inventory):
+    inventory = workbook.worksheets
+    if submission.get("workbook_filename") != workbook.filename:
+        errors.append(
+            f"Workbook filename expected {workbook.filename!r}, "
+            f"received {submission.get('workbook_filename')!r}"
+        )
+    worksheets = _require_list_field(submission, "worksheets", errors)
+    submitted_names = [
+        item.get("name") for item in worksheets if isinstance(item, dict)
+    ]
+    if len(submitted_names) != len(set(submitted_names)):
+        errors.append("Each worksheet must be inventoried exactly once")
+    if set(submitted_names) != set(inventory):
+        errors.append(
+            "Worksheet inventory mismatch: "
+            f"expected {sorted(inventory)}, "
+            f"received {sorted(str(x) for x in submitted_names)}"
+        )
+
+    candidate_list = _require_list_field(submission, "candidates", errors)
+    candidates = {
+        item.get("candidate_id"): item
+        for item in candidate_list
+        if isinstance(item, dict) and isinstance(item.get("candidate_id"), str)
+    }
+    if len(candidates) != len(candidate_list):
+        errors.append("Candidate ids must be present and unique")
+
+    evidence_list = _require_list_field(submission, "evidence", errors)
+    evidence = {
+        item.get("evidence_id"): item
+        for item in evidence_list
+        if isinstance(item, dict) and isinstance(item.get("evidence_id"), str)
+    }
+    if len(evidence) != len(evidence_list):
+        errors.append("Evidence ids must be present and unique")
+
+    accounted_non_empty: set[tuple[str, str]] = set()
+    for item in worksheets:
+        if not isinstance(item, dict):
+            errors.append("Worksheet accounting entries must be objects")
+            continue
+        name = item.get("name")
+        if name not in inventory:
+            continue
+        expected = inventory[name]
+        if item.get("visibility") != expected.visibility:
+            errors.append(f"{name}: visibility does not match workbook")
+        if item.get("used_range") != expected.used_range:
             errors.append(
-                "Worksheet inventory mismatch: "
-                f"expected {sorted(inventory)}, received {sorted(str(x) for x in submitted_names)}"
+                f"{name}: used_range expected {expected.used_range!r}, "
+                f"received {item.get('used_range')!r}"
             )
-
-        candidate_list = _list(submission, "candidates", errors)
-        candidates = {
-            item.get("candidate_id"): item
-            for item in candidate_list
-            if isinstance(item, dict) and isinstance(item.get("candidate_id"), str)
-        }
-        if len(candidates) != len(candidate_list):
-            errors.append("Candidate ids must be present and unique")
-
-        evidence_list = _list(submission, "evidence", errors)
-        evidence = {
-            item.get("evidence_id"): item
-            for item in evidence_list
-            if isinstance(item, dict) and isinstance(item.get("evidence_id"), str)
-        }
-        if len(evidence) != len(evidence_list):
-            errors.append("Evidence ids must be present and unique")
-
-        accounted_non_empty: set[tuple[str, str]] = set()
-        for item in worksheets:
-            if not isinstance(item, dict):
-                errors.append("Worksheet accounting entries must be objects")
+        accounting = item.get("accounting")
+        if not isinstance(accounting, list):
+            errors.append(f"{name}: accounting must be an array")
+            continue
+        if expected.visibility != "visible":
+            if accounting:
+                errors.append(f"{name}: hidden worksheet must not have accounting ranges")
+            continue
+        for region in accounting:
+            if not isinstance(region, dict):
+                errors.append(f"{name}: accounting region must be an object")
                 continue
-            name = item.get("name")
-            if name not in inventory:
-                continue
-            expected = inventory[name]
-            if item.get("visibility") != expected["visibility"]:
-                errors.append(f"{name}: visibility does not match workbook")
-            if item.get("used_range") != expected["used_range"]:
-                errors.append(
-                    f"{name}: used_range expected {expected['used_range']!r}, "
-                    f"received {item.get('used_range')!r}"
-                )
-            accounting = item.get("accounting")
-            if not isinstance(accounting, list):
-                errors.append(f"{name}: accounting must be an array")
-                continue
-            if expected["visibility"] != "visible":
-                if accounting:
-                    errors.append(f"{name}: hidden worksheet must not have accounting ranges")
-                continue
-            sheet = workbook[name]
-            for region in accounting:
-                if not isinstance(region, dict):
-                    errors.append(f"{name}: accounting region must be an object")
-                    continue
-                coordinates = _coordinates_in_range(
-                    sheet,
-                    region.get("range"),
-                    errors,
-                    f"{name} accounting",
-                )
-                for candidate_id in region.get("candidate_ids", []):
-                    if candidate_id not in candidates:
-                        errors.append(
-                            f"{name}: accounting references unknown candidate {candidate_id!r}"
-                        )
-                for coordinate in coordinates & expected["non_empty"]:
-                    accounted_non_empty.add((name, coordinate))
-
-        all_visible_non_empty = {
-            (name, coordinate)
-            for name, sheet_inventory in inventory.items()
-            if sheet_inventory["visibility"] == "visible"
-            for coordinate in sheet_inventory["non_empty"]
-        }
-        missing_coverage = sorted(all_visible_non_empty - accounted_non_empty)
-        if missing_coverage:
-            preview = ", ".join(f"{sheet}!{cell}" for sheet, cell in missing_coverage[:12])
-            errors.append(
-                f"{len(missing_coverage)} visible non-empty cells are unaccounted for: {preview}"
-            )
-
-        for evidence_id, item in evidence.items():
-            worksheet_name = item.get("worksheet")
-            if worksheet_name not in inventory:
-                errors.append(f"{evidence_id}: unknown worksheet {worksheet_name!r}")
-                continue
-            if inventory[worksheet_name]["visibility"] != "visible":
-                errors.append(f"{evidence_id}: hidden worksheet cannot supply evidence")
-            sheet = workbook[worksheet_name]
             coordinates = _coordinates_in_range(
-                sheet,
-                item.get("range"),
+                expected,
+                region.get("range"),
                 errors,
-                f"Evidence {evidence_id}",
+                f"{name} accounting",
             )
-            quoted_cells = item.get("quoted_cells")
-            if not isinstance(quoted_cells, list) or not quoted_cells:
-                errors.append(f"{evidence_id}: quoted_cells must be non-empty")
-                continue
-            for quote in quoted_cells:
-                if not isinstance(quote, dict):
-                    errors.append(f"{evidence_id}: quoted cell must be an object")
-                    continue
-                coordinate = str(quote.get("coordinate", "")).upper()
-                if coordinate not in coordinates:
+            for candidate_id in region.get("candidate_ids", []):
+                if candidate_id not in candidates:
                     errors.append(
-                        f"{evidence_id}: quoted cell {coordinate!r} is outside evidence range"
+                        f"{name}: accounting references unknown candidate "
+                        f"{candidate_id!r}"
                     )
-                    continue
-                expected_text = canonical_cell_text(sheet[coordinate].value)
-                if quote.get("text") != expected_text:
-                    errors.append(
-                        f"{evidence_id}: {worksheet_name}!{coordinate} exact text mismatch; "
-                        f"expected {expected_text!r}, received {quote.get('text')!r}"
-                    )
+            for coordinate in coordinates & expected.non_empty:
+                accounted_non_empty.add((name, coordinate))
 
-        for candidate_id, candidate in candidates.items():
-            _verify_candidate(candidate_id, candidate, evidence, errors)
-        for exclusion in _list(submission, "exclusions", errors):
-            if not isinstance(exclusion, dict):
-                errors.append("Exclusions must be objects")
+    all_visible_non_empty = {
+        (name, coordinate)
+        for name, worksheet in inventory.items()
+        if worksheet.visibility == "visible"
+        for coordinate in worksheet.non_empty
+    }
+    missing_coverage = sorted(all_visible_non_empty - accounted_non_empty)
+    if missing_coverage:
+        preview = ", ".join(
+            f"{sheet}!{cell}" for sheet, cell in missing_coverage[:12]
+        )
+        errors.append(
+            f"{len(missing_coverage)} visible non-empty cells are unaccounted for: "
+            f"{preview}"
+        )
+
+    for evidence_id, item in evidence.items():
+        worksheet_name = item.get("worksheet")
+        if worksheet_name not in inventory:
+            errors.append(f"{evidence_id}: unknown worksheet {worksheet_name!r}")
+            continue
+        worksheet = inventory[worksheet_name]
+        if worksheet.visibility != "visible":
+            errors.append(f"{evidence_id}: hidden worksheet cannot supply evidence")
+        coordinates = _coordinates_in_range(
+            worksheet,
+            item.get("range"),
+            errors,
+            f"Evidence {evidence_id}",
+        )
+        quoted_cells = item.get("quoted_cells")
+        if not isinstance(quoted_cells, list) or not quoted_cells:
+            errors.append(f"{evidence_id}: quoted_cells must be non-empty")
+            continue
+        for quote in quoted_cells:
+            if not isinstance(quote, dict):
+                errors.append(f"{evidence_id}: quoted cell must be an object")
                 continue
-            _verify_evidence_references(
-                f"Exclusion {exclusion.get('exclusion_id')}",
-                exclusion.get("evidence_ids"),
-                evidence,
-                errors,
-            )
-    finally:
-        workbook.close()
+            coordinate = str(quote.get("coordinate", "")).upper()
+            if coordinate not in coordinates:
+                errors.append(
+                    f"{evidence_id}: quoted cell {coordinate!r} is outside evidence range"
+                )
+                continue
+            cell = worksheet.cells.get(coordinate)
+            expected_text = cell.raw_text if cell else ""
+            if quote.get("text") != expected_text:
+                errors.append(
+                    f"{evidence_id}: {worksheet_name}!{coordinate} exact text "
+                    f"mismatch; expected {expected_text!r}, "
+                    f"received {quote.get('text')!r}"
+                )
+
+    for candidate_id, candidate in candidates.items():
+        _verify_candidate(candidate_id, candidate, evidence, workbook, errors)
+    for exclusion in _require_list_field(submission, "exclusions", errors):
+        if not isinstance(exclusion, dict):
+            errors.append("Exclusions must be objects")
+            continue
+        _verify_evidence_references(
+            f"Exclusion {exclusion.get('exclusion_id')}",
+            exclusion.get("evidence_ids"),
+            evidence,
+            errors,
+        )
 
     return VerificationResult(
         passed=not errors,
         errors=tuple(errors),
         worksheet_count=len(inventory),
         visible_worksheet_count=sum(
-            1 for item in inventory.values() if item["visibility"] == "visible"
+            1 for item in inventory.values() if item.visibility == "visible"
         ),
         non_empty_cell_count=sum(
-            len(item["non_empty"])
+            len(item.non_empty)
             for item in inventory.values()
-            if item["visibility"] == "visible"
+            if item.visibility == "visible"
         ),
         accounted_non_empty_cell_count=len(accounted_non_empty),
         candidate_count=len(candidates),
@@ -445,6 +470,7 @@ def _verify_candidate(
     candidate_id: str,
     candidate: dict[str, Any],
     evidence: dict[str, dict[str, Any]],
+    workbook: WorkbookSnapshot,
     errors: list[str],
 ) -> None:
     concepts = candidate.get("concepts")
@@ -523,6 +549,138 @@ def _verify_candidate(
     if missing:
         errors.append(f"{candidate_id}: important fields lack evidence: {', '.join(missing)}")
 
+    for index, concept in enumerate(concepts):
+        observed_path = f"concepts[{index}].observed_name_text"
+        normalized_path = f"concepts[{index}].normalized_name"
+        category_path = f"concepts[{index}].category_path"
+        _require_text_support(
+            candidate_id,
+            observed_path,
+            concept.get("observed_name_text"),
+            by_field,
+            evidence,
+            workbook,
+            errors,
+        )
+        if not set(by_field.get(normalized_path, [])) & set(
+            by_field.get(observed_path, [])
+        ):
+            errors.append(
+                f"{candidate_id}.{normalized_path}: normalized name evidence must "
+                "include evidence for Observed Name Text"
+            )
+        for category_segment in concept.get("category_path", []):
+            _require_text_support(
+                candidate_id,
+                category_path,
+                category_segment,
+                by_field,
+                evidence,
+                workbook,
+                errors,
+            )
+        for key in ("quantity", "unit", "component_unit_price"):
+            value = concept.get(key)
+            if value is not None:
+                _require_scalar_support(
+                    candidate_id,
+                    f"concepts[{index}].{key}",
+                    value,
+                    by_field,
+                    evidence,
+                    workbook,
+                    errors,
+                )
+
+    if provider.get("observed_provider_text") is not None:
+        _require_text_support(
+            candidate_id,
+            "provider.observed_provider_text",
+            provider["observed_provider_text"],
+            by_field,
+            evidence,
+            workbook,
+            errors,
+        )
+    if provider.get("name") is not None:
+        _require_text_support(
+            candidate_id,
+            "provider.name",
+            provider["name"],
+            by_field,
+            evidence,
+            workbook,
+            errors,
+        )
+    if provider_state == "unknown":
+        provider_state_text = _evidence_texts(
+            by_field.get("provider.state", []),
+            evidence,
+            workbook,
+        )
+        if not any(
+            marker in text.casefold()
+            for marker in ("not recorded", "unknown", "not stated", "supplier not")
+            for text in provider_state_text
+        ):
+            errors.append(
+                f"{candidate_id}.provider.state: Unknown Provider State lacks "
+                "source wording for the data gap"
+            )
+    if "supply_and_install_provider" in provider.get("roles", []):
+        role_text = _evidence_texts(
+            by_field.get("provider.roles", []),
+            evidence,
+            workbook,
+        )
+        if not any("install" in text.casefold() for text in role_text):
+            errors.append(
+                f"{candidate_id}.provider.roles: supply-and-install lacks "
+                "installation evidence"
+            )
+
+    for key in (
+        "commercial_quantity",
+        "commercial_unit",
+        "currency",
+        "unit_price",
+        "total_price",
+        "purchase_date",
+    ):
+        value = candidate.get(key)
+        if value is not None:
+            _require_scalar_support(
+                candidate_id,
+                key,
+                value,
+                by_field,
+                evidence,
+                workbook,
+                errors,
+            )
+
+    status_text = _evidence_texts(
+        by_field.get("purchasing_status", []),
+        evidence,
+        workbook,
+    )
+    if not any(
+        marker in text.casefold()
+        for marker in (
+            "final",
+            "completed",
+            "bought",
+            "supplied",
+            "installed",
+            "commissioned",
+        )
+        for text in status_text
+    ):
+        errors.append(
+            f"{candidate_id}.purchasing_status: evidence does not establish a "
+            "final/as-used purchase"
+        )
+
 
 def _verify_evidence_references(
     label: str,
@@ -538,7 +696,7 @@ def _verify_evidence_references(
         errors.append(f"{label}: unknown evidence ids {unknown}")
 
 
-def _list(
+def _require_list_field(
     value: dict[str, Any],
     key: str,
     errors: list[str],
@@ -550,24 +708,8 @@ def _list(
     return []
 
 
-def _used_range(sheet) -> str | None:
-    non_empty = _non_empty_coordinates(sheet)
-    if not non_empty:
-        return None
-    return sheet.calculate_dimension()
-
-
-def _non_empty_coordinates(sheet) -> set[str]:
-    return {
-        cell.coordinate
-        for row in sheet.iter_rows()
-        for cell in row
-        if cell.value is not None
-    }
-
-
 def _coordinates_in_range(
-    sheet,
+    worksheet: WorksheetSnapshot,
     range_value: Any,
     errors: list[str],
     label: str,
@@ -583,7 +725,7 @@ def _coordinates_in_range(
     if min_row < 1 or min_col < 1 or max_row < min_row or max_col < min_col:
         errors.append(f"{label}: invalid range {range_value!r}")
         return set()
-    if max_row > sheet.max_row or max_col > sheet.max_column:
+    if max_row > worksheet.max_row or max_col > worksheet.max_column:
         errors.append(f"{label}: range {range_value!r} exceeds worksheet bounds")
         return set()
     return {
@@ -591,6 +733,84 @@ def _coordinates_in_range(
         for row in range(min_row, max_row + 1)
         for column in range(min_col, max_col + 1)
     }
+
+
+def _require_text_support(
+    candidate_id: str,
+    field_path: str,
+    expected: Any,
+    by_field: dict[str, list[str]],
+    evidence: dict[str, dict[str, Any]],
+    workbook: WorkbookSnapshot,
+    errors: list[str],
+) -> None:
+    if not isinstance(expected, str) or not expected.strip():
+        errors.append(f"{candidate_id}.{field_path}: expected text is empty")
+        return
+    expected_text = _normalized_text(expected)
+    if not any(
+        expected_text in _normalized_text(text)
+        for text in _evidence_texts(by_field.get(field_path, []), evidence, workbook)
+    ):
+        errors.append(
+            f"{candidate_id}.{field_path}: cited ranges do not contain "
+            f"{expected!r}"
+        )
+
+
+def _require_scalar_support(
+    candidate_id: str,
+    field_path: str,
+    expected: Any,
+    by_field: dict[str, list[str]],
+    evidence: dict[str, dict[str, Any]],
+    workbook: WorkbookSnapshot,
+    errors: list[str],
+) -> None:
+    texts = _evidence_texts(by_field.get(field_path, []), evidence, workbook)
+    expected_amount = normalized_amount(expected)
+    if not any(
+        normalized_amount(text) == expected_amount
+        or _normalized_text(str(expected)) in _normalized_text(text)
+        for text in texts
+    ):
+        errors.append(
+            f"{candidate_id}.{field_path}: cited ranges do not contain "
+            f"{expected!r}"
+        )
+
+
+def _evidence_texts(
+    evidence_ids: list[str],
+    evidence: dict[str, dict[str, Any]],
+    workbook: WorkbookSnapshot,
+) -> list[str]:
+    texts: list[str] = []
+    for evidence_id in evidence_ids:
+        item = evidence.get(evidence_id)
+        if not item:
+            continue
+        worksheet = workbook.worksheets.get(item.get("worksheet"))
+        if worksheet is None:
+            continue
+        try:
+            min_col, min_row, max_col, max_row = range_boundaries(item.get("range"))
+        except (TypeError, ValueError):
+            continue
+        for row in range(min_row, max_row + 1):
+            for column in range(min_col, max_col + 1):
+                coordinate = f"{get_column_letter(column)}{row}"
+                cell = worksheet.cells.get(coordinate)
+                if cell is None:
+                    continue
+                texts.append(cell.raw_text)
+                if cell.cached_text != cell.raw_text:
+                    texts.append(cell.cached_text)
+    return texts
+
+
+def _normalized_text(value: str) -> str:
+    return " ".join(value.casefold().split())
 
 
 def canonical_cell_text(value: Any) -> str:

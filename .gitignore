@@ -1,7 +1,7 @@
 .venv/
 __pycache__/
 .pytest_cache/
-backend/prototypes/**/.runs/
+backend/app/xlsx/prototypes/**/.runs/
 .pycache_check/
 .pytest_tmp/
 .tmp/
