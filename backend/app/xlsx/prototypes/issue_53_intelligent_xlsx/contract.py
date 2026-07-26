@@ -339,7 +339,30 @@ def verify_submission(
     if len(evidence) != len(evidence_list):
         errors.append("Evidence ids must be present and unique")
 
+    candidate_identifying_coordinates: dict[str, set[tuple[str, str]]] = {}
+    for candidate_id, candidate in candidates.items():
+        links = candidate.get("field_evidence")
+        identifying_evidence_ids = (
+            {
+                evidence_id
+                for link in links
+                if isinstance(link, dict)
+                and isinstance(link.get("field_path"), str)
+                and link["field_path"].endswith(".observed_name_text")
+                for evidence_id in link.get("evidence_ids", [])
+            }
+            if isinstance(links, list)
+            else set()
+        )
+        candidate_identifying_coordinates[candidate_id] = _evidence_coordinates(
+            identifying_evidence_ids,
+            evidence,
+            workbook,
+        )
     accounted_non_empty: set[tuple[str, str]] = set()
+    candidate_data_coordinates: dict[str, set[tuple[str, str]]] = {
+        candidate_id: set() for candidate_id in candidates
+    }
     for item in worksheets:
         if not isinstance(item, dict):
             errors.append("Worksheet accounting entries must be objects")
@@ -367,17 +390,50 @@ def verify_submission(
             if not isinstance(region, dict):
                 errors.append(f"{name}: accounting region must be an object")
                 continue
+            disposition = region.get("disposition")
+            if disposition not in DISPOSITIONS:
+                errors.append(
+                    f"{name}: accounting has invalid disposition {disposition!r}"
+                )
             coordinates = _coordinates_in_range(
                 expected,
                 region.get("range"),
                 errors,
                 f"{name} accounting",
             )
-            for candidate_id in region.get("candidate_ids", []):
+            candidate_ids = region.get("candidate_ids")
+            if not isinstance(candidate_ids, list):
+                errors.append(f"{name}: accounting candidate_ids must be an array")
+                candidate_ids = []
+            if disposition == "candidate_data" and not candidate_ids:
+                errors.append(
+                    f"{name}: candidate_data accounting must identify a candidate"
+                )
+            if disposition != "candidate_data" and candidate_ids:
+                errors.append(
+                    f"{name}: only candidate_data accounting may identify candidates"
+                )
+            for candidate_id in candidate_ids:
                 if candidate_id not in candidates:
                     errors.append(
                         f"{name}: accounting references unknown candidate "
                         f"{candidate_id!r}"
+                    )
+                elif disposition == "candidate_data":
+                    region_coordinates = {
+                        (name, coordinate) for coordinate in coordinates
+                    }
+                    if not (
+                        region_coordinates
+                        & candidate_identifying_coordinates[candidate_id]
+                    ):
+                        errors.append(
+                            f"{name}: candidate_data range "
+                            f"{region.get('range')!r} does not contain quoted "
+                            f"Observed Name Text for {candidate_id}"
+                        )
+                    candidate_data_coordinates[candidate_id].update(
+                        region_coordinates
                     )
             for coordinate in coordinates & expected.non_empty:
                 accounted_non_empty.add((name, coordinate))
@@ -436,6 +492,10 @@ def verify_submission(
                 )
 
     for candidate_id, candidate in candidates.items():
+        if not candidate_data_coordinates[candidate_id]:
+            errors.append(
+                f"{candidate_id}: candidate is absent from candidate_data accounting"
+            )
         _verify_candidate(candidate_id, candidate, evidence, workbook, errors)
     for exclusion in _require_list_field(submission, "exclusions", errors):
         if not isinstance(exclusion, dict):
@@ -535,6 +595,8 @@ def _verify_candidate(
         required_fields.add("provider.observed_provider_text")
     if provider.get("roles"):
         required_fields.add("provider.roles")
+    if provider.get("category_path") is not None:
+        required_fields.add("provider.category_path")
     for key in (
         "commercial_quantity",
         "commercial_unit",
@@ -637,6 +699,18 @@ def _verify_candidate(
             errors.append(
                 f"{candidate_id}.provider.roles: supply-and-install lacks "
                 "installation evidence"
+            )
+    if provider.get("category_path") is not None:
+        provider_identity_evidence = set(by_field.get("provider.name", [])) | set(
+            by_field.get("provider.observed_provider_text", [])
+        )
+        if not (
+            set(by_field.get("provider.category_path", []))
+            & provider_identity_evidence
+        ):
+            errors.append(
+                f"{candidate_id}.provider.category_path: normalized provider "
+                "category evidence must include provider identity evidence"
             )
 
     for key in (
@@ -769,15 +843,34 @@ def _require_scalar_support(
 ) -> None:
     texts = _evidence_texts(by_field.get(field_path, []), evidence, workbook)
     expected_amount = normalized_amount(expected)
-    if not any(
-        normalized_amount(text) == expected_amount
-        or _normalized_text(str(expected)) in _normalized_text(text)
-        for text in texts
-    ):
+    if not any(normalized_amount(text) == expected_amount for text in texts):
         errors.append(
             f"{candidate_id}.{field_path}: cited ranges do not contain "
             f"{expected!r}"
         )
+
+
+def _evidence_coordinates(
+    evidence_ids: set[str],
+    evidence: dict[str, dict[str, Any]],
+    workbook: WorkbookSnapshot,
+) -> set[tuple[str, str]]:
+    coordinates: set[tuple[str, str]] = set()
+    for evidence_id in evidence_ids:
+        item = evidence.get(evidence_id)
+        if not item:
+            continue
+        worksheet_name = item.get("worksheet")
+        worksheet = workbook.worksheets.get(worksheet_name)
+        if worksheet is None:
+            continue
+        for quote in item.get("quoted_cells", []):
+            if not isinstance(quote, dict):
+                continue
+            coordinate = str(quote.get("coordinate", "")).upper()
+            if coordinate in worksheet.cells:
+                coordinates.add((worksheet_name, coordinate))
+    return coordinates
 
 
 def _evidence_texts(
@@ -793,19 +886,16 @@ def _evidence_texts(
         worksheet = workbook.worksheets.get(item.get("worksheet"))
         if worksheet is None:
             continue
-        try:
-            min_col, min_row, max_col, max_row = range_boundaries(item.get("range"))
-        except (TypeError, ValueError):
-            continue
-        for row in range(min_row, max_row + 1):
-            for column in range(min_col, max_col + 1):
-                coordinate = f"{get_column_letter(column)}{row}"
-                cell = worksheet.cells.get(coordinate)
-                if cell is None:
-                    continue
-                texts.append(cell.raw_text)
-                if cell.cached_text != cell.raw_text:
-                    texts.append(cell.cached_text)
+        for quote in item.get("quoted_cells", []):
+            if not isinstance(quote, dict):
+                continue
+            coordinate = str(quote.get("coordinate", "")).upper()
+            cell = worksheet.cells.get(coordinate)
+            if cell is None:
+                continue
+            texts.append(cell.raw_text)
+            if cell.cached_text != cell.raw_text:
+                texts.append(cell.cached_text)
     return texts
 
 

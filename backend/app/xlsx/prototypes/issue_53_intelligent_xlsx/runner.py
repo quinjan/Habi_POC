@@ -32,7 +32,7 @@ SPREADSHEET_SKILL_ID = "openai-spreadsheets"
 SPREADSHEET_SKILL_VERSION_REQUEST = "latest"
 CONTAINER_MEMORY = "4g"
 POLL_SECONDS = 2
-IN_PROGRESS_TIMEOUT_SECONDS = 5 * 60
+RESPONSE_TIMEOUT_SECONDS = 5 * 60
 GPT54_INPUT_PER_MILLION = 2.50
 GPT54_CACHED_INPUT_PER_MILLION = 0.25
 GPT54_OUTPUT_PER_MILLION = 15.00
@@ -66,15 +66,17 @@ Before submitting:
 6. Cite field-level evidence. Each evidence item names one worksheet range and
    quotes exact cell values. A quoted coordinate must be inside its range.
 7. Use the raw workbook value when quoting a cell; for a formula cell, quote
-   the exact formula text. Every cited range must contain the source value for
-   its field. A valid but unrelated cell is not evidence.
+   the exact formula text. Every field's cited evidence must explicitly quote
+   the source cell for that field; merely enclosing it in a wider range is not
+   enough. A valid but unrelated cell is not evidence.
 8. field_evidence.field_path uses exactly these forms:
    purchasing_status; concepts[N].normalized_name;
    concepts[N].observed_name_text; concepts[N].category_path;
    concepts[N].quantity; concepts[N].unit;
    concepts[N].component_unit_price; provider.state; provider.name;
-   provider.observed_provider_text; provider.roles; commercial_quantity;
-   commercial_unit; currency; unit_price; total_price; purchase_date.
+   provider.observed_provider_text; provider.roles; provider.category_path;
+   commercial_quantity; commercial_unit; currency; unit_price; total_price;
+   purchase_date.
    Omit only paths whose nullable value is null or whose array is empty.
 9. Call submit_candidate_batch exactly once with the complete result. Do not
    split the batch and do not print a substitute JSON answer.
@@ -216,23 +218,18 @@ def main(argv: list[str] | None = None) -> int:
             timeout=60,
         )
         state.response_id = response.id
-        first_in_progress_at: float | None = None
+        response_started_at = time.monotonic()
         while response.status in {"queued", "in_progress"}:
             state.response_status = response.status
             state.phase = f"model response {response.status}"
             _render(state, started)
-            if response.status == "in_progress":
-                first_in_progress_at = first_in_progress_at or time.monotonic()
-                if (
-                    time.monotonic() - first_in_progress_at
-                    >= IN_PROGRESS_TIMEOUT_SECONDS
-                ):
-                    state.phase = "cancelling after five-minute in-progress limit"
-                    _render(state, started)
-                    client.responses.cancel(response.id, timeout=30)
-                    raise RuntimeError(
-                        "Response exceeded the five-minute in-progress limit"
-                    )
+            if time.monotonic() - response_started_at >= RESPONSE_TIMEOUT_SECONDS:
+                state.phase = "cancelling after five-minute response limit"
+                _render(state, started)
+                client.responses.cancel(response.id, timeout=30)
+                raise RuntimeError(
+                    "Response exceeded the five-minute queued/in-progress limit"
+                )
             time.sleep(POLL_SECONDS)
             response = client.responses.retrieve(response.id, timeout=30)
 
