@@ -2,6 +2,9 @@
 
 > THROWAWAY PROTOTYPE — this branch is evidence for issue #53, not production code.
 
+The approved evaluation failed its five-minute latency boundary. See
+[`VERDICT.md`](VERDICT.md) for the recorded result.
+
 ## Question
 
 Can pinned `gpt-5.4-2026-03-05`, using one outbound-network-disabled
